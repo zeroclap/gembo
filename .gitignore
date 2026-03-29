@@ -33,4 +33,4 @@ go.work.sum
 # .vscode/
 
 # builds
-bin/
+backend/bin/
