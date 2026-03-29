@@ -1,0 +1,59 @@
+version: "3.9"
+name: gembo
+
+networks:
+  gembo:
+    driver: bridge
+
+services:
+  redis:
+    image: redis:7-alpine
+    networks: [gembo]
+    ports:
+      - "6379:6379"
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  collector:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      target: collector
+    networks: [gembo]
+    environment:
+      # No CONFIG_PATH — all config via env vars.
+      REDIS_ADDR: redis:6379
+      EXCHANGES: bybit,okx
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+      # Enable both exchanges.  Add BULLMQ_ENABLED=true here to test events.
+      BULLMQ_ENABLED: "false"
+      BULLMQ_QUEUE_PREFIX: gembo
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      target: api
+    networks: [gembo]
+    environment:
+      REDIS_ADDR: redis:6379
+      EXCHANGES: bybit,okx
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "8080"
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped

@@ -1,0 +1,34 @@
+# gembo configuration example
+# Copy to configs/config.yaml and edit as needed.
+# All values can also be overridden via environment variables.
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: 10s
+  write_timeout: 10s
+
+redis:
+  addr: "localhost:6379"    # REDIS_ADDR
+  password: ""              # REDIS_PASSWORD
+  db: 0                     # REDIS_DB
+
+exchanges:
+  - id: bybit
+    enabled: true
+    markets_poll_interval: 60s
+    funding_poll_interval: 60s
+
+  - id: okx
+    enabled: true
+    markets_poll_interval: 60s
+    funding_poll_interval: 60s
+
+hooks:
+  bullmq:
+    enabled: false          # BULLMQ_ENABLED
+    queue_prefix: "gembo"   # BULLMQ_QUEUE_PREFIX
+
+log:
+  level: "info"             # LOG_LEVEL  (debug|info|warn|error)
+  format: "json"            # LOG_FORMAT (json|text)
