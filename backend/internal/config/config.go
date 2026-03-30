@@ -8,16 +8,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zeroclap/gembo/internal/domain"
+
 	"gopkg.in/yaml.v3"
 )
 
 // Config is the top-level configuration for gembo.
 type Config struct {
-	Server    ServerConfig  `yaml:"server"`
-	Redis     RedisConfig   `yaml:"redis"`
-	Exchanges []ExchangeCfg `yaml:"exchanges"`
-	Hooks     HooksConfig   `yaml:"hooks"`
-	Log       LogConfig     `yaml:"log"`
+	Server       ServerConfig       `yaml:"server"`
+	Redis        RedisConfig        `yaml:"redis"`
+	Exchanges    []ExchangeCfg      `yaml:"exchanges"`
+	MarketFilter MarketFilterConfig `yaml:"market_filter"`
+	Hooks        HooksConfig        `yaml:"hooks"`
+	Log          LogConfig          `yaml:"log"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -41,6 +44,27 @@ type ExchangeCfg struct {
 	Enabled             bool          `yaml:"enabled"`
 	MarketsPollInterval time.Duration `yaml:"markets_poll_interval"`
 	FundingPollInterval time.Duration `yaml:"funding_poll_interval"`
+}
+
+// MarketFilterConfig controls which markets are included in the data pipeline.
+// Empty slices mean "no filter" (include all). This is a global filter applied
+// across all exchanges.
+type MarketFilterConfig struct {
+	QuoteAssets  []string `yaml:"quote_assets"`  // e.g. ["USDT"]
+	SettleAssets []string `yaml:"settle_assets"` // e.g. ["USDT"]
+	MarketTypes  []string `yaml:"market_types"`  // e.g. ["perpetual"]
+}
+
+// ToDomain converts the YAML/env config into a domain.MarketFilter.
+func (c MarketFilterConfig) ToDomain() domain.MarketFilter {
+	f := domain.MarketFilter{
+		QuoteAssets:  c.QuoteAssets,
+		SettleAssets: c.SettleAssets,
+	}
+	for _, t := range c.MarketTypes {
+		f.MarketTypes = append(f.MarketTypes, domain.MarketType(t))
+	}
+	return f
 }
 
 // HooksConfig holds event hook settings.
@@ -172,6 +196,19 @@ func applyEnv(cfg *Config) {
 			}
 		}
 	}
+
+	// MARKET_QUOTE_ASSETS=USDT — comma-separated list of allowed quote assets.
+	if v := os.Getenv("MARKET_QUOTE_ASSETS"); v != "" {
+		cfg.MarketFilter.QuoteAssets = splitCSV(v)
+	}
+	// MARKET_SETTLE_ASSETS=USDT — comma-separated list of allowed settle assets.
+	if v := os.Getenv("MARKET_SETTLE_ASSETS"); v != "" {
+		cfg.MarketFilter.SettleAssets = splitCSV(v)
+	}
+	// MARKET_TYPES=perpetual — comma-separated list of allowed market types.
+	if v := os.Getenv("MARKET_TYPES"); v != "" {
+		cfg.MarketFilter.MarketTypes = splitCSV(v)
+	}
 }
 
 // Addr returns the server listen address as "host:port".
@@ -187,4 +224,16 @@ func (c *Config) ExchangeByID(id string) (ExchangeCfg, bool) {
 		}
 	}
 	return ExchangeCfg{}, false
+}
+
+// splitCSV splits a comma-separated string into trimmed, non-empty tokens.
+func splitCSV(s string) []string {
+	var out []string
+	for _, v := range strings.Split(s, ",") {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }

@@ -13,17 +13,19 @@ func mapMarket(m ccxt.MarketInterface, updatedAt time.Time) domain.Market {
 	symbol := derefString(m.Symbol)
 	base := derefString(m.BaseCurrency)
 	quote := derefString(m.QuoteCurrency)
+	settle := derefString(m.Settle)
 	active := derefBool(m.Active)
 	mtype := resolveMarketType(m)
 
 	return domain.Market{
-		ExchangeID: exchangeID,
-		Symbol:     symbol,
-		BaseAsset:  base,
-		QuoteAsset: quote,
-		MarketType: mtype,
-		Active:     active,
-		UpdatedAt:  updatedAt,
+		ExchangeID:  exchangeID,
+		Symbol:      symbol,
+		BaseAsset:   base,
+		QuoteAsset:  quote,
+		SettleAsset: settle,
+		MarketType:  mtype,
+		Active:      active,
+		UpdatedAt:   updatedAt,
 	}
 }
 

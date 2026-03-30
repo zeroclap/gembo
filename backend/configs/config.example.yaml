@@ -24,6 +24,14 @@ exchanges:
     markets_poll_interval: 60s
     funding_poll_interval: 60s
 
+# Market filter — controls which markets enter the pipeline.
+# Omit a field (or leave empty) to include all values for that dimension.
+# Env overrides: MARKET_QUOTE_ASSETS, MARKET_SETTLE_ASSETS, MARKET_TYPES
+market_filter:
+  quote_assets: ["USDT"]          # MARKET_QUOTE_ASSETS  (e.g. USDT,USDC)
+  settle_assets: ["USDT"]         # MARKET_SETTLE_ASSETS (e.g. USDT,USDC)
+  market_types: ["perpetual"]     # MARKET_TYPES         (spot|perpetual|futures)
+
 hooks:
   bullmq:
     enabled: false          # BULLMQ_ENABLED

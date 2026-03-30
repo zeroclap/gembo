@@ -20,10 +20,11 @@ const marketsPollInterval = 60 * time.Second
 
 // Collector drives the data pipeline for a set of exchanges.
 type Collector struct {
-	registry *exchange.Registry
-	store    store.Store
-	emitter  hook.Emitter
-	logger   *slog.Logger
+	registry     *exchange.Registry
+	store        store.Store
+	emitter      hook.Emitter
+	logger       *slog.Logger
+	marketFilter domain.MarketFilter
 }
 
 // New creates a Collector.
@@ -32,12 +33,14 @@ func New(
 	st store.Store,
 	emitter hook.Emitter,
 	logger *slog.Logger,
+	marketFilter domain.MarketFilter,
 ) *Collector {
 	return &Collector{
-		registry: registry,
-		store:    st,
-		emitter:  emitter,
-		logger:   logger,
+		registry:     registry,
+		store:        st,
+		emitter:      emitter,
+		logger:       logger,
+		marketFilter: marketFilter,
 	}
 }
 
@@ -98,6 +101,16 @@ func (c *Collector) fetchAndStoreMarkets(ctx context.Context, ex exchange.Exchan
 		return
 	}
 
+	before := len(markets)
+	markets = domain.FilterMarkets(markets, c.marketFilter)
+	if !c.marketFilter.IsEmpty() {
+		c.logger.Debug("market filter applied",
+			"exchange", ex.ID(),
+			"before", before,
+			"after", len(markets),
+		)
+	}
+
 	for _, m := range markets {
 		if err := c.store.SetMarket(ctx, m); err != nil {
 			c.logger.Error("store market error",
@@ -121,11 +134,13 @@ func (c *Collector) tickerLoop(ctx context.Context, ex exchange.Exchange) error 
 		return fmt.Errorf("fetch markets for tickers %s: %w", ex.ID(), err)
 	}
 
+	markets = domain.FilterMarkets(markets, c.marketFilter)
+
 	symbols := make([]string, 0, len(markets))
 	for _, m := range markets {
 		symbols = append(symbols, m.Symbol)
 	}
-	
+
 	if len(symbols) == 0 {
 		c.logger.Warn("no symbols available for ticker subscription", "exchange", ex.ID())
 		return nil
@@ -162,10 +177,10 @@ func (c *Collector) tickerLoop(ctx context.Context, ex exchange.Exchange) error 
 			"exchange", ex.ID(),
 			"batches", (len(symbols)+batchSize-1)/batchSize,
 		)
-		
+
 		shutdownTimer := time.NewTimer(5 * time.Second)
 		defer shutdownTimer.Stop()
-		
+
 		select {
 		case err := <-done:
 			c.logger.Info("ticker loop shutdown complete", "exchange", ex.ID())

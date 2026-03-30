@@ -65,7 +65,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	c := collector.New(reg, st, emitter, logger)
+	c := collector.New(reg, st, emitter, logger, cfg.MarketFilter.ToDomain())
+
+	mf := cfg.MarketFilter
+	if len(mf.QuoteAssets) > 0 || len(mf.SettleAssets) > 0 || len(mf.MarketTypes) > 0 {
+		logger.Info("market filter active",
+			"quote_assets", mf.QuoteAssets,
+			"settle_assets", mf.SettleAssets,
+			"market_types", mf.MarketTypes,
+		)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
