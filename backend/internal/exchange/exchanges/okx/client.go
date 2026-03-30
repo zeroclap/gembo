@@ -23,8 +23,7 @@ const (
 
 // Client is the OKX exchange adapter.
 type Client struct {
-	rest   *ccxt.Okx
-	ws     *ccxtpro.Okx
+	api    *ccxtpro.Okx
 	logger *slog.Logger
 
 	fundingPollInterval time.Duration
@@ -42,11 +41,16 @@ func New(logger *slog.Logger, opts ...Option) *Client {
 		o(c)
 	}
 
-	restCfg := map[string]interface{}{"enableRateLimit": true}
-	wsCfg := map[string]interface{}{"enableRateLimit": true}
+	apiCfg := map[string]interface{}{
+		"options": map[string]any{
+			"fetchMarkets": map[string]any{
+				"types": []string{"swap"},
+				// "types": []string{"spot", "swap"},
+			},
+		},
+	}
+	c.api = ccxtpro.NewOkx(apiCfg)
 
-	c.rest = ccxt.NewOkx(restCfg)
-	c.ws = ccxtpro.NewOkx(wsCfg)
 	return c
 }
 
@@ -56,27 +60,27 @@ func (c *Client) ID() string { return exchangeID }
 // Run blocks until ctx is cancelled.
 func (c *Client) Run(ctx context.Context) error {
 	<-ctx.Done()
-	
+
 	// Close WebSocket with timeout to prevent hanging
 	done := make(chan struct{})
 	go func() {
-		c.ws.Close()
+		c.api.Close()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		c.logger.Info("websocket closed cleanly", "exchange", "okx")
 	case <-time.After(3 * time.Second):
 		c.logger.Warn("websocket close timeout, forcing shutdown", "exchange", "okx")
 	}
-	
+
 	return ctx.Err()
 }
 
 // Markets fetches all available markets via REST.
 func (c *Client) Markets(ctx context.Context) ([]domain.Market, error) {
-	raw, err := c.rest.FetchMarkets()
+	raw, err := c.api.FetchMarkets()
 	if err != nil {
 		return nil, fmt.Errorf("okx fetch markets: %w", err)
 	}
@@ -116,7 +120,7 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 			resCh := make(chan result, 1)
 
 			go func() {
-				t, e := c.ws.WatchTickers(ccxt.WithWatchTickersSymbols(symbols))
+				t, e := c.api.WatchTickers(ccxt.WithWatchTickersSymbols(symbols))
 				resCh <- result{tickers: t, err: e}
 			}()
 
@@ -207,7 +211,7 @@ func (c *Client) pollFundingRates(ctx context.Context, ch chan<- domain.FundingR
 			return
 		}
 
-		rates, err := c.rest.FetchFundingRates()
+		rates, err := c.api.FetchFundingRates()
 		if err != nil {
 			if isRetryable(err) {
 				c.logger.Warn("fetch funding rates error, retrying",
