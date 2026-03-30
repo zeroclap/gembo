@@ -23,8 +23,7 @@ const (
 
 // Client is the Bybit exchange adapter.
 type Client struct {
-	rest   *ccxt.Bybit
-	ws     *ccxtpro.Bybit
+	api    *ccxtpro.Bybit
 	logger *slog.Logger
 
 	fundingPollInterval time.Duration
@@ -42,11 +41,16 @@ func New(logger *slog.Logger, opts ...Option) *Client {
 		o(c)
 	}
 
-	restCfg := map[string]interface{}{"enableRateLimit": true}
-	wsCfg := map[string]interface{}{"enableRateLimit": true}
+	apiCfg := map[string]interface{}{
+		"options": map[string]any{
+			"fetchMarkets": map[string]any{
+				// "types": []string{"spot", "linear"},
+				"types": []string{"linear"},
+			},
+		},
+	}
+	c.api = ccxtpro.NewBybit(apiCfg)
 
-	c.rest = ccxt.NewBybit(restCfg)
-	c.ws = ccxtpro.NewBybit(wsCfg)
 	return c
 }
 
@@ -59,27 +63,27 @@ func (c *Client) ID() string { return exchangeID }
 // when ctx is cancelled.
 func (c *Client) Run(ctx context.Context) error {
 	<-ctx.Done()
-	
+
 	// Close WebSocket with timeout to prevent hanging
 	done := make(chan struct{})
 	go func() {
-		c.ws.Close()
+		c.api.Close()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		c.logger.Info("websocket closed cleanly", "exchange", "bybit")
 	case <-time.After(3 * time.Second):
 		c.logger.Warn("websocket close timeout, forcing shutdown", "exchange", "bybit")
 	}
-	
+
 	return ctx.Err()
 }
 
 // Markets fetches all available markets via REST and returns them as domain.Market.
 func (c *Client) Markets(ctx context.Context) ([]domain.Market, error) {
-	raw, err := c.rest.FetchMarkets()
+	raw, err := c.api.FetchMarkets()
 	if err != nil {
 		return nil, fmt.Errorf("bybit fetch markets: %w", err)
 	}
@@ -114,7 +118,7 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 			}
 
 			// Call WatchTickers - this may block, so we need to be able to cancel
-			tickers, err := c.ws.WatchTickers(ccxt.WithWatchTickersSymbols(symbols))
+			tickers, err := c.api.WatchTickers(ccxt.WithWatchTickersSymbols(symbols))
 			if err != nil {
 				if ctx.Err() != nil {
 					c.logger.Info("ticker subscription stopped", "reason", ctx.Err())
@@ -194,7 +198,7 @@ func (c *Client) pollFundingRates(ctx context.Context, ch chan<- domain.FundingR
 			return
 		}
 
-		rates, err := c.rest.FetchFundingRates()
+		rates, err := c.api.FetchFundingRates()
 		if err != nil {
 			if isRetryable(err) {
 				c.logger.Warn("fetch funding rates error, retrying",
