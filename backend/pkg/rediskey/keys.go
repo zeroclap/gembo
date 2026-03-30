@@ -6,6 +6,10 @@ import "fmt"
 
 const prefix = "gembo"
 
+// Prefix is the common key prefix used by all gembo keys.
+// Useful for SCAN-based bulk operations (e.g. flush).
+const Prefix = prefix
+
 // Market returns the hash key for a single market.
 //
 //	gembo:<exchange>:market:<symbol>

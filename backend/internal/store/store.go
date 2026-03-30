@@ -22,4 +22,7 @@ type Store interface {
 	SetFundingRate(ctx context.Context, fr domain.FundingRate) error
 	GetFundingRate(ctx context.Context, exchangeID, symbol string) (*domain.FundingRate, error)
 	ListFundingRates(ctx context.Context, exchangeID string) ([]domain.FundingRate, error)
+
+	// Admin
+	FlushAll(ctx context.Context) (int64, error)
 }

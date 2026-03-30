@@ -1,6 +1,47 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+	"sort"
+
+	"github.com/zeroclap/gembo/internal/domain"
+)
+
+// tickerRow groups tickers for a single symbol across all exchanges.
+type tickerRow struct {
+	Symbol  string          `json:"symbol"`
+	Tickers []domain.Ticker `json:"tickers"`
+}
+
+// handleListAllTickers returns tickers across all exchanges, grouped by symbol.
+func (h *Handler) handleListAllTickers(w http.ResponseWriter, r *http.Request) {
+	exchangeIDs := h.registry.IDs()
+
+	// symbol -> []Ticker
+	grouped := make(map[string][]domain.Ticker)
+
+	for _, eid := range exchangeIDs {
+		tickers, err := h.store.ListTickers(r.Context(), eid)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		for _, t := range tickers {
+			grouped[t.Symbol] = append(grouped[t.Symbol], t)
+		}
+	}
+
+	rows := make([]tickerRow, 0, len(grouped))
+	for sym, tickers := range grouped {
+		rows = append(rows, tickerRow{Symbol: sym, Tickers: tickers})
+	}
+
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].Symbol < rows[j].Symbol
+	})
+
+	writeOK(w, rows)
+}
 
 // handleListTickers returns a snapshot of all tickers for the given exchange.
 func (h *Handler) handleListTickers(w http.ResponseWriter, r *http.Request) {

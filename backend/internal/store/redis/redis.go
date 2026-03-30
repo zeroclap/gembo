@@ -249,3 +249,24 @@ func (s *Store) ListFundingRates(ctx context.Context, exchangeID string) ([]doma
 	}
 	return rates, nil
 }
+
+// --- Admin ---
+
+// FlushAll deletes all gembo-prefixed keys from Redis using SCAN to avoid
+// blocking the server. It returns the total number of keys deleted.
+func (s *Store) FlushAll(ctx context.Context) (int64, error) {
+	var deleted int64
+	pattern := rediskey.Prefix + ":*"
+	iter := s.client.Scan(ctx, 0, pattern, 100).Iterator()
+
+	for iter.Next(ctx) {
+		if err := s.client.Del(ctx, iter.Val()).Err(); err != nil {
+			return deleted, fmt.Errorf("delete key %s: %w", iter.Val(), err)
+		}
+		deleted++
+	}
+	if err := iter.Err(); err != nil {
+		return deleted, fmt.Errorf("scan keys %s: %w", pattern, err)
+	}
+	return deleted, nil
+}
