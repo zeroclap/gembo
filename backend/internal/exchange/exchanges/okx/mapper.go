@@ -50,17 +50,12 @@ func mapTicker(t ccxt.Ticker, updatedAt time.Time) domain.Ticker {
 
 // mapFundingRate converts a CCXT FundingRate to a domain.FundingRate.
 func mapFundingRate(fr ccxt.FundingRate, updatedAt time.Time) domain.FundingRate {
-	symbol := derefString(fr.Symbol)
-	rate := floatToDecimal(fr.FundingRate)
-	nextFunding := timestampToTime(fr.NextFundingTimestamp)
-	intervalHours := intervalFromString(fr.Interval)
-
 	return domain.FundingRate{
 		ExchangeID:          exchangeID,
-		Symbol:              symbol,
-		Rate:                rate,
-		NextFundingTime:     nextFunding,
-		IntervalHours:       intervalHours,
+		Symbol:              derefString(fr.Symbol),
+		Rate:                floatToDecimal(fr.FundingRate),
+		NextFundingTime:     timestampToTime(fr.FundingTimestamp),
+		IntervalHours:       intervalFromString(fr.Interval),
 		MarkPrice:           floatToDecimal(fr.MarkPrice),
 		IndexPrice:          floatToDecimal(fr.IndexPrice),
 		NextFundingRate:     floatToDecimal(fr.NextFundingRate),
