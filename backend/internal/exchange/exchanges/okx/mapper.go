@@ -25,6 +25,8 @@ func mapMarket(m ccxt.MarketInterface, updatedAt time.Time) domain.Market {
 		SettleAsset: settle,
 		MarketType:  mtype,
 		Active:      active,
+		TakerFee:    floatToDecimal(m.Taker),
+		MakerFee:    floatToDecimal(m.Maker),
 		UpdatedAt:   updatedAt,
 	}
 }

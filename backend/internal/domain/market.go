@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 // MarketType describes the kind of instrument.
 type MarketType string
@@ -20,7 +24,12 @@ type Market struct {
 	SettleAsset string     `json:"settle_asset"` // e.g. "USDT" (derivatives only)
 	MarketType  MarketType `json:"market_type"`  // spot | perpetual | futures
 	Active      bool       `json:"active"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+
+	// Trading fees as reported by the exchange (ratios, e.g. 0.00055 = 0.055%).
+	TakerFee decimal.Decimal `json:"taker_fee"`
+	MakerFee decimal.Decimal `json:"maker_fee"`
+
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // MarketFilter defines criteria for including markets. Empty slices mean "no filter" (include all).

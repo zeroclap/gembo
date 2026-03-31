@@ -14,23 +14,6 @@ import (
 	"github.com/zeroclap/gembo/internal/store"
 )
 
-// Mock fee schedules per exchange (percentage values).
-// Bybit: maker 0.02%, taker 0.055%.
-// OKX:   maker 0.02%, taker 0.05%.
-var exchangeFees = map[string]struct {
-	MakerPct decimal.Decimal
-	TakerPct decimal.Decimal
-}{
-	"bybit": {
-		MakerPct: decimal.NewFromFloat(0.02),
-		TakerPct: decimal.NewFromFloat(0.055),
-	},
-	"okx": {
-		MakerPct: decimal.NewFromFloat(0.02),
-		TakerPct: decimal.NewFromFloat(0.05),
-	},
-}
-
 var (
 	dec8   = decimal.NewFromInt(8)
 	dec3   = decimal.NewFromInt(3)
@@ -53,10 +36,11 @@ func NewCalculator(st store.Store, logger *slog.Logger) *Calculator {
 	}
 }
 
-// exchangeData holds the funding rates and tickers for one exchange, keyed by symbol.
+// exchangeData holds the funding rates, tickers, and markets for one exchange, keyed by symbol.
 type exchangeData struct {
 	funding map[string]domain.FundingRate
 	tickers map[string]domain.Ticker
+	markets map[string]domain.Market
 }
 
 // Recompute loads all funding rates and tickers from the store, finds cross-exchange
@@ -70,6 +54,7 @@ func (c *Calculator) Recompute(ctx context.Context, exchangeIDs []string) error 
 		ed := &exchangeData{
 			funding: make(map[string]domain.FundingRate),
 			tickers: make(map[string]domain.Ticker),
+			markets: make(map[string]domain.Market),
 		}
 
 		rates, err := c.store.ListFundingRates(ctx, eid)
@@ -88,6 +73,14 @@ func (c *Calculator) Recompute(ctx context.Context, exchangeIDs []string) error 
 		}
 		for _, t := range tickers {
 			ed.tickers[t.Symbol] = t
+		}
+
+		markets, err := c.store.ListMarkets(ctx, eid)
+		if err != nil {
+			c.logger.Warn("list markets", "exchange", eid, "error", err)
+		}
+		for _, m := range markets {
+			ed.markets[m.Symbol] = m
 		}
 
 		data[eid] = ed
@@ -155,17 +148,20 @@ func (c *Calculator) computePair(
 	var longFR, shortFR domain.FundingRate
 	var longTicker, shortTicker domain.Ticker
 	var longRate8h, shortRate8h decimal.Decimal
+	var longData, shortData *exchangeData
 
 	if rate8hA.LessThanOrEqual(rate8hB) {
 		longEx, shortEx = exA, exB
 		longFR, shortFR = frA, frB
 		longTicker, shortTicker = tA, tB
 		longRate8h, shortRate8h = rate8hA, rate8hB
+		longData, shortData = dataA, dataB
 	} else {
 		longEx, shortEx = exB, exA
 		longFR, shortFR = frB, frA
 		longTicker, shortTicker = tB, tA
 		longRate8h, shortRate8h = rate8hB, rate8hA
+		longData, shortData = dataB, dataA
 	}
 
 	netRate8h := shortRate8h.Sub(longRate8h)
@@ -180,12 +176,16 @@ func (c *Calculator) computePair(
 		openSpread = shortTicker.Bid.Sub(longTicker.Ask).Div(midpoint).Mul(dec100)
 	}
 
-	// Fees.
-	longFees := getExchangeFees(longEx)
-	shortFees := getExchangeFees(shortEx)
+	// Fees: use real per-market fees from the store.
+	// Fees are stored as ratios; convert to percentage for ArbitrageFees output.
+	longFees, okLF := getMarketFees(longData, symbol)
+	shortFees, okSF := getMarketFees(shortData, symbol)
+	if !okLF || !okSF {
+		return nil
+	}
 
-	openFeesPct := longFees.TakerPct.Add(shortFees.TakerPct)
-	closeFeesPct := longFees.TakerPct.Add(shortFees.TakerPct)
+	openFeesPct := longFees.Taker.Add(shortFees.Taker).Mul(dec100)
+	closeFeesPct := longFees.Taker.Add(shortFees.Taker).Mul(dec100)
 	roundTripFeesPct := openFeesPct.Add(closeFeesPct)
 
 	// NetAPRAfterFees: subtract annualized cost of one round-trip per year.
@@ -193,8 +193,8 @@ func (c *Calculator) computePair(
 	netAPRAfterFees := apr.Sub(roundTripFeesPct)
 
 	// Build legs.
-	longLeg := buildLeg(longEx, longFR, longTicker, longRate8h)
-	shortLeg := buildLeg(shortEx, shortFR, shortTicker, shortRate8h)
+	longLeg := buildLeg(longEx, longFR, longTicker, longRate8h, longFees)
+	shortLeg := buildLeg(shortEx, shortFR, shortTicker, shortRate8h, shortFees)
 
 	// Next payment info: which leg pays next?
 	nextPayment := computeNextPayment(longLeg, shortLeg, now)
@@ -238,8 +238,8 @@ func buildLeg(
 	fr domain.FundingRate,
 	ticker domain.Ticker,
 	rate8h decimal.Decimal,
+	fees marketFees,
 ) domain.ArbitrageLeg {
-	fees := getExchangeFees(exchangeID)
 	return domain.ArbitrageLeg{
 		ExchangeID:      exchangeID,
 		FundingRate:     fr.Rate,
@@ -253,26 +253,28 @@ func buildLeg(
 		MarkPrice:       fr.MarkPrice,
 		IndexPrice:      fr.IndexPrice,
 		Volume24h:       ticker.Volume24h,
-		MakerFeePct:     fees.MakerPct,
-		TakerFeePct:     fees.TakerPct,
+		MakerFeePct:     fees.Maker.Mul(dec100),
+		TakerFeePct:     fees.Taker.Mul(dec100),
 	}
 }
 
-func getExchangeFees(exchangeID string) struct {
-	MakerPct decimal.Decimal
-	TakerPct decimal.Decimal
-} {
-	if f, ok := exchangeFees[exchangeID]; ok {
-		return f
+// marketFees holds maker/taker fee ratios for a specific market (e.g. 0.00055 = 0.055%).
+type marketFees struct {
+	Maker decimal.Decimal
+	Taker decimal.Decimal
+}
+
+// getMarketFees returns the taker/maker fees for a specific symbol on an exchange.
+// Returns false if the market is not found or fees are zero (exchange did not report them).
+func getMarketFees(ed *exchangeData, symbol string) (marketFees, bool) {
+	m, ok := ed.markets[symbol]
+	if !ok {
+		return marketFees{}, false
 	}
-	// Default fallback.
-	return struct {
-		MakerPct decimal.Decimal
-		TakerPct decimal.Decimal
-	}{
-		MakerPct: decimal.NewFromFloat(0.02),
-		TakerPct: decimal.NewFromFloat(0.05),
+	if m.MakerFee.IsZero() && m.TakerFee.IsZero() {
+		return marketFees{}, false
 	}
+	return marketFees{Maker: m.MakerFee, Taker: m.TakerFee}, true
 }
 
 // computeNextPayment determines which leg has the next funding payment and

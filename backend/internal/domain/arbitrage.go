@@ -21,7 +21,7 @@ type FundingArbitrage struct {
 	// Spread.
 	OpenSpread decimal.Decimal `json:"open_spread"` // (short_bid - long_ask) / midpoint * 100
 
-	// Fees (mock values for now).
+	// Fees based on real per-market taker/maker rates from the exchange.
 	Fees ArbitrageFees `json:"fees"`
 
 	// Timing.
@@ -45,8 +45,8 @@ type ArbitrageLeg struct {
 	MarkPrice       decimal.Decimal `json:"mark_price"`
 	IndexPrice      decimal.Decimal `json:"index_price"`
 	Volume24h       decimal.Decimal `json:"volume_24h"`
-	MakerFeePct     decimal.Decimal `json:"maker_fee_pct"` // mock
-	TakerFeePct     decimal.Decimal `json:"taker_fee_pct"` // mock
+	MakerFeePct     decimal.Decimal `json:"maker_fee_pct"`
+	TakerFeePct     decimal.Decimal `json:"taker_fee_pct"`
 }
 
 // ArbitrageFees contains fee estimates for entering and exiting an arbitrage position.
