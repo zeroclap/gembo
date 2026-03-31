@@ -23,6 +23,11 @@ type Store interface {
 	GetFundingRate(ctx context.Context, exchangeID, symbol string) (*domain.FundingRate, error)
 	ListFundingRates(ctx context.Context, exchangeID string) ([]domain.FundingRate, error)
 
+	// Funding Arbitrage
+	SetFundingArbitrage(ctx context.Context, a domain.FundingArbitrage) error
+	ListFundingArbitrage(ctx context.Context) ([]domain.FundingArbitrage, error)
+	RemoveFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error
+
 	// Admin
 	FlushAll(ctx context.Context) (int64, error)
 }

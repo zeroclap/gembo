@@ -41,6 +41,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /v1/{exchange}/tickers/{symbol}", h.handleGetTicker)
 	h.mux.HandleFunc("GET /v1/{exchange}/funding-rates", h.handleListFundingRates)
 	h.mux.HandleFunc("GET /v1/{exchange}/funding-rates/{symbol}", h.handleGetFundingRate)
+	h.mux.HandleFunc("GET /v1/arbitrage/funding", h.handleListFundingArbitrage)
 
 	// Admin
 	h.mux.HandleFunc("DELETE /v1/flush", h.handleFlushAll)

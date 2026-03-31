@@ -57,3 +57,19 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      target: worker
+    networks: [gembo]
+    environment:
+      REDIS_ADDR: redis:6379
+      EXCHANGES: bybit,okx
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped

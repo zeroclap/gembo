@@ -54,12 +54,17 @@ func mapFundingRate(fr ccxt.FundingRate, updatedAt time.Time) domain.FundingRate
 	intervalHours := intervalFromString(fr.Interval)
 
 	return domain.FundingRate{
-		ExchangeID:      exchangeID,
-		Symbol:          symbol,
-		Rate:            rate,
-		NextFundingTime: nextFunding,
-		IntervalHours:   intervalHours,
-		UpdatedAt:       updatedAt,
+		ExchangeID:          exchangeID,
+		Symbol:              symbol,
+		Rate:                rate,
+		NextFundingTime:     nextFunding,
+		IntervalHours:       intervalHours,
+		MarkPrice:           floatToDecimal(fr.MarkPrice),
+		IndexPrice:          floatToDecimal(fr.IndexPrice),
+		NextFundingRate:     floatToDecimal(fr.NextFundingRate),
+		PreviousFundingRate: floatToDecimal(fr.PreviousFundingRate),
+		InterestRate:        floatToDecimal(fr.InterestRate),
+		UpdatedAt:           updatedAt,
 	}
 }
 

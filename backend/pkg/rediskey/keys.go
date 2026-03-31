@@ -58,3 +58,25 @@ func FundingRate(exchangeID, symbol string) string {
 func FundingRates(exchangeID string) string {
 	return fmt.Sprintf("%s:%s:funding", prefix, exchangeID)
 }
+
+// FundingRatePubSub returns the Pub/Sub channel name for funding rate updates on an exchange.
+//
+//	gembo:<exchange>:funding:updates
+func FundingRatePubSub(exchangeID string) string {
+	return fmt.Sprintf("%s:%s:funding:updates", prefix, exchangeID)
+}
+
+// FundingArbitragePairs returns the set key that tracks all funding arbitrage pair identifiers.
+//
+//	gembo:arbitrage:funding:pairs
+func FundingArbitragePairs() string {
+	return fmt.Sprintf("%s:arbitrage:funding:pairs", prefix)
+}
+
+// FundingArbitragePair returns the key for a single funding arbitrage opportunity.
+// Exchange IDs are expected to be sorted alphabetically by the caller to ensure uniqueness.
+//
+//	gembo:arbitrage:funding:<symbol>|<exchangeA>|<exchangeB>
+func FundingArbitragePair(symbol, exchangeA, exchangeB string) string {
+	return fmt.Sprintf("%s:arbitrage:funding:%s|%s|%s", prefix, symbol, exchangeA, exchangeB)
+}

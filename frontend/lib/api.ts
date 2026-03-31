@@ -51,3 +51,70 @@ export function fetchExchanges(): Promise<string[]> {
 export function flushAllData(): Promise<FlushResult> {
   return fetchApi<FlushResult>("/flush", { method: "DELETE" });
 }
+
+// --- Funding Arbitrage ---
+
+export interface ArbitrageLeg {
+  exchange_id: string;
+  funding_rate: string;
+  interval_hours: number;
+  rate_8h: string;
+  next_funding_at: string;
+  next_funding_rate: string;
+  price: string;
+  bid: string;
+  ask: string;
+  mark_price: string;
+  index_price: string;
+  volume_24h: string;
+  maker_fee_pct: string;
+  taker_fee_pct: string;
+}
+
+export interface ArbitrageFees {
+  open_fees_pct: string;
+  close_fees_pct: string;
+  round_trip_fees_pct: string;
+  net_apr_after_fees: string;
+}
+
+export interface NextPaymentInfo {
+  exchange_id: string;
+  side: string;
+  rate: string;
+  payment_pct: string;
+  at: string;
+  time_until_secs: number;
+}
+
+export interface LoopPayment {
+  exchange_id: string;
+  side: string;
+  rate: string;
+  payment_pct: string;
+  at_hour: number;
+  cumulative: string;
+}
+
+export interface FullLoopInfo {
+  duration_hours: number;
+  payments: LoopPayment[];
+  net_pct_per_loop: string;
+}
+
+export interface FundingArbitrage {
+  symbol: string;
+  long: ArbitrageLeg;
+  short: ArbitrageLeg;
+  net_rate_8h: string;
+  apr: string;
+  open_spread: string;
+  fees: ArbitrageFees;
+  next_payment: NextPaymentInfo;
+  full_loop: FullLoopInfo;
+  updated_at: string;
+}
+
+export function fetchFundingArbitrage(): Promise<FundingArbitrage[]> {
+  return fetchApi<FundingArbitrage[]>("/arbitrage/funding");
+}

@@ -14,7 +14,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" \
     -o /out/collector ./cmd/collector && \
     go build -trimpath -ldflags="-s -w" \
-    -o /out/api ./cmd/api
+    -o /out/api ./cmd/api && \
+    go build -trimpath -ldflags="-s -w" \
+    -o /out/worker ./cmd/worker
 
 # ---- collector image ----
 FROM gcr.io/distroless/static-debian12 AS collector
@@ -32,3 +34,11 @@ COPY configs/config.example.yaml /configs/config.yaml
 
 EXPOSE 8080
 ENTRYPOINT ["/api"]
+
+# ---- worker image ----
+FROM gcr.io/distroless/static-debian12 AS worker
+
+COPY --from=builder /out/worker /worker
+COPY configs/config.example.yaml /configs/config.yaml
+
+ENTRYPOINT ["/worker"]

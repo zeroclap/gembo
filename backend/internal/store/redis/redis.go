@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -188,6 +189,7 @@ func (s *Store) SetFundingRate(ctx context.Context, fr domain.FundingRate) error
 	pipe := s.client.TxPipeline()
 	pipe.Set(ctx, rediskey.FundingRate(fr.ExchangeID, fr.Symbol), data, 0)
 	pipe.SAdd(ctx, rediskey.FundingRates(fr.ExchangeID), fr.Symbol)
+	pipe.Publish(ctx, rediskey.FundingRatePubSub(fr.ExchangeID), data)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("store funding rate %s/%s: %w", fr.ExchangeID, fr.Symbol, err)
@@ -248,6 +250,90 @@ func (s *Store) ListFundingRates(ctx context.Context, exchangeID string) ([]doma
 		rates = append(rates, fr)
 	}
 	return rates, nil
+}
+
+// --- Funding Arbitrage ---
+
+const arbitrageTTL = 120 * time.Second
+
+// SetFundingArbitrage stores a FundingArbitrage opportunity and tracks it in the pairs set.
+func (s *Store) SetFundingArbitrage(ctx context.Context, a domain.FundingArbitrage) error {
+	data, err := json.Marshal(a)
+	if err != nil {
+		return fmt.Errorf("marshal funding arbitrage: %w", err)
+	}
+
+	pairID := a.Long.ExchangeID + "|" + a.Short.ExchangeID
+	key := rediskey.FundingArbitragePair(a.Symbol, a.Long.ExchangeID, a.Short.ExchangeID)
+
+	pipe := s.client.TxPipeline()
+	pipe.Set(ctx, key, data, arbitrageTTL)
+	pipe.SAdd(ctx, rediskey.FundingArbitragePairs(), a.Symbol+"|"+pairID)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("store funding arbitrage %s %s: %w", a.Symbol, pairID, err)
+	}
+	return nil
+}
+
+// ListFundingArbitrage returns all stored funding arbitrage opportunities.
+func (s *Store) ListFundingArbitrage(ctx context.Context) ([]domain.FundingArbitrage, error) {
+	members, err := s.client.SMembers(ctx, rediskey.FundingArbitragePairs()).Result()
+	if err != nil {
+		return nil, fmt.Errorf("list funding arbitrage pairs: %w", err)
+	}
+	if len(members) == 0 {
+		return nil, nil
+	}
+
+	keys := make([]string, len(members))
+	for i, m := range members {
+		// m is "symbol|exchangeA|exchangeB"
+		parts := strings.SplitN(m, "|", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		keys[i] = rediskey.FundingArbitragePair(parts[0], parts[1], parts[2])
+	}
+
+	vals, err := s.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("mget funding arbitrage: %w", err)
+	}
+
+	arbs := make([]domain.FundingArbitrage, 0, len(vals))
+	for i, v := range vals {
+		if v == nil {
+			// Expired, clean up stale member.
+			s.client.SRem(ctx, rediskey.FundingArbitragePairs(), members[i])
+			continue
+		}
+		raw, ok := v.(string)
+		if !ok {
+			continue
+		}
+		var a domain.FundingArbitrage
+		if err := json.Unmarshal([]byte(raw), &a); err != nil {
+			return nil, fmt.Errorf("unmarshal funding arbitrage %s: %w", members[i], err)
+		}
+		arbs = append(arbs, a)
+	}
+	return arbs, nil
+}
+
+// RemoveFundingArbitrage removes a specific funding arbitrage pair.
+func (s *Store) RemoveFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error {
+	key := rediskey.FundingArbitragePair(symbol, exchangeA, exchangeB)
+	member := symbol + "|" + exchangeA + "|" + exchangeB
+
+	pipe := s.client.TxPipeline()
+	pipe.Del(ctx, key)
+	pipe.SRem(ctx, rediskey.FundingArbitragePairs(), member)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("remove funding arbitrage %s|%s|%s: %w", symbol, exchangeA, exchangeB, err)
+	}
+	return nil
 }
 
 // --- Admin ---
