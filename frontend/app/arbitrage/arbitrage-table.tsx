@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo, useEffect, useCallback, Fragment } from "react";
+import { useState, useMemo, useCallback, Fragment } from "react";
 import { fetchFundingArbitrage, type FundingArbitrage } from "@/lib/api";
 import {
   Table,
@@ -21,9 +21,23 @@ import {
   Clock,
   TrendingUp,
   TrendingDown,
+  SlidersHorizontal,
+  Calculator,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useArbitrageFilters } from "@/hooks/use-arbitrage-filters";
-import { FilterBar } from "./filter-bar";
+import {
+  useSimulation,
+  computeSimulation,
+  type SimulationConfig,
+  type SimulationResult,
+} from "@/hooks/use-simulation";
+import { FilterPanel } from "./filter-bar";
+import { SimulationPanel } from "./simulation-bar";
+import { Countdown } from "./countdown";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -76,9 +90,84 @@ function formatAPR(value: string): string {
   return `${num >= 0 ? "+" : ""}${num.toFixed(2)}%`;
 }
 
+function formatUsd(value: number): string {
+  if (!isFinite(value)) return "-";
+  const abs = Math.abs(value);
+  const sign = value >= 0 ? "+" : "-";
+  if (abs >= 1000) {
+    return `${sign}$${abs.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`;
+  }
+  return `${sign}$${abs.toFixed(4)}`;
+}
+
+function formatUsdPlain(value: number): string {
+  if (!isFinite(value)) return "-";
+  const abs = Math.abs(value);
+  if (abs >= 1000) {
+    return `$${abs.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`;
+  }
+  return `$${abs.toFixed(4)}`;
+}
+
+function formatDays(value: number): string {
+  if (!isFinite(value) || value < 0) return "never";
+  if (value < 1) return `${(value * 24).toFixed(1)}h`;
+  return `${value.toFixed(1)}d`;
+}
+
 // ---------------------------------------------------------------------------
 // Small components
 // ---------------------------------------------------------------------------
+
+/**
+ * Compute the net funding spread percentage for the next upcoming cycle.
+ *
+ * "next" sums all legs that fire at the same nearest payment time.
+ * Long P&L = −fundingRate; Short P&L = +fundingRate.
+ * Returns { pct: ratio (not *100), label: e.g. "1h+4h" or "8h" }.
+ */
+function computeNextFundingSpread(arb: FundingArbitrage): {
+  pct: number;
+  label: string;
+} {
+  const longAt = new Date(arb.long.next_funding_at).getTime();
+  const shortAt = new Date(arb.short.next_funding_at).getTime();
+
+  const longValid = !isNaN(longAt);
+  const shortValid = !isNaN(shortAt);
+
+  if (!longValid && !shortValid) return { pct: 0, label: "" };
+
+  const longPnl = -(parseFloat(arb.long.funding_rate) || 0);
+  const shortPnl = parseFloat(arb.short.funding_rate) || 0;
+
+  if (!shortValid) {
+    return { pct: longPnl, label: `${arb.long.interval_hours}h` };
+  }
+  if (!longValid) {
+    return { pct: shortPnl, label: `${arb.short.interval_hours}h` };
+  }
+
+  const diff = Math.abs(longAt - shortAt);
+  if (diff <= 60_000) {
+    // Both fire at the same time
+    const intervals = [arb.long.interval_hours, arb.short.interval_hours].sort(
+      (a, b) => a - b
+    );
+    return {
+      pct: longPnl + shortPnl,
+      label: intervals[0] === intervals[1]
+        ? `${intervals[0]}h`
+        : `${intervals[0]}h+${intervals[1]}h`,
+    };
+  }
+
+  // Only the earlier leg fires
+  if (longAt < shortAt) {
+    return { pct: longPnl, label: `${arb.long.interval_hours}h` };
+  }
+  return { pct: shortPnl, label: `${arb.short.interval_hours}h` };
+}
 
 function ExchangeBadge({ exchangeId }: { exchangeId: string }) {
   const colorMap: Record<string, string> = {
@@ -98,48 +187,22 @@ function ExchangeBadge({ exchangeId }: { exchangeId: string }) {
   );
 }
 
-function Countdown({ targetTime }: { targetTime: string }) {
-  const [remaining, setRemaining] = useState("");
-
-  useEffect(() => {
-    function update() {
-      const target = new Date(targetTime).getTime();
-      const now = Date.now();
-      const diff = Math.max(0, Math.floor((target - now) / 1000));
-
-      if (diff === 0) {
-        setRemaining("now");
-        return;
-      }
-
-      const h = Math.floor(diff / 3600);
-      const m = Math.floor((diff % 3600) / 60);
-      const s = diff % 60;
-      setRemaining(
-        `${h}h ${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`
-      );
-    }
-
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, [targetTime]);
-
-  return <span className="font-mono tabular-nums">{remaining}</span>;
-}
-
 // ---------------------------------------------------------------------------
 // Sorting
 // ---------------------------------------------------------------------------
 
-type SortKey = "symbol" | "funding_spread" | "open_spread";
+type SortKey = "symbol" | "funding_spread" | "open_spread" | "sim_pnl";
 
 interface SortState {
   key: SortKey;
   desc: boolean;
 }
 
-function getSortValue(arb: FundingArbitrage, key: SortKey): number | string {
+function getSortValue(
+  arb: FundingArbitrage,
+  key: SortKey,
+  simConfig?: SimulationConfig
+): number | string {
   switch (key) {
     case "symbol":
       return arb.symbol;
@@ -147,16 +210,22 @@ function getSortValue(arb: FundingArbitrage, key: SortKey): number | string {
       return parseFloat(arb.full_loop.net_pct_per_loop) || 0;
     case "open_spread":
       return parseFloat(arb.open_spread) || 0;
+    case "sim_pnl": {
+      if (!simConfig?.enabled) return 0;
+      const sim = computeSimulation(arb, simConfig);
+      return sim.lcmPnL;
+    }
   }
 }
 
 function sortData(
   data: FundingArbitrage[],
-  sort: SortState
+  sort: SortState,
+  simConfig?: SimulationConfig
 ): FundingArbitrage[] {
   const sorted = [...data].sort((a, b) => {
-    const va = getSortValue(a, sort.key);
-    const vb = getSortValue(b, sort.key);
+    const va = getSortValue(a, sort.key, simConfig);
+    const vb = getSortValue(b, sort.key, simConfig);
     if (typeof va === "string" && typeof vb === "string") {
       return va.localeCompare(vb);
     }
@@ -199,7 +268,13 @@ function SortButton({
 // Expanded detail row (shown on click)
 // ---------------------------------------------------------------------------
 
-function ExpandedRow({ arb }: { arb: FundingArbitrage }) {
+function ExpandedRow({
+  arb,
+  sim,
+}: {
+  arb: FundingArbitrage;
+  sim: SimulationResult | null;
+}) {
   const payments = arb.full_loop.payments ?? [];
 
   return (
@@ -282,24 +357,39 @@ function ExpandedRow({ arb }: { arb: FundingArbitrage }) {
         <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
           Fee breakdown
         </div>
-        <div className="flex items-center gap-6 text-xs">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
           <div>
             <span className="text-muted-foreground">Open: </span>
             <span className="font-mono tabular-nums">
               {formatPct(arb.fees.open_fees_pct)}
             </span>
+            {sim && (
+              <span className="ml-1 text-muted-foreground font-mono tabular-nums">
+                ({formatUsdPlain(sim.entryCost)})
+              </span>
+            )}
           </div>
           <div>
             <span className="text-muted-foreground">Close: </span>
             <span className="font-mono tabular-nums">
               {formatPct(arb.fees.close_fees_pct)}
             </span>
+            {sim && (
+              <span className="ml-1 text-muted-foreground font-mono tabular-nums">
+                ({formatUsdPlain(sim.exitCost)})
+              </span>
+            )}
           </div>
           <div>
             <span className="text-muted-foreground">Round-trip: </span>
             <span className="font-mono tabular-nums">
               {formatPct(arb.fees.round_trip_fees_pct)}
             </span>
+            {sim && (
+              <span className="ml-1 text-muted-foreground font-mono tabular-nums">
+                ({formatUsdPlain(sim.totalCost)})
+              </span>
+            )}
           </div>
           <div>
             <span className="text-muted-foreground">Net APR after fees: </span>
@@ -317,6 +407,55 @@ function ExpandedRow({ arb }: { arb: FundingArbitrage }) {
         </div>
       </div>
 
+      {/* Simulation summary */}
+      {sim && (
+        <div className="space-y-1">
+          <div className="text-[0.625rem] font-medium uppercase tracking-wider text-violet-600 dark:text-violet-400">
+            Simulation
+          </div>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
+            <div>
+              <span className="text-muted-foreground">Capital: </span>
+              <span className="font-mono tabular-nums">
+                {formatUsdPlain(sim.capital)}
+              </span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Funding/day: </span>
+              <span
+                className={cn(
+                  "font-mono tabular-nums",
+                  sim.funding24h >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                )}
+              >
+                {formatUsd(sim.funding24h)}
+              </span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Funding/8h: </span>
+              <span
+                className={cn(
+                  "font-mono tabular-nums",
+                  sim.funding8h >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                )}
+              >
+                {formatUsd(sim.funding8h)}
+              </span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Breakeven: </span>
+              <span className="font-mono tabular-nums">
+                {formatDays(sim.breakevenDays)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Full loop payment schedule */}
       {payments.length > 0 && (
         <div className="space-y-1.5">
@@ -333,6 +472,13 @@ function ExpandedRow({ arb }: { arb: FundingArbitrage }) {
             >
               {formatRate(arb.full_loop.net_pct_per_loop)}
             </span>
+            {sim && (
+              <span className="ml-1 text-muted-foreground font-mono">
+                ({formatUsd(
+                  parseFloat(arb.full_loop.net_pct_per_loop) * sim.positionSize
+                )})
+              </span>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="text-xs">
@@ -344,12 +490,16 @@ function ExpandedRow({ arb }: { arb: FundingArbitrage }) {
                   <th className="pr-3 pb-1 text-right font-medium">Rate</th>
                   <th className="pr-3 pb-1 text-right font-medium">P&L</th>
                   <th className="pb-1 text-right font-medium">Cumulative</th>
+                  {sim && (
+                    <th className="pl-3 pb-1 text-right font-medium">$ P&L</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {payments.map((p, i) => {
                   const cum = parseFloat(p.cumulative);
                   const pnl = parseFloat(p.payment_pct);
+                  const posSize = sim ? sim.positionSize : 0;
                   return (
                     <tr key={i} className="border-t border-border/30">
                       <td className="pr-3 py-0.5 font-mono tabular-nums">
@@ -384,6 +534,18 @@ function ExpandedRow({ arb }: { arb: FundingArbitrage }) {
                       >
                         {formatRate(p.cumulative)}
                       </td>
+                      {sim && (
+                        <td
+                          className={cn(
+                            "pl-3 py-0.5 text-right font-mono tabular-nums",
+                            pnl >= 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-red-600 dark:text-red-400"
+                          )}
+                        >
+                          {formatUsd(pnl * posSize)}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -400,22 +562,26 @@ function ExpandedRow({ arb }: { arb: FundingArbitrage }) {
 // Two-line data row (rendered inside its own <tbody> for group hover)
 // ---------------------------------------------------------------------------
 
-const COL_COUNT = 5;
-
 function DataRowPair({
   arb,
   isExpanded,
   onToggle,
+  sim,
 }: {
   arb: FundingArbitrage;
   isExpanded: boolean;
   onToggle: () => void;
+  sim: SimulationResult | null;
 }) {
-  const fundingSpreadVal = parseFloat(arb.full_loop.net_pct_per_loop) * 100;
-  const upcomingVal = parseFloat(arb.next_payment.payment_pct) * 100;
+  const lcmVal = parseFloat(arb.full_loop.net_pct_per_loop) * 100;
+  const nextSpread = computeNextFundingSpread(arb);
+  const nextVal = nextSpread.pct * 100;
+  const rate24hVal = (parseFloat(arb.net_rate_8h) || 0) * 3 * 100;
 
   const longRate = parseFloat(arb.long.funding_rate) * 100;
   const shortRate = parseFloat(arb.short.funding_rate) * 100;
+
+  const colCount = sim ? 6 : 5;
 
   return (
     <tbody
@@ -435,7 +601,7 @@ function DataRowPair({
           {arb.symbol}
         </td>
 
-        {/* Pair: Long — direction, exchange, price (right-aligned) */}
+        {/* Pair: Long */}
         <td className="p-2 align-middle whitespace-nowrap">
           <div className="flex items-center gap-1.5">
             <span className="inline-flex items-center justify-center h-4 w-4 rounded-sm bg-emerald-600 dark:bg-emerald-500 shrink-0">
@@ -472,26 +638,42 @@ function DataRowPair({
           </div>
         </td>
 
-        {/* Funding Spread — spans both lines, two labeled rows */}
-        <td
-          className="p-2 align-middle whitespace-nowrap"
-          rowSpan={2}
-        >
+        {/* Funding Spread — spans both lines */}
+        <td className="p-2 align-middle whitespace-nowrap" rowSpan={2}>
           <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider w-12">
+                next
+              </span>
+              <span
+                className={cn(
+                  "font-mono tabular-nums font-medium",
+                  nextVal >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                )}
+              >
+                {nextVal >= 0 ? "+" : ""}
+                {nextVal.toFixed(4)}%
+              </span>
+              <span className="text-[0.625rem] text-muted-foreground">
+                {nextSpread.label}
+              </span>
+            </div>
             <div className="flex items-center gap-1.5">
               <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider w-12">
                 lcm
               </span>
               <span
                 className={cn(
-                  "font-mono tabular-nums font-medium",
-                  fundingSpreadVal >= 0
+                  "font-mono tabular-nums",
+                  lcmVal >= 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-red-600 dark:text-red-400"
                 )}
               >
-                {fundingSpreadVal >= 0 ? "+" : ""}
-                {fundingSpreadVal.toFixed(4)}%
+                {lcmVal >= 0 ? "+" : ""}
+                {lcmVal.toFixed(4)}%
               </span>
               <span className="text-[0.625rem] text-muted-foreground">
                 {arb.full_loop.duration_hours}h
@@ -499,42 +681,87 @@ function DataRowPair({
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider w-12">
-                next
+                24h
               </span>
               <span
                 className={cn(
                   "font-mono tabular-nums",
-                  upcomingVal >= 0
+                  rate24hVal >= 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-red-600 dark:text-red-400"
                 )}
               >
-                {upcomingVal >= 0 ? "+" : ""}
-                {upcomingVal.toFixed(4)}%
-              </span>
-              <span className="text-[0.625rem] text-muted-foreground">
-                {arb.next_payment.side === "long"
-                  ? arb.long.interval_hours
-                  : arb.short.interval_hours}h
+                {rate24hVal >= 0 ? "+" : ""}
+                {rate24hVal.toFixed(4)}%
               </span>
             </div>
           </div>
         </td>
 
         {/* Open Spread — spans both lines */}
-        <td
-          className="p-2 align-middle whitespace-nowrap"
-          rowSpan={2}
-        >
+        <td className="p-2 align-middle whitespace-nowrap" rowSpan={2}>
           <span className="font-mono tabular-nums text-muted-foreground">
             {formatPct(arb.open_spread)}
           </span>
         </td>
+
+        {/* Simulation P&L column: next / lcm / 24h — spans both lines */}
+        {sim && (
+          <td className="p-2 align-middle whitespace-nowrap" rowSpan={2}>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider w-12">
+                  next
+                </span>
+                <span
+                  className={cn(
+                    "font-mono tabular-nums font-medium",
+                    sim.nextPnL >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {formatUsd(sim.nextPnL)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider w-12">
+                  lcm
+                </span>
+                <span
+                  className={cn(
+                    "font-mono tabular-nums",
+                    sim.lcmPnL >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {formatUsd(sim.lcmPnL)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider w-12">
+                  24h
+                </span>
+                <span
+                  className={cn(
+                    "font-mono tabular-nums",
+                    sim.pnl24h >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {formatUsd(sim.pnl24h)}
+                </span>
+              </div>
+            </div>
+          </td>
+        )}
       </tr>
 
       {/* Line 2: Short leg */}
       <tr>
-        {/* Pair: Short — direction, exchange, price (right-aligned) */}
+        {/* Pair: Short */}
         <td className="p-2 align-middle whitespace-nowrap">
           <div className="flex items-center gap-1.5">
             <span className="inline-flex items-center justify-center h-4 w-4 rounded-sm bg-red-600 dark:bg-red-500 shrink-0">
@@ -575,14 +802,20 @@ function DataRowPair({
       {/* Expanded detail row */}
       {isExpanded && (
         <tr>
-          <td colSpan={COL_COUNT} className="p-0">
-            <ExpandedRow arb={arb} />
+          <td colSpan={colCount} className="p-0">
+            <ExpandedRow arb={arb} sim={sim} />
           </td>
         </tr>
       )}
     </tbody>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Toolbar panel state — only one can be open at a time
+// ---------------------------------------------------------------------------
+
+type ToolbarPanel = "none" | "filters" | "simulation";
 
 // ---------------------------------------------------------------------------
 // Main table component
@@ -594,6 +827,7 @@ export function ArbitrageTable() {
     desc: true,
   });
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [openPanel, setOpenPanel] = useState<ToolbarPanel>("none");
 
   const {
     symbols,
@@ -621,6 +855,26 @@ export function ArbitrageTable() {
     filterData,
   } = useArbitrageFilters();
 
+  const simulation = useSimulation();
+
+  const simConfig = useMemo<SimulationConfig | undefined>(
+    () =>
+      simulation.enabled
+        ? {
+            enabled: simulation.enabled,
+            positionSize: simulation.positionSize,
+            leverage: simulation.leverage,
+            slippagePct: simulation.slippagePct,
+          }
+        : undefined,
+    [
+      simulation.enabled,
+      simulation.positionSize,
+      simulation.leverage,
+      simulation.slippagePct,
+    ]
+  );
+
   const {
     data: arbitrages,
     isLoading,
@@ -636,8 +890,8 @@ export function ArbitrageTable() {
   );
 
   const sortedData = useMemo(
-    () => sortData(filteredData, sort),
-    [filteredData, sort]
+    () => sortData(filteredData, sort, simConfig),
+    [filteredData, sort, simConfig]
   );
 
   const availableSymbols = useMemo(() => {
@@ -655,15 +909,12 @@ export function ArbitrageTable() {
     return [...set].sort();
   }, [arbitrages]);
 
-  const toggleSort = useCallback(
-    (key: SortKey) => {
-      setSort((prev) => ({
-        key,
-        desc: prev.key === key ? !prev.desc : true,
-      }));
-    },
-    []
-  );
+  const toggleSort = useCallback((key: SortKey) => {
+    setSort((prev) => ({
+      key,
+      desc: prev.key === key ? !prev.desc : true,
+    }));
+  }, []);
 
   const toggleRow = useCallback((symbol: string) => {
     setExpandedRows((prev) => {
@@ -676,6 +927,12 @@ export function ArbitrageTable() {
       return next;
     });
   }, []);
+
+  const togglePanel = useCallback((panel: "filters" | "simulation") => {
+    setOpenPanel((prev) => (prev === panel ? "none" : panel));
+  }, []);
+
+  const colCount = simulation.enabled ? 6 : 5;
 
   if (error) {
     return (
@@ -711,36 +968,143 @@ export function ArbitrageTable() {
         )}
       </div>
 
-      <FilterBar
-        filters={{
-          symbols,
-          exchanges,
-          volumeMin,
-          volumeMax,
-          spreadMin,
-          spreadMax,
-          fundingSpreadMin,
-          fundingSpreadMax,
-          fundingLoopMin,
-          fundingLoopMax,
-        }}
-        actions={{
-          setSymbols,
-          setExchanges,
-          setVolumeMin,
-          setVolumeMax,
-          setSpreadMin,
-          setSpreadMax,
-          setFundingSpreadMin,
-          setFundingSpreadMax,
-          setFundingLoopMin,
-          setFundingLoopMax,
-          clearAll,
-        }}
-        activeFilterCount={activeFilterCount}
-        availableSymbols={availableSymbols}
-        availableExchanges={availableExchanges}
-      />
+      {/* Unified toolbar: Filters + Simulation buttons on the same row */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          {/* Filters button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-7 gap-1.5 text-xs",
+              activeFilterCount > 0 && "border-primary/40 bg-primary/5 text-primary"
+            )}
+            onClick={() => togglePanel("filters")}
+          >
+            <SlidersHorizontal className="h-3 w-3" />
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge
+                variant="default"
+                className="ml-0.5 h-4 min-w-4 px-1 text-[0.5rem]"
+              >
+                {activeFilterCount}
+              </Badge>
+            )}
+            {openPanel === "filters" ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : (
+              <ChevronDown className="h-3 w-3" />
+            )}
+          </Button>
+
+          {activeFilterCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs text-muted-foreground"
+              onClick={clearAll}
+            >
+              <RotateCcw className="h-3 w-3" />
+              Clear all
+            </Button>
+          )}
+
+          {/* Simulation button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-7 gap-1.5 text-xs",
+              simulation.enabled &&
+                "border-violet-500/40 bg-violet-500/5 text-violet-600 dark:text-violet-400"
+            )}
+            onClick={() => togglePanel("simulation")}
+          >
+            <Calculator className="h-3 w-3" />
+            Simulation
+            {simulation.enabled && (
+              <Badge
+                className="ml-0.5 h-4 min-w-4 border-violet-500/30 bg-violet-500/10 px-1.5 text-[0.5rem] text-violet-600 dark:text-violet-400"
+                variant="outline"
+              >
+                {simulation.summary}
+              </Badge>
+            )}
+            {openPanel === "simulation" ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : (
+              <ChevronDown className="h-3 w-3" />
+            )}
+          </Button>
+
+          {simulation.enabled && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs text-muted-foreground"
+              onClick={() => {
+                simulation.reset();
+                simulation.setEnabled(false);
+              }}
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reset
+            </Button>
+          )}
+        </div>
+
+        {/* Panels — mutually exclusive */}
+        {openPanel === "filters" && (
+          <FilterPanel
+            filters={{
+              symbols,
+              exchanges,
+              volumeMin,
+              volumeMax,
+              spreadMin,
+              spreadMax,
+              fundingSpreadMin,
+              fundingSpreadMax,
+              fundingLoopMin,
+              fundingLoopMax,
+            }}
+            actions={{
+              setSymbols,
+              setExchanges,
+              setVolumeMin,
+              setVolumeMax,
+              setSpreadMin,
+              setSpreadMax,
+              setFundingSpreadMin,
+              setFundingSpreadMax,
+              setFundingLoopMin,
+              setFundingLoopMax,
+              clearAll,
+            }}
+            availableSymbols={availableSymbols}
+            availableExchanges={availableExchanges}
+          />
+        )}
+
+        {openPanel === "simulation" && (
+          <SimulationPanel
+            config={{
+              enabled: simulation.enabled,
+              positionSize: simulation.positionSize,
+              leverage: simulation.leverage,
+              slippagePct: simulation.slippagePct,
+            }}
+            actions={{
+              setEnabled: simulation.setEnabled,
+              setPositionSize: simulation.setPositionSize,
+              setLeverage: simulation.setLeverage,
+              setSlippagePct: simulation.setSlippagePct,
+              reset: simulation.reset,
+            }}
+          />
+        )}
+      </div>
 
       <div className="rounded-lg border">
         <Table>
@@ -772,6 +1136,16 @@ export function ArbitrageTable() {
                   onToggle={toggleSort}
                 />
               </TableHead>
+              {simulation.enabled && (
+                <TableHead className="text-violet-600 dark:text-violet-400">
+                  <SortButton
+                    label="P&L"
+                    sortKey="sim_pnl"
+                    current={sort}
+                    onToggle={toggleSort}
+                  />
+                </TableHead>
+              )}
             </TableRow>
           </TableHeader>
 
@@ -795,6 +1169,11 @@ export function ArbitrageTable() {
                     <TableCell rowSpan={2}>
                       <Skeleton className="h-4 w-16" />
                     </TableCell>
+                    {simulation.enabled && (
+                      <TableCell rowSpan={2}>
+                        <Skeleton className="h-4 w-16" />
+                      </TableCell>
+                    )}
                   </TableRow>
                   <TableRow>
                     <TableCell>
@@ -811,7 +1190,7 @@ export function ArbitrageTable() {
             <TableBody>
               <TableRow>
                 <TableCell
-                  colSpan={COL_COUNT}
+                  colSpan={colCount}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {activeFilterCount > 0
@@ -821,14 +1200,19 @@ export function ArbitrageTable() {
               </TableRow>
             </TableBody>
           ) : (
-            sortedData.map((arb) => (
-              <DataRowPair
-                key={arb.symbol}
-                arb={arb}
-                isExpanded={expandedRows.has(arb.symbol)}
-                onToggle={() => toggleRow(arb.symbol)}
-              />
-            ))
+            sortedData.map((arb) => {
+              const simResult =
+                simConfig ? computeSimulation(arb, simConfig) : null;
+              return (
+                <DataRowPair
+                  key={arb.symbol}
+                  arb={arb}
+                  isExpanded={expandedRows.has(arb.symbol)}
+                  onToggle={() => toggleRow(arb.symbol)}
+                  sim={simResult}
+                />
+              );
+            })
           )}
         </Table>
       </div>

@@ -3,8 +3,7 @@
 import { useState, useCallback, useRef, useEffect, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { X, SlidersHorizontal, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { X } from "lucide-react";
 import type { ArbitrageFilters, ArbitrageFiltersActions } from "@/hooks/use-arbitrage-filters";
 
 // ---------------------------------------------------------------------------
@@ -227,147 +226,97 @@ function RangeInput({
 }
 
 // ---------------------------------------------------------------------------
-// Filter Bar
+// Filter Panel (content only, toggle is in parent)
 // ---------------------------------------------------------------------------
 
-interface FilterBarProps {
+interface FilterPanelProps {
   filters: ArbitrageFilters;
   actions: ArbitrageFiltersActions;
-  activeFilterCount: number;
   availableSymbols: string[];
   availableExchanges: string[];
 }
 
-export function FilterBar({
+export function FilterPanel({
   filters,
   actions,
-  activeFilterCount,
   availableSymbols,
   availableExchanges,
-}: FilterBarProps) {
-  const [expanded, setExpanded] = useState(() => activeFilterCount > 0);
-
+}: FilterPanelProps) {
   return (
-    <div className="space-y-2">
-      {/* Toggle row */}
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
+    <div className="grid gap-3 rounded-lg border bg-card/50 p-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Symbol tags */}
+      <div className="space-y-1">
+        <label
           className={cn(
-            "h-7 gap-1.5 text-xs",
-            activeFilterCount > 0 && "border-primary/40 bg-primary/5 text-primary"
+            "text-[0.625rem] font-medium uppercase tracking-wider",
+            filters.symbols.length > 0 ? "text-foreground" : "text-muted-foreground"
           )}
-          onClick={() => setExpanded((prev) => !prev)}
         >
-          <SlidersHorizontal className="h-3 w-3" />
-          Filters
-          {activeFilterCount > 0 && (
-            <Badge
-              variant="default"
-              className="ml-0.5 h-4 min-w-4 px-1 text-[0.5rem]"
-            >
-              {activeFilterCount}
-            </Badge>
-          )}
-          {expanded ? (
-            <ChevronUp className="h-3 w-3" />
-          ) : (
-            <ChevronDown className="h-3 w-3" />
-          )}
-        </Button>
-
-        {activeFilterCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 text-xs text-muted-foreground"
-            onClick={actions.clearAll}
-          >
-            <RotateCcw className="h-3 w-3" />
-            Clear all
-          </Button>
-        )}
+          Symbol
+        </label>
+        <TagInput
+          tags={filters.symbols}
+          onChange={actions.setSymbols}
+          placeholder="Type symbol, press Enter..."
+          suggestions={availableSymbols}
+        />
       </div>
 
-      {/* Filter controls */}
-      {expanded && (
-        <div className="grid gap-3 rounded-lg border bg-card/50 p-3 sm:grid-cols-2 lg:grid-cols-3">
-          {/* Symbol tags */}
-          <div className="space-y-1">
-            <label
-              className={cn(
-                "text-[0.625rem] font-medium uppercase tracking-wider",
-                filters.symbols.length > 0 ? "text-foreground" : "text-muted-foreground"
-              )}
-            >
-              Symbol
-            </label>
-            <TagInput
-              tags={filters.symbols}
-              onChange={actions.setSymbols}
-              placeholder="Type symbol, press Enter..."
-              suggestions={availableSymbols}
-            />
-          </div>
+      {/* Exchange tags */}
+      <div className="space-y-1">
+        <label
+          className={cn(
+            "text-[0.625rem] font-medium uppercase tracking-wider",
+            filters.exchanges.length > 0 ? "text-foreground" : "text-muted-foreground"
+          )}
+        >
+          Exchange
+        </label>
+        <TagInput
+          tags={filters.exchanges}
+          onChange={actions.setExchanges}
+          placeholder="Type exchange, press Enter..."
+          suggestions={availableExchanges}
+        />
+      </div>
 
-          {/* Exchange tags */}
-          <div className="space-y-1">
-            <label
-              className={cn(
-                "text-[0.625rem] font-medium uppercase tracking-wider",
-                filters.exchanges.length > 0 ? "text-foreground" : "text-muted-foreground"
-              )}
-            >
-              Exchange
-            </label>
-            <TagInput
-              tags={filters.exchanges}
-              onChange={actions.setExchanges}
-              placeholder="Type exchange, press Enter..."
-              suggestions={availableExchanges}
-            />
-          </div>
+      {/* Volume range */}
+      <RangeInput
+        label="Min Leg Volume 24h, M"
+        minValue={filters.volumeMin}
+        maxValue={filters.volumeMax}
+        onMinChange={actions.setVolumeMin}
+        onMaxChange={actions.setVolumeMax}
+        minPlaceholder="0"
+        maxPlaceholder="No limit"
+      />
 
-          {/* Volume range */}
-          <RangeInput
-            label="Min Leg Volume 24h, M"
-            minValue={filters.volumeMin}
-            maxValue={filters.volumeMax}
-            onMinChange={actions.setVolumeMin}
-            onMaxChange={actions.setVolumeMax}
-            minPlaceholder="0"
-            maxPlaceholder="No limit"
-          />
+      {/* Open spread range */}
+      <RangeInput
+        label="Open Spread, %"
+        minValue={filters.spreadMin}
+        maxValue={filters.spreadMax}
+        onMinChange={actions.setSpreadMin}
+        onMaxChange={actions.setSpreadMax}
+      />
 
-          {/* Open spread range */}
-          <RangeInput
-            label="Open Spread, %"
-            minValue={filters.spreadMin}
-            maxValue={filters.spreadMax}
-            onMinChange={actions.setSpreadMin}
-            onMaxChange={actions.setSpreadMax}
-          />
+      {/* Funding spread (8h net rate) */}
+      <RangeInput
+        label="Funding Spread (8h), %"
+        minValue={filters.fundingSpreadMin}
+        maxValue={filters.fundingSpreadMax}
+        onMinChange={actions.setFundingSpreadMin}
+        onMaxChange={actions.setFundingSpreadMax}
+      />
 
-          {/* Funding spread (8h net rate) */}
-          <RangeInput
-            label="Funding Spread (8h), %"
-            minValue={filters.fundingSpreadMin}
-            maxValue={filters.fundingSpreadMax}
-            onMinChange={actions.setFundingSpreadMin}
-            onMaxChange={actions.setFundingSpreadMax}
-          />
-
-          {/* Full loop net */}
-          <RangeInput
-            label="Full Loop Net, %"
-            minValue={filters.fundingLoopMin}
-            maxValue={filters.fundingLoopMax}
-            onMinChange={actions.setFundingLoopMin}
-            onMaxChange={actions.setFundingLoopMax}
-          />
-        </div>
-      )}
+      {/* Full loop net */}
+      <RangeInput
+        label="Full Loop Net, %"
+        minValue={filters.fundingLoopMin}
+        maxValue={filters.fundingLoopMax}
+        onMinChange={actions.setFundingLoopMin}
+        onMaxChange={actions.setFundingLoopMax}
+      />
     </div>
   );
 }
