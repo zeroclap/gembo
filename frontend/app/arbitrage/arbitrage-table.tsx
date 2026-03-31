@@ -277,283 +277,285 @@ function ExpandedRow({
 }) {
   const payments = arb.full_loop.payments ?? [];
 
+  const detailRows: {
+    label: string;
+    long: React.ReactNode;
+    short: React.ReactNode;
+    section?: string;
+  }[] = [
+    {
+      label: "Exchange",
+      long: <ExchangeBadge exchangeId={arb.long.exchange_id} />,
+      short: <ExchangeBadge exchangeId={arb.short.exchange_id} />,
+    },
+    {
+      label: "Bid / Ask",
+      long: `${formatPrice(arb.long.bid)} / ${formatPrice(arb.long.ask)}`,
+      short: `${formatPrice(arb.short.bid)} / ${formatPrice(arb.short.ask)}`,
+    },
+    {
+      label: "Mark",
+      long: formatPrice(arb.long.mark_price),
+      short: formatPrice(arb.short.mark_price),
+    },
+    {
+      label: "Index",
+      long: formatPrice(arb.long.index_price),
+      short: formatPrice(arb.short.index_price),
+    },
+    {
+      label: "Volume 24h",
+      long: formatVolume(arb.long.volume_24h),
+      short: formatVolume(arb.short.volume_24h),
+    },
+    {
+      label: "Taker fee",
+      long: `${arb.long.taker_fee_pct}%`,
+      short: `${arb.short.taker_fee_pct}%`,
+    },
+    {
+      label: "Rate 8h",
+      long: formatRate(arb.long.rate_8h),
+      short: formatRate(arb.short.rate_8h),
+    },
+  ];
+
   return (
-    <div className="border-t bg-muted/30 px-4 py-3 space-y-3">
-      {/* Leg details */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Long leg */}
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-            <TrendingUp className="h-3 w-3 text-emerald-500" />
-            Long
-            <ExchangeBadge exchangeId={arb.long.exchange_id} />
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
-            <span className="text-muted-foreground">Bid / Ask</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatPrice(arb.long.bid)} / {formatPrice(arb.long.ask)}
-            </span>
-            <span className="text-muted-foreground">Mark</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatPrice(arb.long.mark_price)}
-            </span>
-            <span className="text-muted-foreground">Index</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatPrice(arb.long.index_price)}
-            </span>
-            <span className="text-muted-foreground">Volume 24h</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatVolume(arb.long.volume_24h)}
-            </span>
-            <span className="text-muted-foreground">Taker fee</span>
-            <span className="font-mono tabular-nums text-right">
-              {arb.long.taker_fee_pct}%
-            </span>
-            <span className="text-muted-foreground">Rate 8h</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatRate(arb.long.rate_8h)}
-            </span>
-          </div>
-        </div>
-
-        {/* Short leg */}
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-            <TrendingDown className="h-3 w-3 text-red-500" />
-            Short
-            <ExchangeBadge exchangeId={arb.short.exchange_id} />
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
-            <span className="text-muted-foreground">Bid / Ask</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatPrice(arb.short.bid)} / {formatPrice(arb.short.ask)}
-            </span>
-            <span className="text-muted-foreground">Mark</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatPrice(arb.short.mark_price)}
-            </span>
-            <span className="text-muted-foreground">Index</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatPrice(arb.short.index_price)}
-            </span>
-            <span className="text-muted-foreground">Volume 24h</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatVolume(arb.short.volume_24h)}
-            </span>
-            <span className="text-muted-foreground">Taker fee</span>
-            <span className="font-mono tabular-nums text-right">
-              {arb.short.taker_fee_pct}%
-            </span>
-            <span className="text-muted-foreground">Rate 8h</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatRate(arb.short.rate_8h)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Fees summary */}
-      <div className="space-y-1">
-        <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-          Fee breakdown
-        </div>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
-          <div>
-            <span className="text-muted-foreground">Open: </span>
-            <span className="font-mono tabular-nums">
-              {formatPct(arb.fees.open_fees_pct)}
-            </span>
-            {sim && (
-              <span className="ml-1 text-muted-foreground font-mono tabular-nums">
-                ({formatUsdPlain(sim.entryCost)})
-              </span>
-            )}
-          </div>
-          <div>
-            <span className="text-muted-foreground">Close: </span>
-            <span className="font-mono tabular-nums">
-              {formatPct(arb.fees.close_fees_pct)}
-            </span>
-            {sim && (
-              <span className="ml-1 text-muted-foreground font-mono tabular-nums">
-                ({formatUsdPlain(sim.exitCost)})
-              </span>
-            )}
-          </div>
-          <div>
-            <span className="text-muted-foreground">Round-trip: </span>
-            <span className="font-mono tabular-nums">
-              {formatPct(arb.fees.round_trip_fees_pct)}
-            </span>
-            {sim && (
-              <span className="ml-1 text-muted-foreground font-mono tabular-nums">
-                ({formatUsdPlain(sim.totalCost)})
-              </span>
-            )}
-          </div>
-          <div>
-            <span className="text-muted-foreground">Net APR after fees: </span>
-            <span
-              className={cn(
-                "font-mono tabular-nums font-medium",
-                parseFloat(arb.fees.net_apr_after_fees) >= 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-red-600 dark:text-red-400"
-              )}
-            >
-              {formatAPR(arb.fees.net_apr_after_fees)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Simulation summary */}
-      {sim && (
-        <div className="space-y-1">
-          <div className="text-[0.625rem] font-medium uppercase tracking-wider text-violet-600 dark:text-violet-400">
-            Simulation
-          </div>
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
-            <div>
-              <span className="text-muted-foreground">Capital: </span>
-              <span className="font-mono tabular-nums">
-                {formatUsdPlain(sim.capital)}
-              </span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Funding/day: </span>
-              <span
-                className={cn(
-                  "font-mono tabular-nums",
-                  sim.funding24h >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-red-600 dark:text-red-400"
-                )}
-              >
-                {formatUsd(sim.funding24h)}
-              </span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Funding/8h: </span>
-              <span
-                className={cn(
-                  "font-mono tabular-nums",
-                  sim.funding8h >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-red-600 dark:text-red-400"
-                )}
-              >
-                {formatUsd(sim.funding8h)}
-              </span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Breakeven: </span>
-              <span className="font-mono tabular-nums">
-                {formatDays(sim.breakevenDays)}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Full loop payment schedule */}
-      {payments.length > 0 && (
-        <div className="space-y-1.5">
-          <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-            Full loop ({arb.full_loop.duration_hours}h) &mdash;{" "}
-            {payments.length} payments &mdash; Net:{" "}
-            <span
-              className={cn(
-                "font-mono",
-                parseFloat(arb.full_loop.net_pct_per_loop) >= 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-red-600 dark:text-red-400"
-              )}
-            >
-              {formatRate(arb.full_loop.net_pct_per_loop)}
-            </span>
-            {sim && (
-              <span className="ml-1 text-muted-foreground font-mono">
-                ({formatUsd(
-                  parseFloat(arb.full_loop.net_pct_per_loop) * sim.positionSize
-                )})
-              </span>
-            )}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="text-xs">
-              <thead>
-                <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                  <th className="pr-3 pb-1 text-left font-medium">Hour</th>
-                  <th className="pr-3 pb-1 text-left font-medium">Exchange</th>
-                  <th className="pr-3 pb-1 text-left font-medium">Side</th>
-                  <th className="pr-3 pb-1 text-right font-medium">Rate</th>
-                  <th className="pr-3 pb-1 text-right font-medium">P&L</th>
-                  <th className="pb-1 text-right font-medium">Cumulative</th>
-                  {sim && (
-                    <th className="pl-3 pb-1 text-right font-medium">$ P&L</th>
-                  )}
+    <div className="border-t bg-muted/50 dark:bg-muted/40 px-4 py-3">
+      <div className="flex gap-6">
+        {/* Left: comparison table */}
+        <div className="min-w-0 shrink-0">
+          <table className="text-xs">
+            <thead>
+              <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                <th className="pr-4 pb-1 text-left font-medium" />
+                <th className="pr-4 pb-1 text-right font-medium">
+                  <span className="inline-flex items-center gap-1">
+                    <TrendingUp className="h-3 w-3 text-emerald-500" />
+                    Long
+                  </span>
+                </th>
+                <th className="pb-1 text-right font-medium">
+                  <span className="inline-flex items-center gap-1">
+                    <TrendingDown className="h-3 w-3 text-red-500" />
+                    Short
+                  </span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {detailRows.map((row) => (
+                <tr key={row.label} className="border-t border-border/30">
+                  <td className="pr-4 py-0.5 text-muted-foreground whitespace-nowrap">
+                    {row.label}
+                  </td>
+                  <td className="pr-4 py-0.5 text-right font-mono tabular-nums whitespace-nowrap">
+                    {row.long}
+                  </td>
+                  <td className="py-0.5 text-right font-mono tabular-nums whitespace-nowrap">
+                    {row.short}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {payments.map((p, i) => {
-                  const cum = parseFloat(p.cumulative);
-                  const pnl = parseFloat(p.payment_pct);
-                  const posSize = sim ? sim.positionSize : 0;
-                  return (
-                    <tr key={i} className="border-t border-border/30">
-                      <td className="pr-3 py-0.5 font-mono tabular-nums">
-                        {p.at_hour}h
-                      </td>
-                      <td className="pr-3 py-0.5">
-                        <ExchangeBadge exchangeId={p.exchange_id} />
-                      </td>
-                      <td className="pr-3 py-0.5 text-muted-foreground">
-                        {p.side}
-                      </td>
-                      <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
-                        {formatRate(p.rate)}
-                      </td>
-                      <td
-                        className={cn(
-                          "pr-3 py-0.5 text-right font-mono tabular-nums",
-                          pnl >= 0
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-red-600 dark:text-red-400"
-                        )}
-                      >
-                        {formatRate(p.payment_pct)}
-                      </td>
-                      <td
-                        className={cn(
-                          "py-0.5 text-right font-mono tabular-nums font-medium",
-                          cum >= 0
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-red-600 dark:text-red-400"
-                        )}
-                      >
-                        {formatRate(p.cumulative)}
-                      </td>
-                      {sim && (
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Center: fees & simulation (vertical) */}
+        <div className="min-w-0 shrink-0 mx-auto space-y-3 border-l border-border/40 pl-6">
+          {/* Fee breakdown */}
+          <div className="space-y-1">
+            <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+              Fee breakdown
+            </div>
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+              <span className="text-muted-foreground">Open</span>
+              <span className="font-mono tabular-nums text-right whitespace-nowrap">
+                {formatPct(arb.fees.open_fees_pct)}
+                {sim && (
+                  <span className="ml-1 text-muted-foreground">
+                    ({formatUsdPlain(sim.entryCost)})
+                  </span>
+                )}
+              </span>
+              <span className="text-muted-foreground">Close</span>
+              <span className="font-mono tabular-nums text-right whitespace-nowrap">
+                {formatPct(arb.fees.close_fees_pct)}
+                {sim && (
+                  <span className="ml-1 text-muted-foreground">
+                    ({formatUsdPlain(sim.exitCost)})
+                  </span>
+                )}
+              </span>
+              <span className="text-muted-foreground">Round-trip</span>
+              <span className="font-mono tabular-nums text-right whitespace-nowrap">
+                {formatPct(arb.fees.round_trip_fees_pct)}
+                {sim && (
+                  <span className="ml-1 text-muted-foreground">
+                    ({formatUsdPlain(sim.totalCost)})
+                  </span>
+                )}
+              </span>
+              <span className="text-muted-foreground">Net APR</span>
+              <span
+                className={cn(
+                  "font-mono tabular-nums font-medium text-right",
+                  parseFloat(arb.fees.net_apr_after_fees) >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                )}
+              >
+                {formatAPR(arb.fees.net_apr_after_fees)}
+              </span>
+            </div>
+          </div>
+
+          {/* Simulation */}
+          {sim && (
+            <div className="space-y-1">
+              <div className="text-[0.625rem] font-medium uppercase tracking-wider text-violet-600 dark:text-violet-400">
+                Simulation
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                <span className="text-muted-foreground">Capital</span>
+                <span className="font-mono tabular-nums text-right">
+                  {formatUsdPlain(sim.capital)}
+                </span>
+                <span className="text-muted-foreground">Funding/day</span>
+                <span
+                  className={cn(
+                    "font-mono tabular-nums text-right",
+                    sim.funding24h >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {formatUsd(sim.funding24h)}
+                </span>
+                <span className="text-muted-foreground">Funding/8h</span>
+                <span
+                  className={cn(
+                    "font-mono tabular-nums text-right",
+                    sim.funding8h >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {formatUsd(sim.funding8h)}
+                </span>
+                <span className="text-muted-foreground">Breakeven</span>
+                <span className="font-mono tabular-nums text-right">
+                  {formatDays(sim.breakevenDays)}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right: full loop payment schedule */}
+        {payments.length > 0 && (
+          <div className="min-w-0 ml-auto shrink-0 space-y-1.5 border-l border-border/40 pl-6">
+            <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+              Full loop ({arb.full_loop.duration_hours}h) &mdash;{" "}
+              {payments.length} payments &mdash; Net:{" "}
+              <span
+                className={cn(
+                  "font-mono",
+                  parseFloat(arb.full_loop.net_pct_per_loop) >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                )}
+              >
+                {formatRate(arb.full_loop.net_pct_per_loop)}
+              </span>
+              {sim && (
+                <span className="ml-1 text-muted-foreground font-mono">
+                  ({formatUsd(
+                    parseFloat(arb.full_loop.net_pct_per_loop) *
+                      sim.positionSize
+                  )})
+                </span>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="text-xs">
+                <thead>
+                  <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                    <th className="pr-3 pb-1 text-left font-medium">Hour</th>
+                    <th className="pr-3 pb-1 text-left font-medium">
+                      Exchange
+                    </th>
+                    <th className="pr-3 pb-1 text-left font-medium">Side</th>
+                    <th className="pr-3 pb-1 text-right font-medium">Rate</th>
+                    <th className="pr-3 pb-1 text-right font-medium">P&L</th>
+                    <th className="pb-1 text-right font-medium">Cumulative</th>
+                    {sim && (
+                      <th className="pl-3 pb-1 text-right font-medium">
+                        $ P&L
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((p, i) => {
+                    const cum = parseFloat(p.cumulative);
+                    const pnl = parseFloat(p.payment_pct);
+                    const posSize = sim ? sim.positionSize : 0;
+                    return (
+                      <tr key={i} className="border-t border-border/30">
+                        <td className="pr-3 py-0.5 font-mono tabular-nums">
+                          {p.at_hour}h
+                        </td>
+                        <td className="pr-3 py-0.5">
+                          <ExchangeBadge exchangeId={p.exchange_id} />
+                        </td>
+                        <td className="pr-3 py-0.5 text-muted-foreground">
+                          {p.side}
+                        </td>
+                        <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
+                          {formatRate(p.rate)}
+                        </td>
                         <td
                           className={cn(
-                            "pl-3 py-0.5 text-right font-mono tabular-nums",
+                            "pr-3 py-0.5 text-right font-mono tabular-nums",
                             pnl >= 0
                               ? "text-emerald-600 dark:text-emerald-400"
                               : "text-red-600 dark:text-red-400"
                           )}
                         >
-                          {formatUsd(pnl * posSize)}
+                          {formatRate(p.payment_pct)}
                         </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        <td
+                          className={cn(
+                            "py-0.5 text-right font-mono tabular-nums font-medium",
+                            cum >= 0
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-red-600 dark:text-red-400"
+                          )}
+                        >
+                          {formatRate(p.cumulative)}
+                        </td>
+                        {sim && (
+                          <td
+                            className={cn(
+                              "pl-3 py-0.5 text-right font-mono tabular-nums",
+                              pnl >= 0
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-red-600 dark:text-red-400"
+                            )}
+                          >
+                            {formatUsd(pnl * posSize)}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -647,7 +649,7 @@ function DataRowPair({
               </span>
               <span
                 className={cn(
-                  "font-mono tabular-nums font-medium",
+                  "font-mono tabular-nums",
                   nextVal >= 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-red-600 dark:text-red-400"
@@ -715,7 +717,7 @@ function DataRowPair({
                 </span>
                 <span
                   className={cn(
-                    "font-mono tabular-nums font-medium",
+                    "font-mono tabular-nums",
                     sim.nextPnL >= 0
                       ? "text-emerald-600 dark:text-emerald-400"
                       : "text-red-600 dark:text-red-400"
@@ -863,14 +865,12 @@ export function ArbitrageTable() {
         ? {
             enabled: simulation.enabled,
             positionSize: simulation.positionSize,
-            leverage: simulation.leverage,
             slippagePct: simulation.slippagePct,
           }
         : undefined,
     [
       simulation.enabled,
       simulation.positionSize,
-      simulation.leverage,
       simulation.slippagePct,
     ]
   );
@@ -1092,13 +1092,11 @@ export function ArbitrageTable() {
             config={{
               enabled: simulation.enabled,
               positionSize: simulation.positionSize,
-              leverage: simulation.leverage,
               slippagePct: simulation.slippagePct,
             }}
             actions={{
               setEnabled: simulation.setEnabled,
               setPositionSize: simulation.setPositionSize,
-              setLeverage: simulation.setLeverage,
               setSlippagePct: simulation.setSlippagePct,
               reset: simulation.reset,
             }}

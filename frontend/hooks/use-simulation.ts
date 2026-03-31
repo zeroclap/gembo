@@ -12,21 +12,19 @@ const STORAGE_KEY = "gembo:simulation";
 export interface SimulationConfig {
   enabled: boolean;
   positionSize: string; // USD, e.g. "1000"
-  leverage: string; // "1" | "2"
   slippagePct: string; // e.g. "0.05" (percent)
 }
 
 export interface SimulationActions {
   setEnabled: (enabled: boolean) => void;
   setPositionSize: (value: string) => void;
-  setLeverage: (value: string) => void;
   setSlippagePct: (value: string) => void;
   reset: () => void;
 }
 
 export interface SimulationResult {
   positionSize: number; // full notional value in USD
-  capital: number; // actual capital required (positionSize / leverage)
+  capital: number; // actual capital required
   entryCost: number; // $ cost to open (fees + spread loss + slippage)
   exitCost: number; // $ cost to close (fees + slippage)
   totalCost: number; // entry + exit
@@ -48,7 +46,6 @@ export interface SimulationResult {
 const DEFAULT_CONFIG: SimulationConfig = {
   enabled: false,
   positionSize: "1000",
-  leverage: "1",
   slippagePct: "0.05",
 };
 
@@ -68,10 +65,6 @@ function loadConfig(): SimulationConfig {
         typeof parsed.positionSize === "string"
           ? parsed.positionSize
           : DEFAULT_CONFIG.positionSize,
-      leverage:
-        typeof parsed.leverage === "string"
-          ? parsed.leverage
-          : DEFAULT_CONFIG.leverage,
       slippagePct:
         typeof parsed.slippagePct === "string"
           ? parsed.slippagePct
@@ -138,10 +131,9 @@ export function computeSimulation(
   config: SimulationConfig
 ): SimulationResult {
   const size = parseFloat(config.positionSize) || 0;
-  const leverage = parseFloat(config.leverage) || 1;
   const slippage = parseFloat(config.slippagePct) || 0;
 
-  const capital = size / leverage;
+  const capital = size;
 
   // Entry cost: open spread loss + open fees + slippage on entry
   const openSpreadPct = parseFloat(arb.open_spread) || 0;
@@ -222,10 +214,6 @@ export function useSimulation(): SimulationConfig &
     (v: string) => update({ positionSize: v }),
     [update]
   );
-  const setLeverage = useCallback(
-    (v: string) => update({ leverage: v }),
-    [update]
-  );
   const setSlippagePct = useCallback(
     (v: string) => update({ slippagePct: v }),
     [update]
@@ -234,20 +222,18 @@ export function useSimulation(): SimulationConfig &
 
   const summary = useMemo(() => {
     const size = parseFloat(config.positionSize) || 0;
-    const lev = parseFloat(config.leverage) || 1;
     const formatted =
       size >= 1000
         ? `$${(size / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}K`
         : `$${size.toLocaleString()}`;
-    return lev > 1 ? `${formatted} @ ${lev}x` : formatted;
-  }, [config.positionSize, config.leverage]);
+    return formatted;
+  }, [config.positionSize]);
 
   return {
     ...config,
     summary,
     setEnabled,
     setPositionSize,
-    setLeverage,
     setSlippagePct,
     reset,
   };

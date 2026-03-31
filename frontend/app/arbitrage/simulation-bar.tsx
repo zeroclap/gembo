@@ -13,13 +13,11 @@ import type {
 // ---------------------------------------------------------------------------
 
 const SIZE_PRESETS = [
+  { label: "$1", value: "1" },
+  { label: "$10", value: "10" },
   { label: "$100", value: "100" },
   { label: "$1K", value: "1000" },
-  { label: "$10K", value: "10000" },
-  { label: "$100K", value: "100000" },
 ];
-
-const LEVERAGE_OPTIONS = ["1", "2"];
 
 // ---------------------------------------------------------------------------
 // Simulation Panel (content only, toggle is in parent)
@@ -36,7 +34,7 @@ export function SimulationPanel({
 }: SimulationPanelProps) {
   return (
     <div className="rounded-lg border bg-card/50 p-3 space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {/* Enable/Disable */}
         <div className="space-y-1">
           <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
@@ -96,39 +94,6 @@ export function SimulationPanel({
                 onClick={() => actions.setPositionSize(preset.value)}
               >
                 {preset.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Leverage */}
-        <div className="space-y-1">
-          <label
-            className={cn(
-              "text-[0.625rem] font-medium uppercase tracking-wider",
-              config.enabled
-                ? "text-foreground"
-                : "text-muted-foreground"
-            )}
-          >
-            Leverage
-          </label>
-          <div className="flex items-center gap-1">
-            {LEVERAGE_OPTIONS.map((lev) => (
-              <button
-                key={lev}
-                type="button"
-                disabled={!config.enabled}
-                className={cn(
-                  "h-7 flex-1 rounded-md border text-xs font-medium tabular-nums transition-colors",
-                  config.leverage === lev
-                    ? "border-violet-500/40 bg-violet-500/10 text-violet-600 dark:text-violet-400"
-                    : "border-transparent bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground",
-                  "disabled:cursor-not-allowed disabled:opacity-50"
-                )}
-                onClick={() => actions.setLeverage(lev)}
-              >
-                {lev}x
               </button>
             ))}
           </div>
