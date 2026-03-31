@@ -256,22 +256,45 @@ func (s *Store) ListFundingRates(ctx context.Context, exchangeID string) ([]doma
 
 const arbitrageTTL = 120 * time.Second
 
+// sortedExchangeIDs returns the two exchange IDs in alphabetical order.
+// This ensures a canonical key regardless of which exchange is long vs short.
+func sortedExchangeIDs(a, b string) (string, string) {
+	if a <= b {
+		return a, b
+	}
+	return b, a
+}
+
 // SetFundingArbitrage stores a FundingArbitrage opportunity and tracks it in the pairs set.
+// Exchange IDs in the key are always sorted alphabetically so that a direction change
+// (long/short swap) overwrites the same key rather than creating a duplicate.
 func (s *Store) SetFundingArbitrage(ctx context.Context, a domain.FundingArbitrage) error {
 	data, err := json.Marshal(a)
 	if err != nil {
 		return fmt.Errorf("marshal funding arbitrage: %w", err)
 	}
 
-	pairID := a.Long.ExchangeID + "|" + a.Short.ExchangeID
-	key := rediskey.FundingArbitragePair(a.Symbol, a.Long.ExchangeID, a.Short.ExchangeID)
+	exA, exB := sortedExchangeIDs(a.Long.ExchangeID, a.Short.ExchangeID)
+	key := rediskey.FundingArbitragePair(a.Symbol, exA, exB)
+	member := a.Symbol + "|" + exA + "|" + exB
+
+	// Clean up any stale contra-pair member that used the opposite ordering.
+	// This handles the case where a previous write used long|short order
+	// instead of alphabetical order, leaving an orphaned set member.
+	contraA, contraB := a.Long.ExchangeID, a.Short.ExchangeID
+	if contraA != exA {
+		staleMember := a.Symbol + "|" + contraA + "|" + contraB
+		staleKey := rediskey.FundingArbitragePair(a.Symbol, contraA, contraB)
+		s.client.SRem(ctx, rediskey.FundingArbitragePairs(), staleMember)
+		s.client.Del(ctx, staleKey)
+	}
 
 	pipe := s.client.TxPipeline()
 	pipe.Set(ctx, key, data, arbitrageTTL)
-	pipe.SAdd(ctx, rediskey.FundingArbitragePairs(), a.Symbol+"|"+pairID)
+	pipe.SAdd(ctx, rediskey.FundingArbitragePairs(), member)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("store funding arbitrage %s %s: %w", a.Symbol, pairID, err)
+		return fmt.Errorf("store funding arbitrage %s %s|%s: %w", a.Symbol, exA, exB, err)
 	}
 	return nil
 }
@@ -322,16 +345,18 @@ func (s *Store) ListFundingArbitrage(ctx context.Context) ([]domain.FundingArbit
 }
 
 // RemoveFundingArbitrage removes a specific funding arbitrage pair.
+// Exchange IDs are sorted alphabetically to match the canonical key format.
 func (s *Store) RemoveFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error {
-	key := rediskey.FundingArbitragePair(symbol, exchangeA, exchangeB)
-	member := symbol + "|" + exchangeA + "|" + exchangeB
+	exA, exB := sortedExchangeIDs(exchangeA, exchangeB)
+	key := rediskey.FundingArbitragePair(symbol, exA, exB)
+	member := symbol + "|" + exA + "|" + exB
 
 	pipe := s.client.TxPipeline()
 	pipe.Del(ctx, key)
 	pipe.SRem(ctx, rediskey.FundingArbitragePairs(), member)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("remove funding arbitrage %s|%s|%s: %w", symbol, exchangeA, exchangeB, err)
+		return fmt.Errorf("remove funding arbitrage %s|%s|%s: %w", symbol, exA, exB, err)
 	}
 	return nil
 }
