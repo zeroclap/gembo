@@ -2,125 +2,162 @@
 
 ## Project overview
 
-Gembo is a high-performance cryptocurrency exchange monitoring platform. It is a monorepo with two main components:
+Gembo is a cryptocurrency exchange monitoring platform. Monorepo with two components:
 
-- **Backend** (`backend/`): Go 1.25, pure `net/http` (no framework). Ingests real-time market data from multiple crypto exchanges via CCXT, normalizes it into unified domain models, stores it in Redis, and serves it via REST/WebSocket APIs. Two independent binaries: `collector` (data ingestion) and `api` (HTTP server).
-- **Frontend** (`frontend/`): TypeScript, Next.js 16 (App Router), React 19, Tailwind v4, shadcn/ui. Dashboards for visualizing tickers and exchange data.
+- **Backend** (`backend/`): Go 1.25, pure `net/http`. Ingests real-time market data from crypto exchanges via CCXT, normalizes into domain models, stores in Redis, serves via REST/WebSocket. Three binaries: `collector` (data ingestion), `api` (HTTP server), `worker` (background jobs).
+- **Frontend** (`frontend/`): TypeScript, Next.js 16 (App Router), React 19, Tailwind v4, shadcn/ui v4. Dashboards for tickers and exchange data.
 
-Architecture: collector and API are separate processes communicating through Redis, enabling independent scaling.
-
-## Setup
-
-### Prerequisites
-
-- Go 1.25+
-- Node.js 20+
-- Redis 7+
-- Docker & Docker Compose (optional)
-
-### Backend
-
-```bash
-cd backend
-cp configs/config.example.yaml configs/config.yaml  # edit as needed
-make build        # builds both collector and api binaries
-make run-collector  # build + run the collector
-make run-api        # build + run the api server
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev       # dev server at localhost:3000
-```
-
-### Docker (full stack)
-
-```bash
-cd backend
-make docker-up    # Redis + collector + API via docker-compose
-make docker-down  # tear down
-```
+Architecture: collector, API, and worker are separate processes communicating through Redis.
 
 ## Build & test commands
 
-### Backend (`backend/`)
+### Backend (run from `backend/`)
 
 | Command | Purpose |
 |---|---|
-| `make build` | Build both `collector` and `api` binaries |
+| `make build` | Build all three binaries (`collector`, `api`, `worker`) |
 | `make collector` | Build collector only |
 | `make api` | Build API only |
+| `make worker` | Build worker only |
 | `make test` | Run all Go tests (`go test ./...`) |
-| `make lint` | Run `golangci-lint run ./...` |
+| `make lint` | Run `golangci-lint run ./...` (default config, no `.golangci.yml`) |
 | `make vet` | Run `go vet ./...` |
 | `make tidy` | Run `go mod tidy` |
-| `make clean` | Remove build artifacts |
+| `make run-collector` | Build + run collector |
+| `make run-api` | Build + run API server |
+| `make run-worker` | Build + run worker |
+| `make docker-up` / `docker-down` | Full stack via docker-compose |
 
-### Frontend (`frontend/`)
+**Running a single test:**
+```bash
+go test -run TestFunctionName ./internal/path/to/package/...
+go test -v -run TestFunctionName ./internal/path/to/package/...  # verbose
+go test -run TestSuite/TestCase ./internal/path/to/package/...   # subtests
+```
+
+### Frontend (run from `frontend/`)
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Start dev server |
+| `npm run dev` | Dev server at localhost:3000 |
 | `npm run build` | Production build |
-| `npm run lint` | ESLint |
+| `npm run lint` | ESLint (flat config, core-web-vitals + typescript presets) |
 
-## Code style
+No test framework is configured in the frontend.
 
-### Go (backend)
+## Code style — Go (backend)
 
-- **Standard project layout**: `cmd/` for entrypoints, `internal/` for private packages, `pkg/` for shared utilities.
-- **Naming**: snake_case for filenames, PascalCase for exported identifiers, camelCase for local variables.
-- **Error handling**: Always wrap errors with context using `fmt.Errorf("context: %w", err)`. Never discard errors silently.
-- **Interfaces**: Define at the point of use. Accept interfaces, return concrete structs.
-- **Functional options**: Use the `With*` pattern for configurable constructors (see `exchange/exchanges/bybit/options.go`).
-- **Concurrency**: `errgroup` for goroutine lifecycle, buffered channels for data pipelines, context-based cancellation throughout.
-- **Logging**: `log/slog` with structured fields (`exchange`, `symbol`, `error`). JSON format by default.
-- **HTTP**: Pure `net/http` with `http.ServeMux` (Go 1.22+ method-based routing). No web framework.
-- **JSON envelope**: All REST responses use `{ data, error, ts }` shape.
-- **Financial precision**: `shopspring/decimal` for all price/volume fields, serialized as strings in JSON.
-- **Redis keys**: Namespaced via `pkg/rediskey` with `gembo:<exchange>:<type>:<symbol>` convention.
-- **Minimal dependencies**: Only add a dependency when reimplementing would be non-trivial.
+### Project layout
 
-### TypeScript/React (frontend)
+- `cmd/` — entrypoints (`api/`, `collector/`, `worker/`), each with a single `main.go`
+- `internal/` — private packages: `api/`, `arbitrage/`, `collector/`, `config/`, `domain/`, `exchange/`, `hook/`, `store/`
+- `pkg/` — shared utilities (e.g., `rediskey`)
+- Module path: `github.com/zeroclap/gembo`
 
-- **File naming**: kebab-case for files (`app-header.tsx`), PascalCase for components.
-- **`"use client"`** directive where client-side interactivity is needed.
-- **Path aliases**: `@/*` maps to project root.
-- **Styling**: Tailwind v4 utility classes with semantic color tokens. Use `cn()` from `lib/utils` for conditional classes.
-- **UI components**: shadcn/ui (`radix-mira` style, `lucide-react` icons).
-- **Data fetching**: TanStack React Query with typed API client functions in `lib/api.ts`.
-- **Strict TypeScript**: `strict: true` in tsconfig.
+### Imports (strict ordering)
 
-## Architecture notes
+Group imports separated by blank lines: (1) stdlib, (2) third-party, (3) internal (`github.com/zeroclap/gembo/...`).
 
-- **Plugin architecture for exchanges**: Adding a new exchange requires only creating an adapter directory under `internal/exchange/exchanges/` and registering it in the registry. No changes elsewhere.
-- **Domain models** (`internal/domain/`) have zero external dependencies except `shopspring/decimal`.
-- **Store and hook interfaces** (`internal/store/`, `internal/hook/`) are abstracted. Redis and BullMQ are the current implementations.
-- **Configuration** is YAML-based with env var overrides (12-factor). See `configs/config.example.yaml`.
-- The frontend proxies `/api/*` requests to the backend at `localhost:8080` via Next.js rewrites.
+```go
+import (
+    "context"
+    "fmt"
+    "log/slog"
+
+    "github.com/ccxt/ccxt/go/v4"
+
+    "github.com/zeroclap/gembo/internal/domain"
+)
+```
+
+### Formatting & naming
+
+- Run `gofmt` / `goimports`. No custom formatter config.
+- **Filenames**: `snake_case.go` (e.g., `funding_rate.go`, `market.go`)
+- **Exported identifiers**: `PascalCase`; **Local variables**: `camelCase`
+- **JSON tags**: `snake_case` (e.g., `json:"exchange_id"`, `json:"volume_24h"`)
+- **Constants**: grouped at the top of the file, unexported `camelCase` for package-private
+
+### Error handling
+
+- Always wrap with context: `fmt.Errorf("bybit fetch markets: %w", err)`
+- Never discard errors silently
+- Use the pattern `prefix verb object: %w` for error messages
+
+### Types & financial precision
+
+- All price/volume/fee fields use `shopspring/decimal` (`decimal.Decimal`), serialized as strings in JSON
+- Domain models (`internal/domain/`) depend only on stdlib + `shopspring/decimal`
+- JSON envelope for REST responses: `{ data, error, ts }`
+
+### Interfaces & constructors
+
+- Define interfaces at the point of use — accept interfaces, return concrete structs
+- Exchange interface (`internal/exchange/exchange.go`): `ID()`, `Run()`, `Markets()`, `Tickers()`, `FundingRates()`
+- Constructor named `New` (not `NewClient`). Use functional options: `type Option func(*Client)`, `With*` helpers
+
+### Concurrency patterns
+
+- `errgroup` for goroutine lifecycle (`golang.org/x/sync/errgroup`)
+- Buffered channels (size 256) for streaming pipelines (`chan domain.Ticker`)
+- Context-based cancellation throughout; exponential backoff with `math.Phi` multiplier
+- Structured logging via `log/slog` with fields: `"exchange"`, `"symbol"`, `"error"`, `"backoff"`
+
+### HTTP & infrastructure
+
+- Pure `net/http` with `http.ServeMux` (Go 1.22+ method-based routing). No framework.
+- Build flags: `-trimpath -ldflags="-s -w"`
+- Redis keys namespaced via `pkg/rediskey`: `gembo:<exchange>:<type>:<symbol>`
+
+### Adding a new exchange
+
+Create adapter under `internal/exchange/exchanges/<name>/` with `client.go` (implements `exchange.Exchange`), `mapper.go` (CCXT to domain), `options.go` (functional options). Register in the exchange registry.
+
+## Code style — TypeScript/React (frontend)
+
+### CRITICAL: Next.js 16 breaking changes
+
+This project uses Next.js 16 which has breaking changes from prior versions. **Always read the relevant guide in `node_modules/next/dist/docs/` before writing any code.** Do not rely on training data for Next.js APIs.
+
+### Naming & files
+
+- **Files**: kebab-case (`app-header.tsx`), **Components**: PascalCase (`AppHeader`)
+- **`"use client"`** directive required for client-side interactivity
+- `strict: true` in tsconfig — no `any` types, no implicit nulls
+- Path alias: `@/*` maps to project root (e.g., `import { cn } from "@/lib/utils"`)
+- `moduleResolution: "bundler"`, `jsx: "react-jsx"` (no `import React` needed)
+
+### Styling & UI
+
+- Tailwind v4 (CSS-native config, no `tailwind.config.js`), PostCSS via `@tailwindcss/postcss`
+- `cn()` from `@/lib/utils` for conditional class merging (clsx + tailwind-merge)
+- shadcn/ui v4 with radix-ui primitives and lucide-react icons
+
+### State & data
+
+- **Server state**: TanStack React Query (`@tanstack/react-query`) with typed API functions
+- **Client state**: zustand; **Forms**: react-hook-form; **Tables**: TanStack React Table
+- API proxy: Next.js rewrites `/api/*` to Go backend at `localhost:8080`
+
+### ESLint
+
+Flat config (`eslint.config.mjs`): `eslint-config-next/core-web-vitals` + `eslint-config-next/typescript`. No custom rules.
 
 ## Testing
 
-- Run `make test` from `backend/` before submitting changes.
-- Run `make lint` and `make vet` to check for issues.
-- Run `npm run lint` from `frontend/` for TypeScript/React linting.
-- Add or update tests for any code you change, even if not explicitly asked.
-- All tests and lints must pass before a PR is mergeable.
-
-## PR & commit conventions
-
-- Commit messages should be concise and describe the "why", not just the "what".
-- Keep PRs focused on a single concern.
-- Run all lints and tests before committing.
+- Run `make test` from `backend/` and `npm run lint` from `frontend/` before committing
+- Run `make lint` and `make vet` for Go static analysis
+- **Add tests for any code you change**, even if not explicitly asked
+- All lints and tests must pass before a PR is mergeable
 
 ## Security
 
-- Never commit secrets, API keys, or credentials. Use environment variables or `configs/config.yaml` (gitignored).
-- Exchange API credentials are configured via env vars, not checked into source.
+- Never commit secrets, API keys, or credentials
+- Exchange credentials go in env vars or `configs/config.yaml` (gitignored)
+- Use `joho/godotenv` for `.env` loading in development
 
-## Nested AGENTS.md
+## PR & commit conventions
 
-The `frontend/` directory has its own `AGENTS.md` with Next.js-specific instructions. That file takes precedence when working within the frontend.
+- Commit messages: concise, describe the "why" not the "what"
+- Keep PRs focused on a single concern
+- Run all lints and tests before committing
