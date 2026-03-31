@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { FundingArbitrage } from "@/lib/api";
 
 const STORAGE_KEY = "gembo:simulation";
@@ -50,11 +50,10 @@ const DEFAULT_CONFIG: SimulationConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// Persistence
+// Persistence helpers
 // ---------------------------------------------------------------------------
 
-function loadConfig(): SimulationConfig {
-  if (typeof window === "undefined") return DEFAULT_CONFIG;
+function readConfig(): SimulationConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_CONFIG;
@@ -75,12 +74,48 @@ function loadConfig(): SimulationConfig {
   }
 }
 
-function saveConfig(config: SimulationConfig) {
+function writeConfig(config: SimulationConfig) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   } catch {
     // Storage full or unavailable — silently ignore.
   }
+}
+
+// ---------------------------------------------------------------------------
+// External-store plumbing for useSyncExternalStore
+// ---------------------------------------------------------------------------
+
+/** Snapshot that is compared by reference. Re-created only on writes. */
+let clientSnapshot = DEFAULT_CONFIG;
+let snapshotInitialised = false;
+
+const listeners = new Set<() => void>();
+
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+function getSnapshot(): SimulationConfig {
+  if (!snapshotInitialised) {
+    clientSnapshot = readConfig();
+    snapshotInitialised = true;
+  }
+  return clientSnapshot;
+}
+
+function getServerSnapshot(): SimulationConfig {
+  return DEFAULT_CONFIG;
+}
+
+function emitChange(next: SimulationConfig) {
+  clientSnapshot = next;
+  snapshotInitialised = true;
+  writeConfig(next);
+  listeners.forEach((cb) => cb());
 }
 
 // ---------------------------------------------------------------------------
@@ -194,15 +229,11 @@ export function useSimulation(): SimulationConfig &
   SimulationActions & {
     summary: string;
   } {
-  const [config, setConfig] = useState<SimulationConfig>(loadConfig);
-
-  useEffect(() => {
-    saveConfig(config);
-  }, [config]);
+  const config = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const update = useCallback(
     (patch: Partial<SimulationConfig>) =>
-      setConfig((prev) => ({ ...prev, ...patch })),
+      emitChange({ ...getSnapshot(), ...patch }),
     []
   );
 
@@ -218,14 +249,15 @@ export function useSimulation(): SimulationConfig &
     (v: string) => update({ slippagePct: v }),
     [update]
   );
-  const reset = useCallback(() => setConfig(DEFAULT_CONFIG), []);
+  const reset = useCallback(() => emitChange(DEFAULT_CONFIG), []);
 
   const summary = useMemo(() => {
     const size = parseFloat(config.positionSize) || 0;
+    // Use a fixed locale so the output is deterministic across server/client.
     const formatted =
       size >= 1000
-        ? `$${(size / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}K`
-        : `$${size.toLocaleString()}`;
+        ? `$${(size / 1000).toLocaleString("en-US", { maximumFractionDigits: 1 })}K`
+        : `$${size.toLocaleString("en-US")}`;
     return formatted;
   }, [config.positionSize]);
 

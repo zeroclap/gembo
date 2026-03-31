@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { FundingArbitrage } from "@/lib/api";
 
 const STORAGE_KEY = "gembo:arbitrage-filters";
@@ -47,8 +47,11 @@ const EMPTY_FILTERS: ArbitrageFilters = {
   fundingLoopMax: "",
 };
 
-function loadFilters(): ArbitrageFilters {
-  if (typeof window === "undefined") return EMPTY_FILTERS;
+// ---------------------------------------------------------------------------
+// Persistence helpers
+// ---------------------------------------------------------------------------
+
+function readFilters(): ArbitrageFilters {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_FILTERS;
@@ -70,12 +73,47 @@ function loadFilters(): ArbitrageFilters {
   }
 }
 
-function saveFilters(filters: ArbitrageFilters) {
+function writeFilters(filters: ArbitrageFilters) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
   } catch {
     // Storage full or unavailable — silently ignore.
   }
+}
+
+// ---------------------------------------------------------------------------
+// External-store plumbing for useSyncExternalStore
+// ---------------------------------------------------------------------------
+
+let clientSnapshot = EMPTY_FILTERS;
+let snapshotInitialised = false;
+
+const listeners = new Set<() => void>();
+
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+function getSnapshot(): ArbitrageFilters {
+  if (!snapshotInitialised) {
+    clientSnapshot = readFilters();
+    snapshotInitialised = true;
+  }
+  return clientSnapshot;
+}
+
+function getServerSnapshot(): ArbitrageFilters {
+  return EMPTY_FILTERS;
+}
+
+function emitChange(next: ArbitrageFilters) {
+  clientSnapshot = next;
+  snapshotInitialised = true;
+  writeFilters(next);
+  listeners.forEach((cb) => cb());
 }
 
 // --- Hook ---
@@ -84,12 +122,7 @@ export function useArbitrageFilters(): ArbitrageFilters & ArbitrageFiltersAction
   activeFilterCount: number;
   filterData: (data: FundingArbitrage[]) => FundingArbitrage[];
 } {
-  const [filters, setFilters] = useState<ArbitrageFilters>(loadFilters);
-
-  // Persist to localStorage on every change.
-  useEffect(() => {
-    saveFilters(filters);
-  }, [filters]);
+  const filters = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -105,7 +138,7 @@ export function useArbitrageFilters(): ArbitrageFilters & ArbitrageFiltersAction
   // --- Setters (each produces a new filters object -> triggers persist) ---
 
   const update = useCallback(
-    (patch: Partial<ArbitrageFilters>) => setFilters((prev) => ({ ...prev, ...patch })),
+    (patch: Partial<ArbitrageFilters>) => emitChange({ ...getSnapshot(), ...patch }),
     []
   );
 
@@ -119,7 +152,7 @@ export function useArbitrageFilters(): ArbitrageFilters & ArbitrageFiltersAction
   const setFundingSpreadMax = useCallback((v: string) => update({ fundingSpreadMax: v }), [update]);
   const setFundingLoopMin = useCallback((v: string) => update({ fundingLoopMin: v }), [update]);
   const setFundingLoopMax = useCallback((v: string) => update({ fundingLoopMax: v }), [update]);
-  const clearAll = useCallback(() => setFilters(EMPTY_FILTERS), []);
+  const clearAll = useCallback(() => emitChange(EMPTY_FILTERS), []);
 
   // --- Filtering logic ---
 
