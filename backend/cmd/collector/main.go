@@ -16,6 +16,7 @@ import (
 	"github.com/zeroclap/gembo/internal/exchange"
 	binanceex "github.com/zeroclap/gembo/internal/exchange/exchanges/binance"
 	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
+	gateex "github.com/zeroclap/gembo/internal/exchange/exchanges/gate"
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
 	"github.com/zeroclap/gembo/internal/hook"
 	"github.com/zeroclap/gembo/internal/hook/bullmq"
@@ -113,6 +114,15 @@ func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.
 				opts = append(opts, okxex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
 			}
 			reg.Register(okxex.New(logger, opts...))
+		case "gate":
+			var opts []gateex.Option
+			if ecfg.FundingPollInterval > 0 {
+				opts = append(opts, gateex.WithFundingPollInterval(ecfg.FundingPollInterval))
+			}
+			if ecfg.MarketsPollInterval > 0 {
+				opts = append(opts, gateex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
+			}
+			reg.Register(gateex.New(logger, opts...))
 		case "binance":
 			var opts []binanceex.Option
 			if ecfg.FundingPollInterval > 0 {

@@ -173,6 +173,7 @@ function ExchangeBadge({ exchangeId }: { exchangeId: string }) {
   const colorMap: Record<string, string> = {
     bybit: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
     okx: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    gate: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
     binance: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
   };
 

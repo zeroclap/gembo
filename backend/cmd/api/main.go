@@ -19,6 +19,7 @@ import (
 	"github.com/zeroclap/gembo/internal/exchange"
 	binanceex "github.com/zeroclap/gembo/internal/exchange/exchanges/binance"
 	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
+	gateex "github.com/zeroclap/gembo/internal/exchange/exchanges/gate"
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
 	redistore "github.com/zeroclap/gembo/internal/store/redis"
 )
@@ -105,6 +106,8 @@ func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.
 			reg.Register(bybitex.New(logger))
 		case "okx":
 			reg.Register(okxex.New(logger))
+		case "gate":
+			reg.Register(gateex.New(logger))
 		default:
 			logger.Warn("unknown exchange in config", "id", ecfg.ID)
 		}
