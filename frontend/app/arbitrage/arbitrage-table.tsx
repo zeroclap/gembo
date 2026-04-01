@@ -173,6 +173,7 @@ function ExchangeBadge({ exchangeId }: { exchangeId: string }) {
   const colorMap: Record<string, string> = {
     bybit: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
     okx: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    binance: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
   };
 
   return (
@@ -916,13 +917,13 @@ export function ArbitrageTable() {
     }));
   }, []);
 
-  const toggleRow = useCallback((symbol: string) => {
+  const toggleRow = useCallback((rowKey: string) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(symbol)) {
-        next.delete(symbol);
+      if (next.has(rowKey)) {
+        next.delete(rowKey);
       } else {
-        next.add(symbol);
+        next.add(rowKey);
       }
       return next;
     });
@@ -1199,14 +1200,15 @@ export function ArbitrageTable() {
             </TableBody>
           ) : (
             sortedData.map((arb) => {
+              const rowKey = `${arb.symbol}::${arb.long.exchange_id}::${arb.short.exchange_id}`;
               const simResult =
                 simConfig ? computeSimulation(arb, simConfig) : null;
               return (
                 <DataRowPair
-                  key={arb.symbol}
+                  key={rowKey}
                   arb={arb}
-                  isExpanded={expandedRows.has(arb.symbol)}
-                  onToggle={() => toggleRow(arb.symbol)}
+                  isExpanded={expandedRows.has(rowKey)}
+                  onToggle={() => toggleRow(rowKey)}
                   sim={simResult}
                 />
               );

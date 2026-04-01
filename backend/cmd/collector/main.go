@@ -14,6 +14,7 @@ import (
 	"github.com/zeroclap/gembo/internal/collector"
 	"github.com/zeroclap/gembo/internal/config"
 	"github.com/zeroclap/gembo/internal/exchange"
+	binanceex "github.com/zeroclap/gembo/internal/exchange/exchanges/binance"
 	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
 	"github.com/zeroclap/gembo/internal/hook"
@@ -112,6 +113,15 @@ func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.
 				opts = append(opts, okxex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
 			}
 			reg.Register(okxex.New(logger, opts...))
+		case "binance":
+			var opts []binanceex.Option
+			if ecfg.FundingPollInterval > 0 {
+				opts = append(opts, binanceex.WithFundingPollInterval(ecfg.FundingPollInterval))
+			}
+			if ecfg.MarketsPollInterval > 0 {
+				opts = append(opts, binanceex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
+			}
+			reg.Register(binanceex.New(logger, opts...))
 		default:
 			logger.Warn("unknown exchange in config", "id", ecfg.ID)
 		}

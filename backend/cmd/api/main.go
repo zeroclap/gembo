@@ -17,6 +17,7 @@ import (
 	"github.com/zeroclap/gembo/internal/api"
 	"github.com/zeroclap/gembo/internal/config"
 	"github.com/zeroclap/gembo/internal/exchange"
+	binanceex "github.com/zeroclap/gembo/internal/exchange/exchanges/binance"
 	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
 	redistore "github.com/zeroclap/gembo/internal/store/redis"
@@ -98,6 +99,8 @@ func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.
 			continue
 		}
 		switch ecfg.ID {
+		case "binance":
+			reg.Register(binanceex.New(logger))
 		case "bybit":
 			reg.Register(bybitex.New(logger))
 		case "okx":
