@@ -28,6 +28,10 @@ type Client struct {
 
 	fundingPollInterval time.Duration
 	marketsPollInterval time.Duration
+
+	// Credentials for authenticated trading methods.
+	apiKey string
+	secret string
 }
 
 // New creates a new Bybit client. opts is passed directly to the CCXT constructor.
@@ -48,6 +52,12 @@ func New(logger *slog.Logger, opts ...Option) *Client {
 				"types": []string{"linear"},
 			},
 		},
+	}
+	if c.apiKey != "" {
+		apiCfg["apiKey"] = c.apiKey
+	}
+	if c.secret != "" {
+		apiCfg["secret"] = c.secret
 	}
 	c.api = ccxtpro.NewBybit(apiCfg)
 

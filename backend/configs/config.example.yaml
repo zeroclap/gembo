@@ -13,6 +13,11 @@ redis:
   password: ""              # REDIS_PASSWORD
   db: 0                     # REDIS_DB
 
+# PostgreSQL — set url to enable position management (optional for api, required for trader).
+# Env override: DATABASE_URL
+database:
+  url: ""  # postgres://gembo:gembo@localhost:5432/gembo?sslmode=disable
+
 exchanges:
   - id: bybit
     enabled: true

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 const tabs = [
   { label: "Tickers", href: "/tickers" },
   { label: "Arbitrage", href: "/arbitrage" },
+  { label: "Positions", href: "/positions" },
 ];
 
 export function AppHeader() {

@@ -17,9 +17,11 @@ import (
 type Config struct {
 	Server       ServerConfig       `yaml:"server"`
 	Redis        RedisConfig        `yaml:"redis"`
+	Database     DatabaseConfig     `yaml:"database"`
 	Exchanges    []ExchangeCfg      `yaml:"exchanges"`
 	MarketFilter MarketFilterConfig `yaml:"market_filter"`
 	Hooks        HooksConfig        `yaml:"hooks"`
+	Trader       TraderConfig       `yaml:"trader"`
 	Log          LogConfig          `yaml:"log"`
 }
 
@@ -38,12 +40,28 @@ type RedisConfig struct {
 	DB       int    `yaml:"db"`
 }
 
+// DatabaseConfig holds PostgreSQL connection settings.
+type DatabaseConfig struct {
+	URL string `yaml:"url"` // postgres://user:password@host:port/dbname?sslmode=disable
+}
+
 // ExchangeCfg holds per-exchange settings.
 type ExchangeCfg struct {
 	ID                  string        `yaml:"id"`
 	Enabled             bool          `yaml:"enabled"`
+	APIKey              string        `yaml:"api_key"`
+	Secret              string        `yaml:"secret"`
+	Passphrase          string        `yaml:"passphrase"`
 	MarketsPollInterval time.Duration `yaml:"markets_poll_interval"`
 	FundingPollInterval time.Duration `yaml:"funding_poll_interval"`
+}
+
+// TraderConfig holds settings for the trader binary.
+type TraderConfig struct {
+	Leverage             int           `yaml:"leverage"`
+	MarginMode           string        `yaml:"margin_mode"`
+	MonitorInterval      time.Duration `yaml:"monitor_interval"`
+	FundingCheckInterval time.Duration `yaml:"funding_check_interval"`
 }
 
 // MarketFilterConfig controls which markets are included in the data pipeline.
@@ -98,11 +116,18 @@ func defaults() Config {
 			Password: "",
 			DB:       0,
 		},
+		Database: DatabaseConfig{},
 		Hooks: HooksConfig{
 			BullMQ: BullMQConfig{
 				Enabled:     false,
 				QueuePrefix: "gembo",
 			},
+		},
+		Trader: TraderConfig{
+			Leverage:             1,
+			MarginMode:           "cross",
+			MonitorInterval:      30 * time.Second,
+			FundingCheckInterval: 5 * time.Minute,
 		},
 		Log: LogConfig{
 			Level:  "info",
@@ -208,6 +233,45 @@ func applyEnv(cfg *Config) {
 	// MARKET_TYPES=perpetual — comma-separated list of allowed market types.
 	if v := os.Getenv("MARKET_TYPES"); v != "" {
 		cfg.MarketFilter.MarketTypes = splitCSV(v)
+	}
+
+	// Database override.
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		cfg.Database.URL = v
+	}
+
+	// Exchange credential overrides: <EXCHANGE_ID>_API_KEY, <EXCHANGE_ID>_SECRET, <EXCHANGE_ID>_PASSPHRASE.
+	for i := range cfg.Exchanges {
+		upper := strings.ToUpper(cfg.Exchanges[i].ID)
+		if v := os.Getenv(upper + "_API_KEY"); v != "" {
+			cfg.Exchanges[i].APIKey = v
+		}
+		if v := os.Getenv(upper + "_API_SECRET"); v != "" {
+			cfg.Exchanges[i].Secret = v
+		}
+		if v := os.Getenv(upper + "_API_PASSPHRASE"); v != "" {
+			cfg.Exchanges[i].Passphrase = v
+		}
+	}
+
+	// Trader overrides.
+	if v := os.Getenv("TRADER_LEVERAGE"); v != "" {
+		if l, err := strconv.Atoi(v); err == nil {
+			cfg.Trader.Leverage = l
+		}
+	}
+	if v := os.Getenv("TRADER_MARGIN_MODE"); v != "" {
+		cfg.Trader.MarginMode = v
+	}
+	if v := os.Getenv("TRADER_MONITOR_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Trader.MonitorInterval = d
+		}
+	}
+	if v := os.Getenv("TRADER_FUNDING_CHECK_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Trader.FundingCheckInterval = d
+		}
 	}
 }
 

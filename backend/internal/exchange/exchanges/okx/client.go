@@ -28,6 +28,11 @@ type Client struct {
 
 	fundingPollInterval time.Duration
 	marketsPollInterval time.Duration
+
+	// Credentials for authenticated trading methods.
+	apiKey     string
+	secret     string
+	passphrase string
 }
 
 // New creates a new OKX client.
@@ -48,6 +53,15 @@ func New(logger *slog.Logger, opts ...Option) *Client {
 				// "types": []string{"spot", "swap"},
 			},
 		},
+	}
+	if c.apiKey != "" {
+		apiCfg["apiKey"] = c.apiKey
+	}
+	if c.secret != "" {
+		apiCfg["secret"] = c.secret
+	}
+	if c.passphrase != "" {
+		apiCfg["password"] = c.passphrase
 	}
 	c.api = ccxtpro.NewOkx(apiCfg)
 

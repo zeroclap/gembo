@@ -38,6 +38,7 @@ import {
 import { FilterPanel } from "./filter-bar";
 import { SimulationPanel } from "./simulation-bar";
 import { Countdown } from "./countdown";
+import { OpenPositionDialog } from "./open-position-dialog";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -571,11 +572,13 @@ function DataRowPair({
   isExpanded,
   onToggle,
   sim,
+  onOpenPosition,
 }: {
   arb: FundingArbitrage;
   isExpanded: boolean;
   onToggle: () => void;
   sim: SimulationResult | null;
+  onOpenPosition: () => void;
 }) {
   const lcmVal = parseFloat(arb.full_loop.net_pct_per_loop) * 100;
   const nextSpread = computeNextFundingSpread(arb);
@@ -704,9 +707,22 @@ function DataRowPair({
 
         {/* Open Spread — spans both lines */}
         <td className="p-2 align-middle whitespace-nowrap" rowSpan={2}>
-          <span className="font-mono tabular-nums text-muted-foreground">
-            {formatPct(arb.open_spread)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-mono tabular-nums text-muted-foreground">
+              {formatPct(arb.open_spread)}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[0.625rem] opacity-0 group-hover/row:opacity-100 transition-opacity"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenPosition();
+              }}
+            >
+              Open
+            </Button>
+          </div>
         </td>
 
         {/* Simulation P&L column: next / lcm / 24h — spans both lines */}
@@ -832,6 +848,7 @@ export function ArbitrageTable() {
   });
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [openPanel, setOpenPanel] = useState<ToolbarPanel>("none");
+  const [openPositionArb, setOpenPositionArb] = useState<FundingArbitrage | null>(null);
 
   const {
     symbols,
@@ -1211,12 +1228,24 @@ export function ArbitrageTable() {
                   isExpanded={expandedRows.has(rowKey)}
                   onToggle={() => toggleRow(rowKey)}
                   sim={simResult}
+                  onOpenPosition={() => setOpenPositionArb(arb)}
                 />
               );
             })
           )}
         </Table>
       </div>
+
+      {/* Open position dialog */}
+      {openPositionArb && (
+        <OpenPositionDialog
+          arb={openPositionArb}
+          open={!!openPositionArb}
+          onOpenChange={(open) => {
+            if (!open) setOpenPositionArb(null);
+          }}
+        />
+      )}
     </div>
   );
 }

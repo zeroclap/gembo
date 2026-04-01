@@ -80,3 +80,24 @@ func FundingArbitragePairs() string {
 func FundingArbitragePair(symbol, exchangeA, exchangeB string) string {
 	return fmt.Sprintf("%s:arbitrage:funding:%s|%s|%s", prefix, symbol, exchangeA, exchangeB)
 }
+
+// PositionPending returns the Pub/Sub channel for new position open requests.
+//
+//	gembo:positions:pending
+func PositionPending() string {
+	return fmt.Sprintf("%s:positions:pending", prefix)
+}
+
+// PositionClosing returns the Pub/Sub channel for position close requests.
+//
+//	gembo:positions:closing
+func PositionClosing() string {
+	return fmt.Sprintf("%s:positions:closing", prefix)
+}
+
+// PositionUpdates returns the Pub/Sub channel for position state changes.
+//
+//	gembo:positions:updates
+func PositionUpdates() string {
+	return fmt.Sprintf("%s:positions:updates", prefix)
+}

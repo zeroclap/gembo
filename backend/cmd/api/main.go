@@ -21,6 +21,7 @@ import (
 	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
 	gateex "github.com/zeroclap/gembo/internal/exchange/exchanges/gate"
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
+	pgstore "github.com/zeroclap/gembo/internal/store/postgres"
 	redistore "github.com/zeroclap/gembo/internal/store/redis"
 )
 
@@ -54,7 +55,28 @@ func main() {
 	reg := exchange.NewRegistry()
 	registerExchanges(reg, cfg, logger)
 
-	handler := api.NewHandler(reg, st)
+	// Handler options — PostgreSQL position store is optional.
+	var handlerOpts []api.HandlerOption
+	handlerOpts = append(handlerOpts, api.WithRedis(rc))
+
+	if cfg.Database.URL != "" {
+		ctx := context.Background()
+		ps, err := pgstore.New(ctx, cfg.Database.URL)
+		if err != nil {
+			logger.Error("postgres connect", "error", err)
+			os.Exit(1)
+		}
+		defer ps.Close()
+
+		if err := ps.RunMigrations(); err != nil {
+			logger.Error("postgres migrations", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("postgres connected and migrated")
+		handlerOpts = append(handlerOpts, api.WithPositionStore(ps))
+	}
+
+	handler := api.NewHandler(reg, st, handlerOpts...)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),

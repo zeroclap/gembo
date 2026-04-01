@@ -47,3 +47,8 @@ func writeErr(w http.ResponseWriter, status int, code, message string) {
 		TS:    time.Now().UTC().Format(time.RFC3339),
 	})
 }
+
+// nowTS returns the current time in RFC3339 format for response envelopes.
+func nowTS() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}

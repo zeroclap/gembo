@@ -18,6 +18,23 @@ services:
       timeout: 3s
       retries: 10
 
+  postgres:
+    image: postgres:17-alpine
+    networks: [gembo]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: gembo
+      POSTGRES_PASSWORD: gembo
+      POSTGRES_DB: gembo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gembo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   collector:
     build:
       context: ..
@@ -49,12 +66,15 @@ services:
       EXCHANGES: bybit,okx
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "8080"
+      DATABASE_URL: postgres://gembo:gembo@postgres:5432/gembo?sslmode=disable
       LOG_LEVEL: debug
       LOG_FORMAT: json
     ports:
       - "8080:8080"
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 
@@ -73,3 +93,33 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+
+  trader:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      target: trader
+    networks: [gembo]
+    environment:
+      REDIS_ADDR: redis:6379
+      EXCHANGES: bybit,okx
+      DATABASE_URL: postgres://gembo:gembo@postgres:5432/gembo?sslmode=disable
+      # Set exchange credentials for trading:
+      # BYBIT_API_KEY: ""
+      # BYBIT_SECRET: ""
+      # OKX_API_KEY: ""
+      # OKX_SECRET: ""
+      # OKX_PASSPHRASE: ""
+      TRADER_LEVERAGE: "1"
+      TRADER_MARGIN_MODE: isolated
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
