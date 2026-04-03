@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import {
   ArrowUpDown,
@@ -614,471 +615,486 @@ function DetailPanel({
         </div>
       </div>
 
-      <div className="p-4 space-y-5 flex-1 overflow-y-auto">
-        {/* Comparison table */}
-        <div>
-          <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
-            Leg comparison
-          </div>
-          <table className="text-xs w-full">
-            <thead>
-              <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                <th className="pr-4 pb-1 text-left font-medium" />
-                <th className="pr-4 pb-1 text-right font-medium">
-                  <span className="inline-flex items-center gap-1">
-                    <TrendingUp className="h-3 w-3 text-emerald-500" />
-                    Long
-                  </span>
-                </th>
-                <th className="pb-1 text-right font-medium">
-                  <span className="inline-flex items-center gap-1">
-                    <TrendingDown className="h-3 w-3 text-red-500" />
-                    Short
-                  </span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {detailRows.map((row) => (
-                <tr key={row.label} className="border-t border-border/30">
-                  <td className="pr-4 py-0.5 text-muted-foreground whitespace-nowrap">
-                    {row.label}
-                  </td>
-                  <td className="pr-4 py-0.5 text-right font-mono tabular-nums whitespace-nowrap">
-                    {row.long}
-                  </td>
-                  <td className="py-0.5 text-right font-mono tabular-nums whitespace-nowrap">
-                    {row.short}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <Tabs defaultValue="details" className="flex-1 min-h-0 gap-0">
+        <TabsList className="mx-4 mt-3">
+          <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="simulation">Simulation</TabsTrigger>
+        </TabsList>
 
-        {/* Fee breakdown */}
-        <div>
-          <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
-            Fee breakdown
-          </div>
-          <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-            <span className="text-muted-foreground">Open</span>
-            <span className="font-mono tabular-nums text-right whitespace-nowrap">
-              {formatPct(arb.fees.open_fees_pct)}
-              {simResult && (
-                <span className="ml-1 text-muted-foreground">
-                  ({formatUsdPlain(simResult.entry_cost)})
-                </span>
-              )}
-            </span>
-            <span className="text-muted-foreground">Close</span>
-            <span className="font-mono tabular-nums text-right whitespace-nowrap">
-              {formatPct(arb.fees.close_fees_pct)}
-              {simResult && (
-                <span className="ml-1 text-muted-foreground">
-                  ({formatUsdPlain(simResult.exit_cost)})
-                </span>
-              )}
-            </span>
-            <span className="text-muted-foreground">Round-trip</span>
-            <span className="font-mono tabular-nums text-right whitespace-nowrap">
-              {formatPct(arb.fees.round_trip_fees_pct)}
-              {simResult && (
-                <span className="ml-1 text-muted-foreground">
-                  ({formatUsdPlain(simResult.total_cost)})
-                </span>
-              )}
-            </span>
-            <span className="text-muted-foreground">Net APR</span>
-            <span
-              className={cn(
-                "font-mono tabular-nums font-medium text-right",
-                parseFloat(arb.fees.net_apr_after_fees) >= 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-red-600 dark:text-red-400"
-              )}
-            >
-              {formatAPR(arb.fees.net_apr_after_fees)}
-            </span>
-          </div>
-        </div>
-
-        {/* Simulation */}
-        <div>
-          <div className="text-[0.625rem] font-medium uppercase tracking-wider text-violet-600 dark:text-violet-400 mb-2">
-            Simulation
-          </div>
-          <div className="space-y-3">
-            {/* Inputs — single row: size type toggle, value, slippage, calculate */}
+        {/* Details tab */}
+        <TabsContent value="details" className="flex-1 min-h-0 overflow-y-auto">
+          <div className="p-4 space-y-5">
+            {/* Comparison table */}
             <div>
-              <div className="flex items-end gap-2">
-                {/* Size type toggle */}
-                <div className="shrink-0 space-y-1">
-                  <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                    Mode
-                  </label>
-                  <div className="flex h-7 rounded-md border bg-muted/50 p-0.5">
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-sm px-2 text-[0.625rem] font-medium transition-colors",
-                        sizeType === "usd"
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                      onClick={() => setSizeType("usd")}
-                    >
-                      USD
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-sm px-2 text-[0.625rem] font-medium transition-colors",
-                        sizeType === "qty"
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                      onClick={() => setSizeType("qty")}
-                    >
-                      QTY
-                    </button>
-                  </div>
-                </div>
-                {/* Value input */}
-                <div className="flex-1 min-w-0 space-y-1">
-                  <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                    {sizeType === "usd" ? "Position, $" : "Contracts"}
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={sizeType === "usd" ? positionSize : quantity}
-                    onChange={(e) =>
-                      sizeType === "usd"
-                        ? setPositionSize(e.target.value)
-                        : setQuantity(e.target.value)
-                    }
-                    placeholder={sizeType === "usd" ? "1000" : "1"}
-                    className="h-7 w-full min-w-0 rounded-md border bg-background px-2 text-xs tabular-nums outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
-                  />
-                </div>
-                <div className="w-16 shrink-0 space-y-1">
-                  <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                    Slip, %
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={slippagePct}
-                    onChange={(e) => setSlippagePct(e.target.value)}
-                    placeholder="0.05"
-                    className="h-7 w-full min-w-0 rounded-md border bg-background px-2 text-xs tabular-nums outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
-                  />
-                </div>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="h-7 px-3 text-xs bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600 text-white shrink-0"
-                  onClick={runSimulation}
-                  disabled={simLoading}
-                >
-                  {simLoading ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    "Calculate"
-                  )}
-                </Button>
+              <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
+                Leg comparison
               </div>
-              <div className="flex items-center gap-1 mt-1">
-                {(sizeType === "usd" ? SIZE_PRESETS : QTY_PRESETS).map(
-                  (preset) => {
-                    const active =
-                      sizeType === "usd"
-                        ? positionSize === preset.value
-                        : quantity === preset.value;
-                    return (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        className={cn(
-                          "rounded-md px-1.5 py-0.5 text-[0.625rem] font-medium transition-colors",
-                          active
-                            ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                        )}
-                        onClick={() =>
-                          sizeType === "usd"
-                            ? setPositionSize(preset.value)
-                            : setQuantity(preset.value)
-                        }
-                      >
-                        {preset.label}
-                      </button>
-                    );
-                  }
-                )}
-              </div>
-            </div>
-
-            {simError && (
-              <div className="text-xs text-red-500 dark:text-red-400">
-                {simError}
-              </div>
-            )}
-
-            {/* Results */}
-            {simResult && (
-              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-                <span className="text-muted-foreground">Quantity</span>
-                <span className="font-mono tabular-nums text-right">
-                  {simResult.quantity} contracts
-                </span>
-                <span className="text-muted-foreground">Position size</span>
-                <span className="font-mono tabular-nums text-right">
-                  {formatUsdPlain(simResult.actual_position_size)}
-                  {sizeType === "usd" &&
-                    simResult.actual_position_size !== positionSize && (
-                      <span className="ml-1 text-muted-foreground text-[0.625rem]">
-                        (floored)
-                      </span>
-                    )}
-                </span>
-                <span className="text-muted-foreground">Capital</span>
-                <span className="font-mono tabular-nums text-right">
-                  {formatUsdPlain(simResult.capital)}
-                </span>
-                <span className="text-muted-foreground">Entry cost</span>
-                <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
-                  {formatUsdPlain(simResult.entry_cost)}
-                </span>
-                <span className="text-muted-foreground">Exit cost</span>
-                <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
-                  {formatUsdPlain(simResult.exit_cost)}
-                </span>
-                <span className="text-muted-foreground">Total cost</span>
-                <span className="font-mono tabular-nums text-right font-medium text-red-600 dark:text-red-400">
-                  {formatUsdPlain(simResult.total_cost)}
-                </span>
-
-                <span className="col-span-2 border-t border-border/30 my-1" />
-
-                <span className="text-muted-foreground">Funding/8h</span>
-                <span
-                  className={cn(
-                    "font-mono tabular-nums text-right",
-                    parseFloat(simResult.funding_8h) >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                  )}
-                >
-                  {formatUsd(simResult.funding_8h)}
-                </span>
-                <span className="text-muted-foreground">Funding/24h</span>
-                <span
-                  className={cn(
-                    "font-mono tabular-nums text-right",
-                    parseFloat(simResult.funding_24h) >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                  )}
-                >
-                  {formatUsd(simResult.funding_24h)}
-                </span>
-                <span className="text-muted-foreground">Breakeven</span>
-                <span className="font-mono tabular-nums text-right">
-                  {formatDays(simResult.breakeven_days)}
-                </span>
-
-                <span className="col-span-2 border-t border-border/30 my-1" />
-
-                <span className="text-muted-foreground">Next P&L</span>
-                <span
-                  className={cn(
-                    "font-mono tabular-nums text-right font-medium",
-                    parseFloat(simResult.next_pnl) >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                  )}
-                >
-                  {formatUsd(simResult.next_pnl)}
-                </span>
-                <span className="text-muted-foreground">LCM P&L</span>
-                <span
-                  className={cn(
-                    "font-mono tabular-nums text-right font-medium",
-                    parseFloat(simResult.lcm_pnl) >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                  )}
-                >
-                  {formatUsd(simResult.lcm_pnl)}
-                </span>
-                <span className="text-muted-foreground">24h P&L</span>
-                <span
-                  className={cn(
-                    "font-mono tabular-nums text-right font-medium",
-                    parseFloat(simResult.pnl_24h) >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                  )}
-                >
-                  {formatUsd(simResult.pnl_24h)}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Full loop payment schedule — uses simulation result when available, falls back to arb data */}
-        {hasLoopPayments && (
-          <div>
-            <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
-              Full loop ({arb.full_loop.duration_hours}h) &mdash;{" "}
-              {(loopPayments.length || fallbackPayments.length)} payments &mdash; Net:{" "}
-              <span
-                className={cn(
-                  "font-mono",
-                  parseFloat(arb.full_loop.net_pct_per_loop) >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-red-600 dark:text-red-400"
-                )}
-              >
-                {formatRate(arb.full_loop.net_pct_per_loop)}
-              </span>
-              {simResult && (
-                <span className="ml-1 text-muted-foreground font-mono">
-                  ({formatUsd(simResult.lcm_pnl)})
-                </span>
-              )}
-            </div>
-            <div className="overflow-x-auto">
               <table className="text-xs w-full">
                 <thead>
                   <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                    <th className="pr-3 pb-1 text-left font-medium">Hour</th>
-                    <th className="pr-3 pb-1 text-left font-medium">Exchange</th>
-                    <th className="pr-3 pb-1 text-left font-medium">Side</th>
-                    <th className="pr-3 pb-1 text-right font-medium">Rate</th>
-                    <th className="pr-3 pb-1 text-right font-medium">P&L</th>
-                    <th className="pr-3 pb-1 text-right font-medium">Cumulative</th>
-                    {loopPayments.length > 0 && (
-                      <>
-                        <th className="pl-3 pb-1 text-right font-medium">$ P&L</th>
-                        <th className="pl-3 pb-1 text-right font-medium">$ Cum.</th>
-                      </>
-                    )}
+                    <th className="pr-4 pb-1 text-left font-medium" />
+                    <th className="pr-4 pb-1 text-right font-medium">
+                      <span className="inline-flex items-center gap-1">
+                        <TrendingUp className="h-3 w-3 text-emerald-500" />
+                        Long
+                      </span>
+                    </th>
+                    <th className="pb-1 text-right font-medium">
+                      <span className="inline-flex items-center gap-1">
+                        <TrendingDown className="h-3 w-3 text-red-500" />
+                        Short
+                      </span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {loopPayments.length > 0
-                    ? loopPayments.map((p, i) => {
-                        const pnl = parseFloat(p.payment_pct);
-                        const cum = parseFloat(p.cumulative);
-                        const pnlUsd = parseFloat(p.payment_usd);
-                        const cumUsd = parseFloat(p.cumulative_usd);
-                        return (
-                          <tr key={i} className="border-t border-border/30">
-                            <td className="pr-3 py-0.5 font-mono tabular-nums">
-                              {p.at_hour}h
-                            </td>
-                            <td className="pr-3 py-0.5">
-                              <ExchangeBadge exchangeId={p.exchange_id} />
-                            </td>
-                            <td className="pr-3 py-0.5 text-muted-foreground">
-                              {p.side}
-                            </td>
-                            <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
-                              {formatRate(p.rate)}
-                            </td>
-                            <td
-                              className={cn(
-                                "pr-3 py-0.5 text-right font-mono tabular-nums",
-                                pnl >= 0
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-red-600 dark:text-red-400"
-                              )}
-                            >
-                              {formatRate(p.payment_pct)}
-                            </td>
-                            <td
-                              className={cn(
-                                "pr-3 py-0.5 text-right font-mono tabular-nums font-medium",
-                                cum >= 0
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-red-600 dark:text-red-400"
-                              )}
-                            >
-                              {formatRate(p.cumulative)}
-                            </td>
-                            <td
-                              className={cn(
-                                "pl-3 py-0.5 text-right font-mono tabular-nums",
-                                pnlUsd >= 0
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-red-600 dark:text-red-400"
-                              )}
-                            >
-                              {formatUsd(p.payment_usd)}
-                            </td>
-                            <td
-                              className={cn(
-                                "pl-3 py-0.5 text-right font-mono tabular-nums font-medium",
-                                cumUsd >= 0
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-red-600 dark:text-red-400"
-                              )}
-                            >
-                              {formatUsd(p.cumulative_usd)}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    : fallbackPayments.map((p, i) => {
-                        const pnl = parseFloat(p.payment_pct);
-                        const cum = parseFloat(p.cumulative);
-                        return (
-                          <tr key={i} className="border-t border-border/30">
-                            <td className="pr-3 py-0.5 font-mono tabular-nums">
-                              {p.at_hour}h
-                            </td>
-                            <td className="pr-3 py-0.5">
-                              <ExchangeBadge exchangeId={p.exchange_id} />
-                            </td>
-                            <td className="pr-3 py-0.5 text-muted-foreground">
-                              {p.side}
-                            </td>
-                            <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
-                              {formatRate(p.rate)}
-                            </td>
-                            <td
-                              className={cn(
-                                "pr-3 py-0.5 text-right font-mono tabular-nums",
-                                pnl >= 0
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-red-600 dark:text-red-400"
-                              )}
-                            >
-                              {formatRate(p.payment_pct)}
-                            </td>
-                            <td
-                              className={cn(
-                                "pr-3 py-0.5 text-right font-mono tabular-nums font-medium",
-                                cum >= 0
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-red-600 dark:text-red-400"
-                              )}
-                            >
-                              {formatRate(p.cumulative)}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                  {detailRows.map((row) => (
+                    <tr key={row.label} className="border-t border-border/30">
+                      <td className="pr-4 py-0.5 text-muted-foreground whitespace-nowrap">
+                        {row.label}
+                      </td>
+                      <td className="pr-4 py-0.5 text-right font-mono tabular-nums whitespace-nowrap">
+                        {row.long}
+                      </td>
+                      <td className="py-0.5 text-right font-mono tabular-nums whitespace-nowrap">
+                        {row.short}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
+
+            {/* Fee breakdown */}
+            <div>
+              <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
+                Fee breakdown
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                <span className="text-muted-foreground">Open</span>
+                <span className="font-mono tabular-nums text-right whitespace-nowrap">
+                  {formatPct(arb.fees.open_fees_pct)}
+                  {simResult && (
+                    <span className="ml-1 text-muted-foreground">
+                      ({formatUsdPlain(simResult.entry_cost)})
+                    </span>
+                  )}
+                </span>
+                <span className="text-muted-foreground">Close</span>
+                <span className="font-mono tabular-nums text-right whitespace-nowrap">
+                  {formatPct(arb.fees.close_fees_pct)}
+                  {simResult && (
+                    <span className="ml-1 text-muted-foreground">
+                      ({formatUsdPlain(simResult.exit_cost)})
+                    </span>
+                  )}
+                </span>
+                <span className="text-muted-foreground">Round-trip</span>
+                <span className="font-mono tabular-nums text-right whitespace-nowrap">
+                  {formatPct(arb.fees.round_trip_fees_pct)}
+                  {simResult && (
+                    <span className="ml-1 text-muted-foreground">
+                      ({formatUsdPlain(simResult.total_cost)})
+                    </span>
+                  )}
+                </span>
+                <span className="text-muted-foreground">Net APR</span>
+                <span
+                  className={cn(
+                    "font-mono tabular-nums font-medium text-right",
+                    parseFloat(arb.fees.net_apr_after_fees) >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {formatAPR(arb.fees.net_apr_after_fees)}
+                </span>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </TabsContent>
+
+        {/* Simulation tab */}
+        <TabsContent value="simulation" className="flex-1 min-h-0 overflow-y-auto">
+          <div className="p-4 space-y-5">
+            {/* Simulation inputs & results */}
+            <div>
+              <div className="text-[0.625rem] font-medium uppercase tracking-wider text-violet-600 dark:text-violet-400 mb-2">
+                Simulation
+              </div>
+              <div className="space-y-3">
+                {/* Inputs — single row: size type toggle, value, slippage, calculate */}
+                <div>
+                  <div className="flex items-end gap-2">
+                    {/* Size type toggle */}
+                    <div className="shrink-0 space-y-1">
+                      <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                        Mode
+                      </label>
+                      <div className="flex h-7 rounded-md border bg-muted/50 p-0.5">
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-sm px-2 text-[0.625rem] font-medium transition-colors",
+                            sizeType === "usd"
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() => setSizeType("usd")}
+                        >
+                          USD
+                        </button>
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-sm px-2 text-[0.625rem] font-medium transition-colors",
+                            sizeType === "qty"
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                          onClick={() => setSizeType("qty")}
+                        >
+                          QTY
+                        </button>
+                      </div>
+                    </div>
+                    {/* Value input */}
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                        {sizeType === "usd" ? "Position, $" : "Contracts"}
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={sizeType === "usd" ? positionSize : quantity}
+                        onChange={(e) =>
+                          sizeType === "usd"
+                            ? setPositionSize(e.target.value)
+                            : setQuantity(e.target.value)
+                        }
+                        placeholder={sizeType === "usd" ? "1000" : "1"}
+                        className="h-7 w-full min-w-0 rounded-md border bg-background px-2 text-xs tabular-nums outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
+                      />
+                    </div>
+                    <div className="w-16 shrink-0 space-y-1">
+                      <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                        Slip, %
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={slippagePct}
+                        onChange={(e) => setSlippagePct(e.target.value)}
+                        placeholder="0.05"
+                        className="h-7 w-full min-w-0 rounded-md border bg-background px-2 text-xs tabular-nums outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
+                      />
+                    </div>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="h-7 px-3 text-xs bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600 text-white shrink-0"
+                      onClick={runSimulation}
+                      disabled={simLoading}
+                    >
+                      {simLoading ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        "Calculate"
+                      )}
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-1 mt-1">
+                    {(sizeType === "usd" ? SIZE_PRESETS : QTY_PRESETS).map(
+                      (preset) => {
+                        const active =
+                          sizeType === "usd"
+                            ? positionSize === preset.value
+                            : quantity === preset.value;
+                        return (
+                          <button
+                            key={preset.value}
+                            type="button"
+                            className={cn(
+                              "rounded-md px-1.5 py-0.5 text-[0.625rem] font-medium transition-colors",
+                              active
+                                ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                            )}
+                            onClick={() =>
+                              sizeType === "usd"
+                                ? setPositionSize(preset.value)
+                                : setQuantity(preset.value)
+                            }
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
+
+                {simError && (
+                  <div className="text-xs text-red-500 dark:text-red-400">
+                    {simError}
+                  </div>
+                )}
+
+                {/* Results */}
+                {simResult && (
+                  <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                    <span className="text-muted-foreground">Quantity</span>
+                    <span className="font-mono tabular-nums text-right">
+                      {simResult.quantity} contracts
+                    </span>
+                    <span className="text-muted-foreground">Position size</span>
+                    <span className="font-mono tabular-nums text-right">
+                      {formatUsdPlain(simResult.actual_position_size)}
+                      {sizeType === "usd" &&
+                        simResult.actual_position_size !== positionSize && (
+                          <span className="ml-1 text-muted-foreground text-[0.625rem]">
+                            (floored)
+                          </span>
+                        )}
+                    </span>
+                    <span className="text-muted-foreground">Capital</span>
+                    <span className="font-mono tabular-nums text-right">
+                      {formatUsdPlain(simResult.capital)}
+                    </span>
+                    <span className="text-muted-foreground">Entry cost</span>
+                    <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
+                      {formatUsdPlain(simResult.entry_cost)}
+                    </span>
+                    <span className="text-muted-foreground">Exit cost</span>
+                    <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
+                      {formatUsdPlain(simResult.exit_cost)}
+                    </span>
+                    <span className="text-muted-foreground">Total cost</span>
+                    <span className="font-mono tabular-nums text-right font-medium text-red-600 dark:text-red-400">
+                      {formatUsdPlain(simResult.total_cost)}
+                    </span>
+
+                    <span className="col-span-2 border-t border-border/30 my-1" />
+
+                    <span className="text-muted-foreground">Funding/8h</span>
+                    <span
+                      className={cn(
+                        "font-mono tabular-nums text-right",
+                        parseFloat(simResult.funding_8h) >= 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-red-600 dark:text-red-400"
+                      )}
+                    >
+                      {formatUsd(simResult.funding_8h)}
+                    </span>
+                    <span className="text-muted-foreground">Funding/24h</span>
+                    <span
+                      className={cn(
+                        "font-mono tabular-nums text-right",
+                        parseFloat(simResult.funding_24h) >= 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-red-600 dark:text-red-400"
+                      )}
+                    >
+                      {formatUsd(simResult.funding_24h)}
+                    </span>
+                    <span className="text-muted-foreground">Breakeven</span>
+                    <span className="font-mono tabular-nums text-right">
+                      {formatDays(simResult.breakeven_days)}
+                    </span>
+
+                    <span className="col-span-2 border-t border-border/30 my-1" />
+
+                    <span className="text-muted-foreground">Next P&L</span>
+                    <span
+                      className={cn(
+                        "font-mono tabular-nums text-right font-medium",
+                        parseFloat(simResult.next_pnl) >= 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-red-600 dark:text-red-400"
+                      )}
+                    >
+                      {formatUsd(simResult.next_pnl)}
+                    </span>
+                    <span className="text-muted-foreground">LCM P&L</span>
+                    <span
+                      className={cn(
+                        "font-mono tabular-nums text-right font-medium",
+                        parseFloat(simResult.lcm_pnl) >= 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-red-600 dark:text-red-400"
+                      )}
+                    >
+                      {formatUsd(simResult.lcm_pnl)}
+                    </span>
+                    <span className="text-muted-foreground">24h P&L</span>
+                    <span
+                      className={cn(
+                        "font-mono tabular-nums text-right font-medium",
+                        parseFloat(simResult.pnl_24h) >= 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-red-600 dark:text-red-400"
+                      )}
+                    >
+                      {formatUsd(simResult.pnl_24h)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Full loop payment schedule — uses simulation result when available, falls back to arb data */}
+            {hasLoopPayments && (
+              <div>
+                <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
+                  Full loop ({arb.full_loop.duration_hours}h) &mdash;{" "}
+                  {(loopPayments.length || fallbackPayments.length)} payments &mdash; Net:{" "}
+                  <span
+                    className={cn(
+                      "font-mono",
+                      parseFloat(arb.full_loop.net_pct_per_loop) >= 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-red-600 dark:text-red-400"
+                    )}
+                  >
+                    {formatRate(arb.full_loop.net_pct_per_loop)}
+                  </span>
+                  {simResult && (
+                    <span className="ml-1 text-muted-foreground font-mono">
+                      ({formatUsd(simResult.lcm_pnl)})
+                    </span>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="text-xs w-full">
+                    <thead>
+                      <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                        <th className="pr-3 pb-1 text-left font-medium">Hour</th>
+                        <th className="pr-3 pb-1 text-left font-medium">Exchange</th>
+                        <th className="pr-3 pb-1 text-left font-medium">Side</th>
+                        <th className="pr-3 pb-1 text-right font-medium">Rate</th>
+                        <th className="pr-3 pb-1 text-right font-medium">P&L</th>
+                        <th className="pr-3 pb-1 text-right font-medium">Cumulative</th>
+                        {loopPayments.length > 0 && (
+                          <>
+                            <th className="pl-3 pb-1 text-right font-medium">$ P&L</th>
+                            <th className="pl-3 pb-1 text-right font-medium">$ Cum.</th>
+                          </>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loopPayments.length > 0
+                        ? loopPayments.map((p, i) => {
+                            const pnl = parseFloat(p.payment_pct);
+                            const cum = parseFloat(p.cumulative);
+                            const pnlUsd = parseFloat(p.payment_usd);
+                            const cumUsd = parseFloat(p.cumulative_usd);
+                            return (
+                              <tr key={i} className="border-t border-border/30">
+                                <td className="pr-3 py-0.5 font-mono tabular-nums">
+                                  {p.at_hour}h
+                                </td>
+                                <td className="pr-3 py-0.5">
+                                  <ExchangeBadge exchangeId={p.exchange_id} />
+                                </td>
+                                <td className="pr-3 py-0.5 text-muted-foreground">
+                                  {p.side}
+                                </td>
+                                <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
+                                  {formatRate(p.rate)}
+                                </td>
+                                <td
+                                  className={cn(
+                                    "pr-3 py-0.5 text-right font-mono tabular-nums",
+                                    pnl >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-red-600 dark:text-red-400"
+                                  )}
+                                >
+                                  {formatRate(p.payment_pct)}
+                                </td>
+                                <td
+                                  className={cn(
+                                    "pr-3 py-0.5 text-right font-mono tabular-nums font-medium",
+                                    cum >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-red-600 dark:text-red-400"
+                                  )}
+                                >
+                                  {formatRate(p.cumulative)}
+                                </td>
+                                <td
+                                  className={cn(
+                                    "pl-3 py-0.5 text-right font-mono tabular-nums",
+                                    pnlUsd >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-red-600 dark:text-red-400"
+                                  )}
+                                >
+                                  {formatUsd(p.payment_usd)}
+                                </td>
+                                <td
+                                  className={cn(
+                                    "pl-3 py-0.5 text-right font-mono tabular-nums font-medium",
+                                    cumUsd >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-red-600 dark:text-red-400"
+                                  )}
+                                >
+                                  {formatUsd(p.cumulative_usd)}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        : fallbackPayments.map((p, i) => {
+                            const pnl = parseFloat(p.payment_pct);
+                            const cum = parseFloat(p.cumulative);
+                            return (
+                              <tr key={i} className="border-t border-border/30">
+                                <td className="pr-3 py-0.5 font-mono tabular-nums">
+                                  {p.at_hour}h
+                                </td>
+                                <td className="pr-3 py-0.5">
+                                  <ExchangeBadge exchangeId={p.exchange_id} />
+                                </td>
+                                <td className="pr-3 py-0.5 text-muted-foreground">
+                                  {p.side}
+                                </td>
+                                <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
+                                  {formatRate(p.rate)}
+                                </td>
+                                <td
+                                  className={cn(
+                                    "pr-3 py-0.5 text-right font-mono tabular-nums",
+                                    pnl >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-red-600 dark:text-red-400"
+                                  )}
+                                >
+                                  {formatRate(p.payment_pct)}
+                                </td>
+                                <td
+                                  className={cn(
+                                    "pr-3 py-0.5 text-right font-mono tabular-nums font-medium",
+                                    cum >= 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-red-600 dark:text-red-400"
+                                  )}
+                                >
+                                  {formatRate(p.cumulative)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
