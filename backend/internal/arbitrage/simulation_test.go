@@ -764,6 +764,9 @@ func TestSimulate_CleanLoop_HasOpenAndCloseRows(t *testing.T) {
 	if len(cl.Rows[0].Events) != 2 {
 		t.Errorf("CleanLoop row 0: expected 2 fee events, got %d", len(cl.Rows[0].Events))
 	}
+	// Fee events should carry the taker fee rate as a fraction.
+	assertDecimalEqual(t, "CleanLoop[0].Events[0].Rate (long fee)", d("0.00055"), cl.Rows[0].Events[0].Rate)
+	assertDecimalEqual(t, "CleanLoop[0].Events[1].Rate (short fee)", d("0.00055"), cl.Rows[0].Events[1].Rate)
 
 	// Middle row: merged funding (has events for both exchanges).
 	if cl.Rows[1].Kind != domain.RowKindFunding {
@@ -787,6 +790,9 @@ func TestSimulate_CleanLoop_HasOpenAndCloseRows(t *testing.T) {
 	if len(last.Events) != 2 {
 		t.Errorf("CleanLoop last row: expected 2 fee events, got %d", len(last.Events))
 	}
+	// Close fee events should also carry the taker fee rate.
+	assertDecimalEqual(t, "CleanLoop[last].Events[0].Rate (long fee)", d("0.00055"), last.Events[0].Rate)
+	assertDecimalEqual(t, "CleanLoop[last].Events[1].Rate (short fee)", d("0.00055"), last.Events[1].Rate)
 
 	// Duration should be 8h.
 	assertDecimalEqual(t, "CleanLoop.DurationHours", d("8"), cl.DurationHours)
@@ -942,6 +948,9 @@ func TestSimulate_HoldSimulation_ProjectsFundingTimes(t *testing.T) {
 	if len(hs.Rows[0].Events) != 2 {
 		t.Errorf("HoldSim first row: expected 2 fee events, got %d", len(hs.Rows[0].Events))
 	}
+	// Fee events should carry the taker fee rate as a fraction.
+	assertDecimalEqual(t, "HoldSim[0].Events[0].Rate (long fee)", d("0.0005"), hs.Rows[0].Events[0].Rate)
+	assertDecimalEqual(t, "HoldSim[0].Events[1].Rate (short fee)", d("0.0005"), hs.Rows[0].Events[1].Rate)
 
 	// Last row should be close with fee sub-rows.
 	lastRow := hs.Rows[len(hs.Rows)-1]
@@ -951,6 +960,8 @@ func TestSimulate_HoldSimulation_ProjectsFundingTimes(t *testing.T) {
 	if len(lastRow.Events) != 2 {
 		t.Errorf("HoldSim last row: expected 2 fee events, got %d", len(lastRow.Events))
 	}
+	assertDecimalEqual(t, "HoldSim[last].Events[0].Rate (long fee)", d("0.0005"), lastRow.Events[0].Rate)
+	assertDecimalEqual(t, "HoldSim[last].Events[1].Rate (short fee)", d("0.0005"), lastRow.Events[1].Rate)
 
 	// Check that funding rows have absolute timestamps and are ordered.
 	// Also verify every row has at least one event.

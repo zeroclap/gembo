@@ -234,12 +234,14 @@ func buildFeeEvents(kind domain.SimulationRowKind, fd feeBreakdown) []domain.Sim
 		{
 			ExchangeID: fd.longExchangeID,
 			Side:       "long",
+			Rate:       fd.longFeePct.Div(dec100),
 			PnlPct:     longPctNeg,
 			PnlUsd:     longUsd,
 		},
 		{
 			ExchangeID: fd.shortExchangeID,
 			Side:       "short",
+			Rate:       fd.shortFeePct.Div(dec100),
 			PnlPct:     shortPctNeg,
 			PnlUsd:     shortUsd,
 		},

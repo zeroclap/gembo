@@ -151,7 +151,7 @@ const (
 type SimulationEvent struct {
 	ExchangeID string          `json:"exchange_id"`    // which exchange
 	Side       string          `json:"side"`           // "long" or "short"
-	Rate       decimal.Decimal `json:"rate,omitempty"` // funding rate (only for funding events)
+	Rate       decimal.Decimal `json:"rate,omitempty"` // rate as fraction: funding rate or taker fee
 	PnlPct     decimal.Decimal `json:"pnl_pct"`        // P&L % for this event
 	PnlUsd     decimal.Decimal `json:"pnl_usd"`        // P&L $ for this event
 }
