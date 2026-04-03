@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo, useCallback, useEffect, useRef, Fragment } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   fetchFundingArbitrage,
   simulateArbitrage,
@@ -9,14 +10,6 @@ import {
   type SimulationResult,
   type SimSizeType,
 } from "@/lib/api";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -258,7 +251,7 @@ function SortButton({
 }
 
 // ---------------------------------------------------------------------------
-// Two-line data row
+// Two-line data row (div-based for virtualization)
 // ---------------------------------------------------------------------------
 
 function DataRowPair({
@@ -281,70 +274,105 @@ function DataRowPair({
   const shortRate = parseFloat(arb.short.funding_rate) * 100;
 
   return (
-    <tbody
+    <div
       className={cn(
-        "group/row cursor-pointer border-b transition-colors hover:bg-muted/50",
+        "group/row cursor-pointer border-b transition-colors hover:bg-muted/50 text-[11px] leading-tight",
         isSelected && "bg-violet-500/5 dark:bg-violet-500/10 border-violet-500/20"
       )}
       onClick={onSelect}
     >
-      {/* Line 1: Long leg */}
-      <tr>
-        {/* Symbol — spans both lines */}
-        <td
-          className="p-2 align-middle whitespace-nowrap font-medium"
-          rowSpan={2}
-        >
-          <div className="flex items-center gap-1.5">
+      <div className="flex">
+        {/* Col 1: Symbol */}
+        <div className="flex items-center px-2 py-0.5 min-w-[90px] flex-[1]">
+          <div className="flex items-center gap-1 whitespace-nowrap font-medium text-xs">
             {isSelected && (
               <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />
             )}
             {arb.symbol}
           </div>
-        </td>
+        </div>
 
-        {/* Pair: Long */}
-        <td className="p-2 align-middle whitespace-nowrap">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex items-center justify-center h-4 w-4 rounded-sm bg-emerald-600 dark:bg-emerald-500 shrink-0">
-              <ArrowUp className="h-3 w-3 text-white" strokeWidth={2.5} />
-            </span>
-            <ExchangeBadge exchangeId={arb.long.exchange_id} />
-            <span className="flex-1" />
-            <span className="font-mono tabular-nums text-muted-foreground">
-              {formatPrice(arb.long.price)}
-            </span>
+        {/* Cols 2-3: Pair + Funding Rate */}
+        <div className="flex-[3.5] min-w-0 flex flex-col justify-center gap-0.5 py-0.5">
+          {/* Long leg */}
+          <div className="flex">
+            <div className="flex-[1.5] min-w-0 px-2 whitespace-nowrap">
+              <div className="flex items-center gap-1">
+                <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-sm bg-emerald-600 dark:bg-emerald-500 shrink-0">
+                  <ArrowUp className="h-2.5 w-2.5 text-white" strokeWidth={2.5} />
+                </span>
+                <ExchangeBadge exchangeId={arb.long.exchange_id} />
+                <span className="flex-1" />
+                <span className="font-mono tabular-nums text-muted-foreground">
+                  {formatPrice(arb.long.price)}
+                </span>
+              </div>
+            </div>
+            <div className="flex-[2] min-w-0 px-2 whitespace-nowrap">
+              <div className="flex items-center gap-1">
+                <span
+                  className={cn(
+                    "font-mono tabular-nums",
+                    longRate >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {formatRate(arb.long.funding_rate)}
+                </span>
+                <span className="text-muted-foreground text-[10px]">
+                  {arb.long.interval_hours}h
+                </span>
+                <span className="text-muted-foreground text-[10px]">
+                  <Clock className="inline h-2.5 w-2.5 mr-0.5 align-text-top" />
+                  <Countdown targetTime={arb.long.next_funding_at} />
+                </span>
+              </div>
+            </div>
           </div>
-        </td>
-
-        {/* Funding Rate: Long */}
-        <td className="p-2 align-middle whitespace-nowrap">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "font-mono tabular-nums",
-                longRate >= 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-red-600 dark:text-red-400"
-              )}
-            >
-              {formatRate(arb.long.funding_rate)}
-            </span>
-            <span className="text-muted-foreground text-[0.625rem]">
-              {arb.long.interval_hours}h
-            </span>
-            <span className="text-muted-foreground">
-              <Clock className="inline h-3 w-3 mr-0.5" />
-              <Countdown targetTime={arb.long.next_funding_at} />
-            </span>
+          {/* Short leg */}
+          <div className="flex">
+            <div className="flex-[1.5] min-w-0 px-2 whitespace-nowrap">
+              <div className="flex items-center gap-1">
+                <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-sm bg-red-600 dark:bg-red-500 shrink-0">
+                  <ArrowDown className="h-2.5 w-2.5 text-white" strokeWidth={2.5} />
+                </span>
+                <ExchangeBadge exchangeId={arb.short.exchange_id} />
+                <span className="flex-1" />
+                <span className="font-mono tabular-nums text-muted-foreground">
+                  {formatPrice(arb.short.price)}
+                </span>
+              </div>
+            </div>
+            <div className="flex-[2] min-w-0 px-2 whitespace-nowrap">
+              <div className="flex items-center gap-1">
+                <span
+                  className={cn(
+                    "font-mono tabular-nums",
+                    shortRate >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {formatRate(arb.short.funding_rate)}
+                </span>
+                <span className="text-muted-foreground text-[10px]">
+                  {arb.short.interval_hours}h
+                </span>
+                <span className="text-muted-foreground text-[10px]">
+                  <Clock className="inline h-2.5 w-2.5 mr-0.5 align-text-top" />
+                  <Countdown targetTime={arb.short.next_funding_at} />
+                </span>
+              </div>
+            </div>
           </div>
-        </td>
+        </div>
 
-        {/* Funding Spread — spans both lines */}
-        <td className="p-2 align-middle whitespace-nowrap" rowSpan={2}>
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider w-12">
+        {/* Col 4: Funding Spread */}
+        <div className="flex items-center px-2 py-0.5 min-w-[160px] flex-[2] whitespace-nowrap">
+          <div className="flex flex-col leading-[1.15rem]">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider w-8">
                 next
               </span>
               <span
@@ -358,12 +386,12 @@ function DataRowPair({
                 {nextVal >= 0 ? "+" : ""}
                 {nextVal.toFixed(4)}%
               </span>
-              <span className="text-[0.625rem] text-muted-foreground">
+              <span className="text-[10px] text-muted-foreground">
                 {nextSpread.label}
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider w-12">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider w-8">
                 lcm
               </span>
               <span
@@ -377,12 +405,12 @@ function DataRowPair({
                 {lcmVal >= 0 ? "+" : ""}
                 {lcmVal.toFixed(4)}%
               </span>
-              <span className="text-[0.625rem] text-muted-foreground">
+              <span className="text-[10px] text-muted-foreground">
                 {arb.full_loop.duration_hours}h
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider w-12">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider w-8">
                 24h
               </span>
               <span
@@ -398,10 +426,10 @@ function DataRowPair({
               </span>
             </div>
           </div>
-        </td>
+        </div>
 
-        {/* Open Spread — spans both lines */}
-        <td className="p-2 align-middle whitespace-nowrap" rowSpan={2}>
+        {/* Col 5: Open Spread */}
+        <div className="flex items-center px-2 py-0.5 min-w-[100px] flex-[1] whitespace-nowrap">
           <div className="flex items-center gap-2">
             <span className="font-mono tabular-nums text-muted-foreground">
               {formatPct(arb.open_spread)}
@@ -409,7 +437,7 @@ function DataRowPair({
             <Button
               variant="outline"
               size="sm"
-              className="h-6 px-2 text-[0.625rem] opacity-0 group-hover/row:opacity-100 transition-opacity"
+              className="h-5 px-1.5 text-[10px] opacity-0 group-hover/row:opacity-100 transition-opacity"
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenPosition();
@@ -418,49 +446,9 @@ function DataRowPair({
               Open
             </Button>
           </div>
-        </td>
-      </tr>
-
-      {/* Line 2: Short leg */}
-      <tr>
-        {/* Pair: Short */}
-        <td className="p-2 align-middle whitespace-nowrap">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex items-center justify-center h-4 w-4 rounded-sm bg-red-600 dark:bg-red-500 shrink-0">
-              <ArrowDown className="h-3 w-3 text-white" strokeWidth={2.5} />
-            </span>
-            <ExchangeBadge exchangeId={arb.short.exchange_id} />
-            <span className="flex-1" />
-            <span className="font-mono tabular-nums text-muted-foreground">
-              {formatPrice(arb.short.price)}
-            </span>
-          </div>
-        </td>
-
-        {/* Funding Rate: Short */}
-        <td className="p-2 align-middle whitespace-nowrap">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "font-mono tabular-nums",
-                shortRate >= 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-red-600 dark:text-red-400"
-              )}
-            >
-              {formatRate(arb.short.funding_rate)}
-            </span>
-            <span className="text-muted-foreground text-[0.625rem]">
-              {arb.short.interval_hours}h
-            </span>
-            <span className="text-muted-foreground">
-              <Clock className="inline h-3 w-3 mr-0.5" />
-              <Countdown targetTime={arb.short.next_funding_at} />
-            </span>
-          </div>
-        </td>
-      </tr>
-    </tbody>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1238,7 +1226,15 @@ export function ArbitrageTable() {
     setOpenPanel((prev) => (prev === panel ? "none" : panel));
   }, []);
 
-  const colCount = 5;
+  // Virtualization
+  const ROW_HEIGHT = 40; // compact two sub-rows
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: sortedData.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  });
 
   if (error) {
     return (
@@ -1252,9 +1248,11 @@ export function ArbitrageTable() {
 
   return (
     <div className="flex flex-1 min-h-0">
-      {/* Left: table area — scrollable */}
-      <div className="flex-1 min-w-0 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-screen-xl space-y-4">
+      {/* Left: table area */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Toolbar & filters — not scrollable */}
+        <div className="px-4 pt-3 pb-2 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-screen-xl space-y-2">
         <div className="flex items-center justify-between gap-4">
           <div className="text-xs text-muted-foreground">
             Funding rate arbitrage opportunities (Long + Short, cross-exchange)
@@ -1352,101 +1350,102 @@ export function ArbitrageTable() {
             />
           )}
         </div>
-
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>
-                  <SortButton
-                    label="Symbol"
-                    sortKey="symbol"
-                    current={sort}
-                    onToggle={toggleSort}
-                  />
-                </TableHead>
-                <TableHead>Pair</TableHead>
-                <TableHead>Funding Rate</TableHead>
-                <TableHead>
-                  <SortButton
-                    label="Funding Spread"
-                    sortKey="funding_spread"
-                    current={sort}
-                    onToggle={toggleSort}
-                  />
-                </TableHead>
-                <TableHead>
-                  <SortButton
-                    label="Open Spread, %"
-                    sortKey="open_spread"
-                    current={sort}
-                    onToggle={toggleSort}
-                  />
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-
-            {isLoading ? (
-              <TableBody>
-                {Array.from({ length: 10 }).map((_, i) => (
-                  <Fragment key={i}>
-                    <TableRow className="border-0">
-                      <TableCell rowSpan={2}>
-                        <Skeleton className="h-4 w-20" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-32" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-40" />
-                      </TableCell>
-                      <TableCell rowSpan={2}>
-                        <Skeleton className="h-4 w-24" />
-                      </TableCell>
-                      <TableCell rowSpan={2}>
-                        <Skeleton className="h-4 w-16" />
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>
-                        <Skeleton className="h-4 w-32" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-40" />
-                      </TableCell>
-                    </TableRow>
-                  </Fragment>
-                ))}
-              </TableBody>
-            ) : sortedData.length === 0 ? (
-              <TableBody>
-                <TableRow>
-                  <TableCell
-                    colSpan={colCount}
-                    className="h-24 text-center text-muted-foreground"
-                  >
-                    {activeFilterCount > 0
-                      ? "No results match the current filters."
-                      : "No arbitrage opportunities found. Waiting for data from collector and worker..."}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            ) : (
-              sortedData.map((arb) => {
-                const rowKey = getRowKey(arb);
-                return (
-                  <DataRowPair
-                    key={rowKey}
-                    arb={arb}
-                    isSelected={selectedArbKey === rowKey}
-                    onSelect={() => selectRow(arb)}
-                    onOpenPosition={() => setOpenPositionArb(arb)}
-                  />
-                );
-              })
-            )}
-          </Table>
+          </div>
         </div>
+
+        {/* Table with sticky header + virtualized rows */}
+        <div className="flex-1 min-h-0 px-4 pb-4 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-screen-xl h-full">
+          <div className="rounded-lg border flex flex-col overflow-hidden h-full">
+            {/* Header */}
+            <div className="flex items-center border-b bg-background text-xs text-foreground font-medium">
+              <div className="px-2 py-1.5 min-w-[90px] flex-[1]">
+                <SortButton
+                  label="Symbol"
+                  sortKey="symbol"
+                  current={sort}
+                  onToggle={toggleSort}
+                />
+              </div>
+              <div className="flex-[3.5] min-w-0 flex">
+                <div className="flex-[1.5] min-w-0 px-2 py-1.5">Pair</div>
+                <div className="flex-[2] min-w-0 px-2 py-1.5">Funding Rate</div>
+              </div>
+              <div className="px-2 py-1.5 min-w-[160px] flex-[2]">
+                <SortButton
+                  label="Funding Spread"
+                  sortKey="funding_spread"
+                  current={sort}
+                  onToggle={toggleSort}
+                />
+              </div>
+              <div className="px-2 py-1.5 min-w-[100px] flex-[1]">
+                <SortButton
+                  label="Open Spread, %"
+                  sortKey="open_spread"
+                  current={sort}
+                  onToggle={toggleSort}
+                />
+              </div>
+            </div>
+
+            {/* Scrollable body */}
+            {isLoading ? (
+              <div className="p-2 space-y-2">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <div key={i} className="flex gap-3">
+                    <Skeleton className="h-6 w-20" />
+                    <Skeleton className="h-6 flex-1" />
+                    <Skeleton className="h-6 flex-1" />
+                    <Skeleton className="h-6 w-28" />
+                    <Skeleton className="h-6 w-16" />
+                  </div>
+                ))}
+              </div>
+            ) : sortedData.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground p-8">
+                {activeFilterCount > 0
+                  ? "No results match the current filters."
+                  : "No arbitrage opportunities found. Waiting for data from collector and worker..."}
+              </div>
+            ) : (
+              <div
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto min-h-0"
+              >
+                <div
+                  style={{ height: virtualizer.getTotalSize(), position: "relative" }}
+                >
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const arb = sortedData[virtualRow.index];
+                    const rowKey = getRowKey(arb);
+                    return (
+                      <div
+                        key={rowKey}
+                        data-index={virtualRow.index}
+                        ref={virtualizer.measureElement}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        <DataRowPair
+                          arb={arb}
+                          isSelected={selectedArbKey === rowKey}
+                          onSelect={() => selectRow(arb)}
+                          onOpenPosition={() => setOpenPositionArb(arb)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+          </div>
         </div>
       </div>
 
