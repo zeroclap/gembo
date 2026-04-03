@@ -26,6 +26,7 @@ type SizeType string
 const (
 	SizeTypeUSD  SizeType = "usd"
 	SizeTypeBase SizeType = "base"
+	SizeTypeQty  SizeType = "qty" // contract count (used in simulations)
 )
 
 // Position represents an open or historical funding rate arbitrage position

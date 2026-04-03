@@ -47,6 +47,7 @@ type ArbitrageLeg struct {
 	Volume24h       decimal.Decimal `json:"volume_24h"`
 	MakerFeePct     decimal.Decimal `json:"maker_fee_pct"`
 	TakerFeePct     decimal.Decimal `json:"taker_fee_pct"`
+	ContractSize    decimal.Decimal `json:"contract_size"` // smallest tradeable unit in base currency
 }
 
 // ArbitrageFees contains fee estimates for entering and exiting an arbitrage position.
@@ -83,4 +84,52 @@ type LoopPayment struct {
 	PaymentPct decimal.Decimal `json:"payment_pct"` // your +/- for this step
 	AtHour     int             `json:"at_hour"`     // hour offset within the loop
 	Cumulative decimal.Decimal `json:"cumulative"`  // running P&L up to this point
+}
+
+// SimulationRequest contains parameters for simulating a position on an arbitrage
+// opportunity. The caller provides the opportunity key and position sizing.
+type SimulationRequest struct {
+	Symbol          string          `json:"symbol"`
+	LongExchangeID  string          `json:"long_exchange_id"`
+	ShortExchangeID string          `json:"short_exchange_id"`
+	PositionSize    decimal.Decimal `json:"position_size"` // notional value in USD (used when SizeType=usd)
+	Quantity        decimal.Decimal `json:"quantity"`      // contract count (used when SizeType=qty)
+	SizeType        SizeType        `json:"size_type"`     // "usd" or "qty"
+	SlippagePct     decimal.Decimal `json:"slippage_pct"`  // slippage percentage, e.g. 0.05
+}
+
+// SimulationResult contains the computed P&L simulation for an arbitrage opportunity.
+type SimulationResult struct {
+	PositionSize       decimal.Decimal `json:"position_size"`        // notional value in USD (may differ from input if size_type=qty)
+	ActualPositionSize decimal.Decimal `json:"actual_position_size"` // effective notional after floor-rounding (qty * price * contract_size)
+	Quantity           decimal.Decimal `json:"quantity"`             // number of contracts
+	Capital            decimal.Decimal `json:"capital"`              // actual capital required
+
+	EntryCost decimal.Decimal `json:"entry_cost"` // $ cost to open (spread loss + open fees + slippage)
+	ExitCost  decimal.Decimal `json:"exit_cost"`  // $ cost to close (close fees + slippage)
+	TotalCost decimal.Decimal `json:"total_cost"` // entry + exit
+
+	Funding8h  decimal.Decimal `json:"funding_8h"`  // $ funding P&L per 8h period
+	Funding24h decimal.Decimal `json:"funding_24h"` // $ funding P&L per day
+
+	BreakevenDays decimal.Decimal `json:"breakeven_days"` // days to recoup entry+exit cost from funding
+
+	LcmPnL  decimal.Decimal `json:"lcm_pnl"`  // $ P&L for one full LCM loop (funding only)
+	NextPnL decimal.Decimal `json:"next_pnl"` // $ P&L for the next funding cycle
+	Pnl24h  decimal.Decimal `json:"pnl_24h"`  // $ P&L for 24h of funding
+
+	LoopPayments []SimulationLoopPayment `json:"loop_payments"` // per-payment USD breakdown for the full loop
+}
+
+// SimulationLoopPayment mirrors LoopPayment but includes USD P&L values
+// computed from the position size.
+type SimulationLoopPayment struct {
+	ExchangeID    string          `json:"exchange_id"`
+	Side          string          `json:"side"`
+	Rate          decimal.Decimal `json:"rate"`
+	PaymentPct    decimal.Decimal `json:"payment_pct"`
+	AtHour        int             `json:"at_hour"`
+	Cumulative    decimal.Decimal `json:"cumulative"`
+	PaymentUsd    decimal.Decimal `json:"payment_usd"`    // payment_pct * position_size
+	CumulativeUsd decimal.Decimal `json:"cumulative_usd"` // cumulative * position_size
 }

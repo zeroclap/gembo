@@ -170,6 +170,9 @@ func (m *mockStore) SetFundingArbitrage(_ context.Context, _ domain.FundingArbit
 func (m *mockStore) ListFundingArbitrage(_ context.Context) ([]domain.FundingArbitrage, error) {
 	return m.arbitrages, nil
 }
+func (m *mockStore) GetFundingArbitrage(_ context.Context, _, _, _ string) (*domain.FundingArbitrage, error) {
+	return nil, nil
+}
 func (m *mockStore) RemoveFundingArbitrage(_ context.Context, _, _, _ string) error { return nil }
 func (m *mockStore) FlushAll(_ context.Context) (int64, error)                      { return 0, nil }
 

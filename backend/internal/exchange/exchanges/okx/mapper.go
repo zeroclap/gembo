@@ -18,16 +18,17 @@ func mapMarket(m ccxt.MarketInterface, updatedAt time.Time) domain.Market {
 	mtype := resolveMarketType(m)
 
 	return domain.Market{
-		ExchangeID:  exchangeID,
-		Symbol:      symbol,
-		BaseAsset:   base,
-		QuoteAsset:  quote,
-		SettleAsset: settle,
-		MarketType:  mtype,
-		Active:      active,
-		TakerFee:    floatToDecimal(m.Taker),
-		MakerFee:    floatToDecimal(m.Maker),
-		UpdatedAt:   updatedAt,
+		ExchangeID:   exchangeID,
+		Symbol:       symbol,
+		BaseAsset:    base,
+		QuoteAsset:   quote,
+		SettleAsset:  settle,
+		MarketType:   mtype,
+		Active:       active,
+		TakerFee:     floatToDecimal(m.Taker),
+		MakerFee:     floatToDecimal(m.Maker),
+		ContractSize: floatToDecimal(m.ContractSize),
+		UpdatedAt:    updatedAt,
 	}
 }
 

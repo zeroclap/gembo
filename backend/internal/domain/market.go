@@ -29,6 +29,12 @@ type Market struct {
 	TakerFee decimal.Decimal `json:"taker_fee"`
 	MakerFee decimal.Decimal `json:"maker_fee"`
 
+	// Contract/lot size: the smallest tradeable unit in base currency.
+	// For linear perpetuals this is typically 1 (1 contract = 1 base unit).
+	// For inverse or coin-margined it may differ (e.g. 100 USD per contract).
+	// Zero means "unknown / not reported".
+	ContractSize decimal.Decimal `json:"contract_size"`
+
 	UpdatedAt time.Time `json:"updated_at"`
 }
 

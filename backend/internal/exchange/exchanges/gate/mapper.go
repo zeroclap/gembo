@@ -11,16 +11,17 @@ import (
 // mapMarket converts a CCXT MarketInterface to a domain.Market.
 func mapMarket(m ccxt.MarketInterface, updatedAt time.Time) domain.Market {
 	return domain.Market{
-		ExchangeID:  exchangeID,
-		Symbol:      derefString(m.Symbol),
-		BaseAsset:   derefString(m.BaseCurrency),
-		QuoteAsset:  derefString(m.QuoteCurrency),
-		SettleAsset: derefString(m.Settle),
-		MarketType:  resolveMarketType(m),
-		Active:      derefBool(m.Active),
-		TakerFee:    floatToDecimal(m.Taker),
-		MakerFee:    floatToDecimal(m.Maker),
-		UpdatedAt:   updatedAt,
+		ExchangeID:   exchangeID,
+		Symbol:       derefString(m.Symbol),
+		BaseAsset:    derefString(m.BaseCurrency),
+		QuoteAsset:   derefString(m.QuoteCurrency),
+		SettleAsset:  derefString(m.Settle),
+		MarketType:   resolveMarketType(m),
+		Active:       derefBool(m.Active),
+		TakerFee:     floatToDecimal(m.Taker),
+		MakerFee:     floatToDecimal(m.Maker),
+		ContractSize: floatToDecimal(m.ContractSize),
+		UpdatedAt:    updatedAt,
 	}
 }
 

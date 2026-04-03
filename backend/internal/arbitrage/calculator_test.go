@@ -78,6 +78,17 @@ func (m *mockStore) ListFundingArbitrage(_ context.Context) ([]domain.FundingArb
 	return out, nil
 }
 
+func (m *mockStore) GetFundingArbitrage(_ context.Context, symbol, exchangeA, exchangeB string) (*domain.FundingArbitrage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := sortedKey(symbol, exchangeA, exchangeB)
+	a, ok := m.arbitrages[key]
+	if !ok {
+		return nil, nil
+	}
+	return &a, nil
+}
+
 func (m *mockStore) RemoveFundingArbitrage(_ context.Context, symbol, exchangeA, exchangeB string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -25,6 +25,7 @@ type Store interface {
 
 	// Funding Arbitrage
 	SetFundingArbitrage(ctx context.Context, a domain.FundingArbitrage) error
+	GetFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) (*domain.FundingArbitrage, error)
 	ListFundingArbitrage(ctx context.Context) ([]domain.FundingArbitrage, error)
 	RemoveFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error
 

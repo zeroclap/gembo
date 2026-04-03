@@ -69,6 +69,7 @@ export interface ArbitrageLeg {
   volume_24h: string;
   maker_fee_pct: string;
   taker_fee_pct: string;
+  contract_size: string;
 }
 
 export interface ArbitrageFees {
@@ -117,6 +118,58 @@ export interface FundingArbitrage {
 
 export function fetchFundingArbitrage(): Promise<FundingArbitrage[]> {
   return fetchApi<FundingArbitrage[]>("/arbitrage/funding");
+}
+
+// --- Simulation ---
+
+export type SimSizeType = "usd" | "qty";
+
+export interface SimulationRequest {
+  symbol: string;
+  long_exchange_id: string;
+  short_exchange_id: string;
+  position_size?: string;
+  quantity?: string;
+  size_type: SimSizeType;
+  slippage_pct: string;
+}
+
+export interface SimulationLoopPayment {
+  exchange_id: string;
+  side: string;
+  rate: string;
+  payment_pct: string;
+  at_hour: number;
+  cumulative: string;
+  payment_usd: string;
+  cumulative_usd: string;
+}
+
+export interface SimulationResult {
+  position_size: string;
+  actual_position_size: string;
+  quantity: string;
+  capital: string;
+  entry_cost: string;
+  exit_cost: string;
+  total_cost: string;
+  funding_8h: string;
+  funding_24h: string;
+  breakeven_days: string;
+  lcm_pnl: string;
+  next_pnl: string;
+  pnl_24h: string;
+  loop_payments: SimulationLoopPayment[];
+}
+
+export function simulateArbitrage(
+  req: SimulationRequest
+): Promise<SimulationResult> {
+  return fetchApi<SimulationResult>("/arbitrage/funding/simulate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
 }
 
 // --- Positions ---

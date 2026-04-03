@@ -62,6 +62,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /v1/exchanges/{exchange}/funding-rates", h.handleListFundingRates)
 	h.mux.HandleFunc("GET /v1/exchanges/{exchange}/funding-rates/{symbol}", h.handleGetFundingRate)
 	h.mux.HandleFunc("GET /v1/arbitrage/funding", h.handleListFundingArbitrage)
+	h.mux.HandleFunc("POST /v1/arbitrage/funding/simulate", h.handleSimulateFundingArbitrage)
 
 	// Positions
 	h.mux.HandleFunc("POST /v1/positions", h.handleCreatePosition)

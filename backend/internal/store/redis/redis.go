@@ -299,6 +299,28 @@ func (s *Store) SetFundingArbitrage(ctx context.Context, a domain.FundingArbitra
 	return nil
 }
 
+// GetFundingArbitrage retrieves a single funding arbitrage opportunity by symbol and exchange pair.
+// Exchange IDs are sorted alphabetically to match the canonical key.
+// Returns nil if not found.
+func (s *Store) GetFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) (*domain.FundingArbitrage, error) {
+	exA, exB := sortedExchangeIDs(exchangeA, exchangeB)
+	key := rediskey.FundingArbitragePair(symbol, exA, exB)
+
+	data, err := s.client.Get(ctx, key).Bytes()
+	if err == goredis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get funding arbitrage %s|%s|%s: %w", symbol, exA, exB, err)
+	}
+
+	var a domain.FundingArbitrage
+	if err := json.Unmarshal(data, &a); err != nil {
+		return nil, fmt.Errorf("unmarshal funding arbitrage %s|%s|%s: %w", symbol, exA, exB, err)
+	}
+	return &a, nil
+}
+
 // ListFundingArbitrage returns all stored funding arbitrage opportunities.
 func (s *Store) ListFundingArbitrage(ctx context.Context) ([]domain.FundingArbitrage, error) {
 	members, err := s.client.SMembers(ctx, rediskey.FundingArbitragePairs()).Result()

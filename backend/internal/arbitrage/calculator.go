@@ -193,8 +193,10 @@ func (c *Calculator) computePair(
 	netAPRAfterFees := apr.Sub(roundTripFeesPct)
 
 	// Build legs.
-	longLeg := buildLeg(longEx, longFR, longTicker, longRate8h, longFees)
-	shortLeg := buildLeg(shortEx, shortFR, shortTicker, shortRate8h, shortFees)
+	longMarket := longData.markets[symbol]
+	shortMarket := shortData.markets[symbol]
+	longLeg := buildLeg(longEx, longFR, longTicker, longRate8h, longFees, longMarket)
+	shortLeg := buildLeg(shortEx, shortFR, shortTicker, shortRate8h, shortFees, shortMarket)
 
 	// Next payment info: which leg pays next?
 	nextPayment := computeNextPayment(longLeg, shortLeg, now)
@@ -239,6 +241,7 @@ func buildLeg(
 	ticker domain.Ticker,
 	rate8h decimal.Decimal,
 	fees marketFees,
+	market domain.Market,
 ) domain.ArbitrageLeg {
 	return domain.ArbitrageLeg{
 		ExchangeID:      exchangeID,
@@ -255,6 +258,7 @@ func buildLeg(
 		Volume24h:       ticker.Volume24h,
 		MakerFeePct:     fees.Maker.Mul(dec100),
 		TakerFeePct:     fees.Taker.Mul(dec100),
+		ContractSize:    market.ContractSize,
 	}
 }
 
