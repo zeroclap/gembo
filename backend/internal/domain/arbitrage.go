@@ -96,6 +96,7 @@ type SimulationRequest struct {
 	Quantity        decimal.Decimal `json:"quantity"`      // contract count (used when SizeType=qty)
 	SizeType        SizeType        `json:"size_type"`     // "usd" or "qty"
 	SlippagePct     decimal.Decimal `json:"slippage_pct"`  // slippage percentage, e.g. 0.05
+	HoldHours       decimal.Decimal `json:"hold_hours"`    // hold period in hours for hold-based simulation (e.g. 30)
 }
 
 // SimulationResult contains the computed P&L simulation for an arbitrage opportunity.
@@ -109,20 +110,71 @@ type SimulationResult struct {
 	ExitCost  decimal.Decimal `json:"exit_cost"`  // $ cost to close (close fees + slippage)
 	TotalCost decimal.Decimal `json:"total_cost"` // entry + exit
 
-	Funding8h  decimal.Decimal `json:"funding_8h"`  // $ funding P&L per 8h period
-	Funding24h decimal.Decimal `json:"funding_24h"` // $ funding P&L per day
+	Funding8h   decimal.Decimal `json:"funding_8h"`   // $ funding P&L per 8h period
+	FundingHold decimal.Decimal `json:"funding_hold"` // $ funding P&L over the hold period
+
+	HoldHours decimal.Decimal `json:"hold_hours"` // effective hold period in hours
 
 	BreakevenDays decimal.Decimal `json:"breakeven_days"` // days to recoup entry+exit cost from funding
 
 	LcmPnL  decimal.Decimal `json:"lcm_pnl"`  // $ P&L for one full LCM loop (funding only)
 	NextPnL decimal.Decimal `json:"next_pnl"` // $ P&L for the next funding cycle
-	Pnl24h  decimal.Decimal `json:"pnl_24h"`  // $ P&L for 24h of funding
+	PnlHold decimal.Decimal `json:"pnl_hold"` // $ P&L for the hold period of funding
 
-	LoopPayments []SimulationLoopPayment `json:"loop_payments"` // per-payment USD breakdown for the full loop
+	// Both modes are always returned; the frontend switches display.
+	CleanLoop      LoopSimulation `json:"clean_loop"`      // theoretical LCM-based loop with open/close fee rows
+	HoldSimulation LoopSimulation `json:"hold_simulation"` // time-aware hold simulation with actual funding timings
+
+	// Deprecated: kept for backward compatibility. Use CleanLoop.Rows instead.
+	LoopPayments []SimulationLoopPayment `json:"loop_payments"`
+}
+
+// LoopSimulation represents a complete funding schedule with open/close fee bookends.
+type LoopSimulation struct {
+	DurationHours decimal.Decimal `json:"duration_hours"` // total duration (LCM or hold period)
+	Rows          []SimulationRow `json:"rows"`           // ordered rows: open fee, funding payments..., close fee
+	NetPnlPct     decimal.Decimal `json:"net_pnl_pct"`    // total P&L % (fees + funding)
+	NetPnlUsd     decimal.Decimal `json:"net_pnl_usd"`    // total P&L $ (fees + funding)
+}
+
+// SimulationRowKind identifies what type of event a simulation row represents.
+type SimulationRowKind string
+
+const (
+	RowKindOpen    SimulationRowKind = "open"    // opening fees + slippage + spread cost
+	RowKindFunding SimulationRowKind = "funding" // a funding payment
+	RowKindClose   SimulationRowKind = "close"   // closing fees + slippage
+)
+
+// SimulationEvent is a single per-exchange event within a SimulationRow.
+// Every row always has at least one event (1 leg or 2 simultaneous legs).
+type SimulationEvent struct {
+	ExchangeID string          `json:"exchange_id"`    // which exchange
+	Side       string          `json:"side"`           // "long" or "short"
+	Rate       decimal.Decimal `json:"rate,omitempty"` // funding rate (only for funding events)
+	PnlPct     decimal.Decimal `json:"pnl_pct"`        // P&L % for this event
+	PnlUsd     decimal.Decimal `json:"pnl_usd"`        // P&L $ for this event
+}
+
+// SimulationRow is a summary row in the loop simulation table.
+// It represents either a fee event (open/close) or a funding payment.
+// The row carries aggregate totals; per-exchange breakdown is in Events.
+// A row always has at least one event.
+type SimulationRow struct {
+	Kind          SimulationRowKind `json:"kind"`           // "open", "funding", or "close"
+	Label         string            `json:"label"`          // human-readable label, e.g. "Open fees", "4h", "Close fees"
+	AtHour        decimal.Decimal   `json:"at_hour"`        // hour offset (decimal for sub-hour precision)
+	PnlPct        decimal.Decimal   `json:"pnl_pct"`        // P&L % for this row (negative for fees)
+	PnlUsd        decimal.Decimal   `json:"pnl_usd"`        // P&L $ for this row
+	CumulativePct decimal.Decimal   `json:"cumulative_pct"` // running total %
+	CumulativeUsd decimal.Decimal   `json:"cumulative_usd"` // running total $
+	At            *time.Time        `json:"at,omitempty"`   // absolute timestamp (only for hold-based rows)
+	Events        []SimulationEvent `json:"events"`         // per-exchange breakdown (always ≥ 1)
 }
 
 // SimulationLoopPayment mirrors LoopPayment but includes USD P&L values
 // computed from the position size.
+// Deprecated: use SimulationRow in CleanLoop/HoldSimulation instead.
 type SimulationLoopPayment struct {
 	ExchangeID    string          `json:"exchange_id"`
 	Side          string          `json:"side"`

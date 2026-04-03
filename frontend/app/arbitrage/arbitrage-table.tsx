@@ -8,6 +8,9 @@ import {
   simulateArbitrage,
   type FundingArbitrage,
   type SimulationResult,
+  type SimulationRow,
+  type SimulationEvent,
+  type LoopSimulation,
   type SimSizeType,
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +26,7 @@ import {
   TrendingDown,
   SlidersHorizontal,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   RotateCcw,
   X,
@@ -113,52 +117,43 @@ function formatDays(value: string): string {
   return `${num.toFixed(1)}d`;
 }
 
+/** Format hold hours as a compact label, e.g. "24h", "7d", "48h". */
+function formatHoldLabel(value: string): string {
+  const h = parseFloat(value);
+  if (!isFinite(h) || h <= 0) return "24h";
+  if (h % 24 === 0 && h >= 24) return `${h / 24}d`;
+  return `${h}h`;
+}
+
 // ---------------------------------------------------------------------------
 // Small components
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the net funding spread percentage for the next upcoming cycle.
+ * Derive a short interval label for the next funding payment.
+ * Uses the backend-computed next_payment info + leg interval hours.
  */
-function computeNextFundingSpread(arb: FundingArbitrage): {
-  pct: number;
-  label: string;
-} {
+function nextPaymentLabel(arb: FundingArbitrage): string {
+  const np = arb.next_payment;
+  if (!np.at) return "";
+
   const longAt = new Date(arb.long.next_funding_at).getTime();
   const shortAt = new Date(arb.short.next_funding_at).getTime();
-
-  const longValid = !isNaN(longAt);
-  const shortValid = !isNaN(shortAt);
-
-  if (!longValid && !shortValid) return { pct: 0, label: "" };
-
-  const longPnl = -(parseFloat(arb.long.funding_rate) || 0);
-  const shortPnl = parseFloat(arb.short.funding_rate) || 0;
-
-  if (!shortValid) {
-    return { pct: longPnl, label: `${arb.long.interval_hours}h` };
-  }
-  if (!longValid) {
-    return { pct: shortPnl, label: `${arb.short.interval_hours}h` };
-  }
-
   const diff = Math.abs(longAt - shortAt);
+
+  // If both legs fire at the same time (within 60s), show combined label.
   if (diff <= 60_000) {
     const intervals = [arb.long.interval_hours, arb.short.interval_hours].sort(
       (a, b) => a - b
     );
-    return {
-      pct: longPnl + shortPnl,
-      label: intervals[0] === intervals[1]
-        ? `${intervals[0]}h`
-        : `${intervals[0]}h+${intervals[1]}h`,
-    };
+    return intervals[0] === intervals[1]
+      ? `${intervals[0]}h`
+      : `${intervals[0]}h+${intervals[1]}h`;
   }
 
-  if (longAt < shortAt) {
-    return { pct: longPnl, label: `${arb.long.interval_hours}h` };
-  }
-  return { pct: shortPnl, label: `${arb.short.interval_hours}h` };
+  // Otherwise show the interval of the side that fires next.
+  if (np.side === "long") return `${arb.long.interval_hours}h`;
+  return `${arb.short.interval_hours}h`;
 }
 
 function ExchangeBadge({ exchangeId }: { exchangeId: string }) {
@@ -259,16 +254,14 @@ function DataRowPair({
   arb,
   isSelected,
   onSelect,
-  onOpenPosition,
 }: {
   arb: FundingArbitrage;
   isSelected: boolean;
   onSelect: () => void;
-  onOpenPosition: () => void;
 }) {
   const lcmVal = parseFloat(arb.full_loop.net_pct_per_loop) * 100;
-  const nextSpread = computeNextFundingSpread(arb);
-  const nextVal = nextSpread.pct * 100;
+  const nextVal = parseFloat(arb.next_payment.payment_pct) * 100;
+  const nextLabel = nextPaymentLabel(arb);
   const rate24hVal = (parseFloat(arb.net_rate_8h) || 0) * 3 * 100;
 
   const longRate = parseFloat(arb.long.funding_rate) * 100;
@@ -388,7 +381,7 @@ function DataRowPair({
                 {nextVal.toFixed(4)}%
               </span>
               <span className="text-[10px] text-muted-foreground">
-                {nextSpread.label}
+                {nextLabel}
               </span>
             </div>
             <div className="flex items-center gap-1">
@@ -431,22 +424,9 @@ function DataRowPair({
 
         {/* Col 5: Open Spread */}
         <div className="flex items-center px-2 py-0.5 min-w-[100px] flex-[1] whitespace-nowrap">
-          <div className="flex items-center gap-2">
-            <span className="font-mono tabular-nums text-muted-foreground">
-              {formatPct(arb.open_spread)}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-5 px-1.5 text-[10px] opacity-0 group-hover/row:opacity-100 transition-opacity"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenPosition();
-              }}
-            >
-              Open
-            </Button>
-          </div>
+          <span className="font-mono tabular-nums text-muted-foreground">
+            {formatPct(arb.open_spread)}
+          </span>
         </div>
       </div>
     </div>
@@ -473,8 +453,293 @@ const QTY_PRESETS = [
   { label: "10K", value: "10000" },
 ];
 
+const HOLD_PRESETS = [
+  { label: "8h", value: "8" },
+  { label: "24h", value: "24" },
+  { label: "48h", value: "48" },
+  { label: "7d", value: "168" },
+  { label: "30d", value: "720" },
+];
+
+// ---------------------------------------------------------------------------
+// Simulation table row — flat, no expansion, all info inline, uniform height
+// ---------------------------------------------------------------------------
+
+function SimulationTableRow({
+  row,
+  pnlUsd,
+  cumUsd,
+  isFee,
+  isExpanded,
+  onToggle,
+}: {
+  row: SimulationRow;
+  pnlUsd: number;
+  cumUsd: number;
+  isFee: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const eventCount = row.events.length;
+
+  return (
+    <tr
+      className={cn(
+        "border-t border-border/30 h-[34px] align-middle cursor-pointer hover:bg-muted/20",
+        isFee && "bg-muted/30"
+      )}
+      onClick={onToggle}
+    >
+      {/* Time — first column */}
+      <td className="pr-3 py-0.5 font-mono tabular-nums text-muted-foreground text-[0.625rem] align-middle">
+        <span className="flex items-center gap-1">
+          <ChevronRight
+            className={cn(
+              "size-3 shrink-0 text-muted-foreground/60 transition-transform duration-150",
+              isExpanded && "rotate-90"
+            )}
+          />
+          <span>
+            {row.at
+              ? new Date(row.at).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hour12: false,
+                })
+              : "-"}
+          </span>
+        </span>
+      </td>
+
+      {/* Hour */}
+      <td className="pr-3 py-0.5 font-mono tabular-nums text-[0.625rem] align-middle">
+        {row.label}
+      </td>
+
+      {/* Event — summary showing leg count */}
+      <td className="pr-3 py-0.5 align-middle">
+        <span className="text-muted-foreground text-[0.5625rem]">
+          {isFee
+            ? (row.kind === "open" ? "Open" : "Close")
+            : `${eventCount} ${eventCount === 1 ? "leg" : "legs"}`}
+        </span>
+      </td>
+
+      {/* Rate — empty for summary row */}
+      <td className="pr-3 py-0.5 text-right font-mono tabular-nums text-[0.625rem] text-muted-foreground align-middle">
+        -
+      </td>
+
+      {/* $ P&L */}
+      <td
+        className={cn(
+          "pr-3 py-0.5 text-right font-mono tabular-nums text-[0.625rem] align-middle",
+          pnlUsd >= 0
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-red-600 dark:text-red-400"
+        )}
+      >
+        {formatUsd(row.pnl_usd)}
+      </td>
+
+      {/* $ Cumulative */}
+      <td
+        className={cn(
+          "pr-3 py-0.5 text-right font-mono tabular-nums text-[0.625rem] font-medium align-middle",
+          cumUsd >= 0
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-red-600 dark:text-red-400"
+        )}
+      >
+        {formatUsd(row.cumulative_usd)}
+      </td>
+    </tr>
+  );
+}
+
+/** Expanded event row showing per-exchange detail. */
+function SimulationEventRow({ event }: { event: SimulationEvent }) {
+  const pnlUsd = parseFloat(event.pnl_usd);
+  return (
+    <tr className="h-[34px] align-middle bg-muted/10">
+      {/* Time — empty for event rows */}
+      <td className="pr-3 py-0.5 align-middle" />
+
+      {/* Hour — empty for event rows */}
+      <td className="pr-3 py-0.5 align-middle" />
+
+      {/* Event — exchange badge + side */}
+      <td className="pr-3 py-0.5 align-middle">
+        <span className="flex items-center gap-1 pl-4">
+          <ExchangeBadge exchangeId={event.exchange_id} />
+          <span className="text-muted-foreground text-[0.5625rem]">
+            {event.side}
+          </span>
+        </span>
+      </td>
+
+      {/* Rate */}
+      <td className="pr-3 py-0.5 text-right font-mono tabular-nums text-muted-foreground text-[0.5625rem] align-middle">
+        {event.rate ? formatRate(event.rate) : "-"}
+      </td>
+
+      {/* $ P&L */}
+      <td
+        className={cn(
+          "pr-3 py-0.5 text-right font-mono tabular-nums text-[0.5625rem] align-middle",
+          pnlUsd >= 0
+            ? "text-emerald-600/70 dark:text-emerald-400/70"
+            : "text-red-600/70 dark:text-red-400/70"
+        )}
+      >
+        {formatUsd(event.pnl_usd)}
+      </td>
+
+      {/* $ Cumulative — empty for event rows */}
+      <td className="pr-3 py-0.5 align-middle" />
+    </tr>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Right-side detail panel
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Virtualized payment schedule list
+// ---------------------------------------------------------------------------
+
+const SCHEDULE_ROW_HEIGHT = 34;
+
+/** Shared colgroup so header + every virtualized row table align columns. */
+function ScheduleColGroup() {
+  return (
+    <colgroup>
+      <col className="w-[12%]" />
+      <col className="w-[12%]" />
+      <col className="w-[28%]" />
+      <col className="w-[16%]" />
+      <col className="w-[16%]" />
+      <col className="w-[16%]" />
+    </colgroup>
+  );
+}
+
+/** A flattened item: either a parent row or an event under an expanded parent. */
+type FlatItem =
+  | { type: "parent"; row: SimulationRow; index: number }
+  | { type: "event"; event: SimulationEvent; parentIndex: number };
+
+function ScheduleVirtualList({ rows }: { rows: SimulationRow[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [expandedSet, setExpandedSet] = useState<Set<number>>(() => new Set());
+
+  const toggleExpanded = useCallback((index: number) => {
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  // Reset expanded state when rows change (e.g. new simulation)
+  useEffect(() => {
+    setExpandedSet(new Set());
+  }, [rows]);
+
+  // Build flattened list: parent rows + expanded events
+  const flatItems = useMemo<FlatItem[]>(() => {
+    const items: FlatItem[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      items.push({ type: "parent", row: rows[i], index: i });
+      if (expandedSet.has(i)) {
+        for (const event of rows[i].events) {
+          items.push({ type: "event", event, parentIndex: i });
+        }
+      }
+    }
+    return items;
+  }, [rows, expandedSet]);
+
+  const virtualizer = useVirtualizer({
+    count: flatItems.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => SCHEDULE_ROW_HEIGHT,
+    overscan: 5,
+  });
+
+  return (
+    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4">
+      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }} className="w-full">
+        {virtualizer.getVirtualItems().map((vRow) => {
+          const item = flatItems[vRow.index];
+
+          if (item.type === "event") {
+            return (
+              <div
+                key={`event-${item.parentIndex}-${vRow.index}`}
+                data-index={vRow.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${vRow.start}px)`,
+                }}
+              >
+                <table className="text-xs w-full table-fixed">
+                  <ScheduleColGroup />
+                  <tbody>
+                    <SimulationEventRow event={item.event} />
+                  </tbody>
+                </table>
+              </div>
+            );
+          }
+
+          const row = item.row;
+          const pnlUsd = parseFloat(row.pnl_usd);
+          const cumUsd = parseFloat(row.cumulative_usd);
+          const isFee = row.kind === "open" || row.kind === "close";
+          const isExpanded = expandedSet.has(item.index);
+          return (
+            <div
+              key={`parent-${item.index}`}
+              data-index={vRow.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${vRow.start}px)`,
+              }}
+            >
+              <table className="text-xs w-full table-fixed">
+                <ScheduleColGroup />
+                <tbody>
+                  <SimulationTableRow
+                    row={row}
+                    pnlUsd={pnlUsd}
+                    cumUsd={cumUsd}
+                    isFee={isFee}
+                    isExpanded={isExpanded}
+                    onToggle={() => toggleExpanded(item.index)}
+                  />
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Detail panel
 // ---------------------------------------------------------------------------
 
 function DetailPanel({
@@ -487,9 +752,10 @@ function DetailPanel({
   onOpenPosition: () => void;
 }) {
   const [sizeType, setSizeType] = useState<SimSizeType>("usd");
-  const [positionSize, setPositionSize] = useState("1000");
-  const [quantity, setQuantity] = useState("1");
+  const [positionSize, setPositionSize] = useState("100");
+  const [quantity, setQuantity] = useState("100");
   const [slippagePct, setSlippagePct] = useState("0.05");
+  const [holdHours, setHoldHours] = useState("24");
   const [simResult, setSimResult] = useState<SimulationResult | null>(null);
   const [simLoading, setSimLoading] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
@@ -515,6 +781,7 @@ function DetailPanel({
           ? { position_size: positionSize }
           : { quantity: quantity }),
         slippage_pct: slippagePct || "0",
+        hold_hours: holdHours || "24",
       });
       setSimResult(result);
     } catch (err) {
@@ -522,7 +789,7 @@ function DetailPanel({
     } finally {
       setSimLoading(false);
     }
-  }, [arb, sizeType, positionSize, quantity, slippagePct]);
+  }, [arb, sizeType, positionSize, quantity, slippagePct, holdHours]);
 
   // Auto-trigger simulation when the panel opens.
   const didAutoRun = useRef(false);
@@ -533,9 +800,9 @@ function DetailPanel({
     }
   }, [runSimulation]);
 
-  const loopPayments = simResult?.loop_payments ?? [];
-  const fallbackPayments = arb.full_loop.payments ?? [];
-  const hasLoopPayments = loopPayments.length > 0 || fallbackPayments.length > 0;
+  // Hold simulation rows from the result.
+  const activeLoop: LoopSimulation | null = simResult?.hold_simulation ?? null;
+  const activeRows: SimulationRow[] = activeLoop?.rows ?? [];
 
   const detailRows: {
     label: string;
@@ -621,14 +888,11 @@ function DetailPanel({
           <TabsTrigger value="simulation">Simulation</TabsTrigger>
         </TabsList>
 
-        {/* Details tab */}
+        {/* Details tab — leg comparison + fee breakdown */}
         <TabsContent value="details" className="flex-1 min-h-0 overflow-y-auto">
           <div className="p-4 space-y-5">
             {/* Comparison table */}
             <div>
-              <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
-                Leg comparison
-              </div>
               <table className="text-xs w-full">
                 <thead>
                   <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
@@ -667,9 +931,6 @@ function DetailPanel({
 
             {/* Fee breakdown */}
             <div>
-              <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
-                Fee breakdown
-              </div>
               <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
                 <span className="text-muted-foreground">Open</span>
                 <span className="font-mono tabular-nums text-right whitespace-nowrap">
@@ -714,134 +975,169 @@ function DetailPanel({
           </div>
         </TabsContent>
 
-        {/* Simulation tab */}
-        <TabsContent value="simulation" className="flex-1 min-h-0 overflow-y-auto">
-          <div className="p-4 space-y-5">
-            {/* Simulation inputs & results */}
+        {/* Simulation tab — inputs + sub-tabs (details / breakdown) */}
+        <TabsContent value="simulation" className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <div className="px-4 pt-4 pb-2 space-y-3 shrink-0">
+            {/* Inputs — single row: size type toggle, value, slippage, calculate */}
             <div>
-              <div className="text-[0.625rem] font-medium uppercase tracking-wider text-violet-600 dark:text-violet-400 mb-2">
-                Simulation
-              </div>
-              <div className="space-y-3">
-                {/* Inputs — single row: size type toggle, value, slippage, calculate */}
-                <div>
-                  <div className="flex items-end gap-2">
-                    {/* Size type toggle */}
-                    <div className="shrink-0 space-y-1">
-                      <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                        Mode
-                      </label>
-                      <div className="flex h-7 rounded-md border bg-muted/50 p-0.5">
-                        <button
-                          type="button"
-                          className={cn(
-                            "rounded-sm px-2 text-[0.625rem] font-medium transition-colors",
-                            sizeType === "usd"
-                              ? "bg-background text-foreground shadow-sm"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={() => setSizeType("usd")}
-                        >
-                          USD
-                        </button>
-                        <button
-                          type="button"
-                          className={cn(
-                            "rounded-sm px-2 text-[0.625rem] font-medium transition-colors",
-                            sizeType === "qty"
-                              ? "bg-background text-foreground shadow-sm"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={() => setSizeType("qty")}
-                        >
-                          QTY
-                        </button>
-                      </div>
-                    </div>
-                    {/* Value input */}
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                        {sizeType === "usd" ? "Position, $" : "Contracts"}
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={sizeType === "usd" ? positionSize : quantity}
-                        onChange={(e) =>
-                          sizeType === "usd"
-                            ? setPositionSize(e.target.value)
-                            : setQuantity(e.target.value)
-                        }
-                        placeholder={sizeType === "usd" ? "1000" : "1"}
-                        className="h-7 w-full min-w-0 rounded-md border bg-background px-2 text-xs tabular-nums outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
-                      />
-                    </div>
-                    <div className="w-16 shrink-0 space-y-1">
-                      <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                        Slip, %
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={slippagePct}
-                        onChange={(e) => setSlippagePct(e.target.value)}
-                        placeholder="0.05"
-                        className="h-7 w-full min-w-0 rounded-md border bg-background px-2 text-xs tabular-nums outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
-                      />
-                    </div>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      className="h-7 px-3 text-xs bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600 text-white shrink-0"
-                      onClick={runSimulation}
-                      disabled={simLoading}
-                    >
-                      {simLoading ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        "Calculate"
+              <div className="flex items-end gap-2">
+                {/* Size type toggle */}
+                <div className="shrink-0 space-y-1">
+                  <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                    Mode
+                  </label>
+                  <div className="flex h-7 rounded-md border bg-muted/50 p-0.5">
+                    <button
+                      type="button"
+                      className={cn(
+                        "rounded-sm px-2 text-[0.625rem] font-medium transition-colors",
+                        sizeType === "usd"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
                       )}
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-1 mt-1">
-                    {(sizeType === "usd" ? SIZE_PRESETS : QTY_PRESETS).map(
-                      (preset) => {
-                        const active =
-                          sizeType === "usd"
-                            ? positionSize === preset.value
-                            : quantity === preset.value;
-                        return (
-                          <button
-                            key={preset.value}
-                            type="button"
-                            className={cn(
-                              "rounded-md px-1.5 py-0.5 text-[0.625rem] font-medium transition-colors",
-                              active
-                                ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
-                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                            )}
-                            onClick={() =>
-                              sizeType === "usd"
-                                ? setPositionSize(preset.value)
-                                : setQuantity(preset.value)
-                            }
-                          >
-                            {preset.label}
-                          </button>
-                        );
-                      }
-                    )}
+                      onClick={() => setSizeType("usd")}
+                    >
+                      USD
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        "rounded-sm px-2 text-[0.625rem] font-medium transition-colors",
+                        sizeType === "qty"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      onClick={() => setSizeType("qty")}
+                    >
+                      QTY
+                    </button>
                   </div>
                 </div>
-
-                {simError && (
-                  <div className="text-xs text-red-500 dark:text-red-400">
-                    {simError}
-                  </div>
+                {/* Value input */}
+                <div className="flex-1 min-w-0 space-y-1">
+                  <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                    {sizeType === "usd" ? "Position, $" : "Contracts"}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={sizeType === "usd" ? positionSize : quantity}
+                    onChange={(e) =>
+                      sizeType === "usd"
+                        ? setPositionSize(e.target.value)
+                        : setQuantity(e.target.value)
+                    }
+                    placeholder={sizeType === "usd" ? "1000" : "1"}
+                    className="h-7 w-full min-w-0 rounded-md border bg-background px-2 text-xs tabular-nums outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
+                  />
+                </div>
+                <div className="w-16 shrink-0 space-y-1">
+                  <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                    Slip, %
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={slippagePct}
+                    onChange={(e) => setSlippagePct(e.target.value)}
+                    placeholder="0.05"
+                    className="h-7 w-full min-w-0 rounded-md border bg-background px-2 text-xs tabular-nums outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
+                  />
+                </div>
+                <div className="w-16 shrink-0 space-y-1">
+                  <label className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                    Hold, h
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={holdHours}
+                    onChange={(e) => setHoldHours(e.target.value)}
+                    placeholder="24"
+                    className="h-7 w-full min-w-0 rounded-md border bg-background px-2 text-xs tabular-nums outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
+                  />
+                </div>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-7 px-3 text-xs bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600 text-white shrink-0"
+                  onClick={runSimulation}
+                  disabled={simLoading}
+                >
+                  {simLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    "Calculate"
+                  )}
+                </Button>
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                {(sizeType === "usd" ? SIZE_PRESETS : QTY_PRESETS).map(
+                  (preset) => {
+                    const active =
+                      sizeType === "usd"
+                        ? positionSize === preset.value
+                        : quantity === preset.value;
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        className={cn(
+                          "rounded-md px-1.5 py-0.5 text-[0.625rem] font-medium transition-colors",
+                          active
+                            ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                        onClick={() =>
+                          sizeType === "usd"
+                            ? setPositionSize(preset.value)
+                            : setQuantity(preset.value)
+                        }
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  }
                 )}
+                <span className="mx-1 text-border">|</span>
+                {HOLD_PRESETS.map((preset) => (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    className={cn(
+                      "rounded-md px-1.5 py-0.5 text-[0.625rem] font-medium transition-colors",
+                      holdHours === preset.value
+                        ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    onClick={() => setHoldHours(preset.value)}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-                {/* Results */}
-                {simResult && (
+            {simError && (
+              <div className="text-xs text-red-500 dark:text-red-400">
+                {simError}
+              </div>
+            )}
+          </div>
+
+          {/* Sub-tabs: Details / Breakdown */}
+           <Tabs defaultValue="sim-details" className="flex-1 min-h-0 flex flex-col gap-0">
+            <div className="flex justify-end px-4 shrink-0">
+              <TabsList className="h-6 p-0.5 text-[0.625rem]">
+                <TabsTrigger value="sim-details" className="h-5 px-2 text-[0.625rem]">Summary</TabsTrigger>
+                <TabsTrigger value="sim-breakdown" className="h-5 px-2 text-[0.625rem]">Breakdown</TabsTrigger>
+              </TabsList>
+            </div>
+
+            {/* Sub-tab: Summary — calculation results grid */}
+            <TabsContent value="sim-details" className="flex-1 min-h-0 overflow-y-auto">
+              <div className="px-4 py-3">
+                {simResult ? (
                   <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
                     <span className="text-muted-foreground">Quantity</span>
                     <span className="font-mono tabular-nums text-right">
@@ -887,16 +1183,16 @@ function DetailPanel({
                     >
                       {formatUsd(simResult.funding_8h)}
                     </span>
-                    <span className="text-muted-foreground">Funding/24h</span>
+                    <span className="text-muted-foreground">Funding/{formatHoldLabel(simResult.hold_hours)}</span>
                     <span
                       className={cn(
                         "font-mono tabular-nums text-right",
-                        parseFloat(simResult.funding_24h) >= 0
+                        parseFloat(simResult.funding_hold) >= 0
                           ? "text-emerald-600 dark:text-emerald-400"
                           : "text-red-600 dark:text-red-400"
                       )}
                     >
-                      {formatUsd(simResult.funding_24h)}
+                      {formatUsd(simResult.funding_hold)}
                     </span>
                     <span className="text-muted-foreground">Breakeven</span>
                     <span className="font-mono tabular-nums text-right">
@@ -916,183 +1212,75 @@ function DetailPanel({
                     >
                       {formatUsd(simResult.next_pnl)}
                     </span>
-                    <span className="text-muted-foreground">LCM P&L</span>
+                    <span className="text-muted-foreground">{formatHoldLabel(simResult.hold_hours)} P&L</span>
                     <span
                       className={cn(
                         "font-mono tabular-nums text-right font-medium",
-                        parseFloat(simResult.lcm_pnl) >= 0
+                        parseFloat(simResult.pnl_hold) >= 0
                           ? "text-emerald-600 dark:text-emerald-400"
                           : "text-red-600 dark:text-red-400"
                       )}
                     >
-                      {formatUsd(simResult.lcm_pnl)}
+                      {formatUsd(simResult.pnl_hold)}
                     </span>
-                    <span className="text-muted-foreground">24h P&L</span>
-                    <span
-                      className={cn(
-                        "font-mono tabular-nums text-right font-medium",
-                        parseFloat(simResult.pnl_24h) >= 0
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-red-600 dark:text-red-400"
-                      )}
-                    >
-                      {formatUsd(simResult.pnl_24h)}
-                    </span>
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">
+                    Run a simulation to see calculation details.
                   </div>
                 )}
               </div>
-            </div>
+            </TabsContent>
 
-            {/* Full loop payment schedule — uses simulation result when available, falls back to arb data */}
-            {hasLoopPayments && (
-              <div>
-                <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
-                  Full loop ({arb.full_loop.duration_hours}h) &mdash;{" "}
-                  {(loopPayments.length || fallbackPayments.length)} payments &mdash; Net:{" "}
-                  <span
-                    className={cn(
-                      "font-mono",
-                      parseFloat(arb.full_loop.net_pct_per_loop) >= 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-red-600 dark:text-red-400"
-                    )}
-                  >
-                    {formatRate(arb.full_loop.net_pct_per_loop)}
-                  </span>
-                  {simResult && (
-                    <span className="ml-1 text-muted-foreground font-mono">
-                      ({formatUsd(simResult.lcm_pnl)})
-                    </span>
-                  )}
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="text-xs w-full">
-                    <thead>
-                      <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                        <th className="pr-3 pb-1 text-left font-medium">Hour</th>
-                        <th className="pr-3 pb-1 text-left font-medium">Exchange</th>
-                        <th className="pr-3 pb-1 text-left font-medium">Side</th>
-                        <th className="pr-3 pb-1 text-right font-medium">Rate</th>
-                        <th className="pr-3 pb-1 text-right font-medium">P&L</th>
-                        <th className="pr-3 pb-1 text-right font-medium">Cumulative</th>
-                        {loopPayments.length > 0 && (
-                          <>
-                            <th className="pl-3 pb-1 text-right font-medium">$ P&L</th>
-                            <th className="pl-3 pb-1 text-right font-medium">$ Cum.</th>
-                          </>
+            {/* Sub-tab: Breakdown — virtualized payment schedule */}
+            <TabsContent value="sim-breakdown" className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              {activeRows.length > 0 && activeLoop ? (
+                <>
+                  <div className="px-4 py-2 shrink-0">
+                    <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                      Hold ({activeLoop.duration_hours}h)
+                      {" "}&mdash;{" "}
+                      {activeRows.filter((r) => r.kind === "funding").length} payments
+                      {" "}&mdash; Net:{" "}
+                      <span
+                        className={cn(
+                          "font-mono",
+                          parseFloat(activeLoop.net_pnl_pct) >= 0
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-red-600 dark:text-red-400"
                         )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {loopPayments.length > 0
-                        ? loopPayments.map((p, i) => {
-                            const pnl = parseFloat(p.payment_pct);
-                            const cum = parseFloat(p.cumulative);
-                            const pnlUsd = parseFloat(p.payment_usd);
-                            const cumUsd = parseFloat(p.cumulative_usd);
-                            return (
-                              <tr key={i} className="border-t border-border/30">
-                                <td className="pr-3 py-0.5 font-mono tabular-nums">
-                                  {p.at_hour}h
-                                </td>
-                                <td className="pr-3 py-0.5">
-                                  <ExchangeBadge exchangeId={p.exchange_id} />
-                                </td>
-                                <td className="pr-3 py-0.5 text-muted-foreground">
-                                  {p.side}
-                                </td>
-                                <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
-                                  {formatRate(p.rate)}
-                                </td>
-                                <td
-                                  className={cn(
-                                    "pr-3 py-0.5 text-right font-mono tabular-nums",
-                                    pnl >= 0
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : "text-red-600 dark:text-red-400"
-                                  )}
-                                >
-                                  {formatRate(p.payment_pct)}
-                                </td>
-                                <td
-                                  className={cn(
-                                    "pr-3 py-0.5 text-right font-mono tabular-nums font-medium",
-                                    cum >= 0
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : "text-red-600 dark:text-red-400"
-                                  )}
-                                >
-                                  {formatRate(p.cumulative)}
-                                </td>
-                                <td
-                                  className={cn(
-                                    "pl-3 py-0.5 text-right font-mono tabular-nums",
-                                    pnlUsd >= 0
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : "text-red-600 dark:text-red-400"
-                                  )}
-                                >
-                                  {formatUsd(p.payment_usd)}
-                                </td>
-                                <td
-                                  className={cn(
-                                    "pl-3 py-0.5 text-right font-mono tabular-nums font-medium",
-                                    cumUsd >= 0
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : "text-red-600 dark:text-red-400"
-                                  )}
-                                >
-                                  {formatUsd(p.cumulative_usd)}
-                                </td>
-                              </tr>
-                            );
-                          })
-                        : fallbackPayments.map((p, i) => {
-                            const pnl = parseFloat(p.payment_pct);
-                            const cum = parseFloat(p.cumulative);
-                            return (
-                              <tr key={i} className="border-t border-border/30">
-                                <td className="pr-3 py-0.5 font-mono tabular-nums">
-                                  {p.at_hour}h
-                                </td>
-                                <td className="pr-3 py-0.5">
-                                  <ExchangeBadge exchangeId={p.exchange_id} />
-                                </td>
-                                <td className="pr-3 py-0.5 text-muted-foreground">
-                                  {p.side}
-                                </td>
-                                <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
-                                  {formatRate(p.rate)}
-                                </td>
-                                <td
-                                  className={cn(
-                                    "pr-3 py-0.5 text-right font-mono tabular-nums",
-                                    pnl >= 0
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : "text-red-600 dark:text-red-400"
-                                  )}
-                                >
-                                  {formatRate(p.payment_pct)}
-                                </td>
-                                <td
-                                  className={cn(
-                                    "pr-3 py-0.5 text-right font-mono tabular-nums font-medium",
-                                    cum >= 0
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : "text-red-600 dark:text-red-400"
-                                  )}
-                                >
-                                  {formatRate(p.cumulative)}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                    </tbody>
-                  </table>
+                      >
+                        {formatPct(String(parseFloat(activeLoop.net_pnl_pct) * 100))}
+                      </span>
+                      <span className="ml-1 text-muted-foreground font-mono">
+                        ({formatUsd(activeLoop.net_pnl_usd)})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="px-4 shrink-0">
+                    <table className="text-xs w-full table-fixed">
+                      <ScheduleColGroup />
+                      <thead>
+                        <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                          <th className="pr-3 pb-1 text-left font-medium">Time</th>
+                          <th className="pr-3 pb-1 text-left font-medium">Hour</th>
+                          <th className="pr-3 pb-1 text-left font-medium">Event</th>
+                          <th className="pr-3 pb-1 text-right font-medium">Rate</th>
+                          <th className="pr-3 pb-1 text-right font-medium">$ P&L</th>
+                          <th className="pr-3 pb-1 text-right font-medium">$ Cum.</th>
+                        </tr>
+                      </thead>
+                    </table>
+                  </div>
+                  <ScheduleVirtualList rows={activeRows} />
+                </>
+              ) : (
+                <div className="px-4 py-3 text-xs text-muted-foreground">
+                  Run a simulation to see the payment breakdown.
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </TabsContent>
       </Tabs>
     </div>
@@ -1452,7 +1640,6 @@ export function ArbitrageTable() {
                           arb={arb}
                           isSelected={selectedArbKey === rowKey}
                           onSelect={() => selectRow(arb)}
-                          onOpenPosition={() => setOpenPositionArb(arb)}
                         />
                       </div>
                     );

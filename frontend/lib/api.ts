@@ -132,6 +132,7 @@ export interface SimulationRequest {
   quantity?: string;
   size_type: SimSizeType;
   slippage_pct: string;
+  hold_hours?: string;
 }
 
 export interface SimulationLoopPayment {
@@ -145,6 +146,35 @@ export interface SimulationLoopPayment {
   cumulative_usd: string;
 }
 
+export type SimulationRowKind = "open" | "funding" | "close";
+
+export interface SimulationEvent {
+  exchange_id: string;
+  side: string;
+  rate?: string;
+  pnl_pct: string;
+  pnl_usd: string;
+}
+
+export interface SimulationRow {
+  kind: SimulationRowKind;
+  label: string;
+  at_hour: string;
+  pnl_pct: string;
+  pnl_usd: string;
+  cumulative_pct: string;
+  cumulative_usd: string;
+  at?: string; // ISO timestamp (only for hold-based rows)
+  events: SimulationEvent[]; // per-exchange breakdown (always ≥ 1)
+}
+
+export interface LoopSimulation {
+  duration_hours: string;
+  rows: SimulationRow[];
+  net_pnl_pct: string;
+  net_pnl_usd: string;
+}
+
 export interface SimulationResult {
   position_size: string;
   actual_position_size: string;
@@ -154,11 +184,15 @@ export interface SimulationResult {
   exit_cost: string;
   total_cost: string;
   funding_8h: string;
-  funding_24h: string;
+  funding_hold: string;
+  hold_hours: string;
   breakeven_days: string;
   lcm_pnl: string;
   next_pnl: string;
-  pnl_24h: string;
+  pnl_hold: string;
+  clean_loop: LoopSimulation;
+  hold_simulation: LoopSimulation;
+  /** @deprecated Use clean_loop.rows instead */
   loop_payments: SimulationLoopPayment[];
 }
 

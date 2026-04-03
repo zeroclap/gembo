@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -19,6 +20,7 @@ type simulateRequest struct {
 	Quantity        string `json:"quantity"`
 	SizeType        string `json:"size_type"` // "usd" (default) or "qty"
 	SlippagePct     string `json:"slippage_pct"`
+	HoldHours       string `json:"hold_hours"` // hold period in hours (e.g. "30"), optional
 }
 
 // handleSimulateFundingArbitrage runs a P&L simulation on a specific
@@ -59,6 +61,16 @@ func (h *Handler) handleSimulateFundingArbitrage(w http.ResponseWriter, r *http.
 		SlippagePct:     slippagePct,
 	}
 
+	// Parse optional hold_hours.
+	if req.HoldHours != "" {
+		holdHours, herr := decimal.NewFromString(req.HoldHours)
+		if herr != nil || holdHours.IsNegative() {
+			writeErr(w, http.StatusBadRequest, "bad_request", "hold_hours must be a non-negative number")
+			return
+		}
+		simReq.HoldHours = holdHours
+	}
+
 	switch sizeType {
 	case domain.SizeTypeQty:
 		qty, qerr := decimal.NewFromString(req.Quantity)
@@ -87,7 +99,8 @@ func (h *Handler) handleSimulateFundingArbitrage(w http.ResponseWriter, r *http.
 		return
 	}
 
-	result := arbitrage.Simulate(*arb, simReq)
+	now := time.Now().UTC()
+	result := arbitrage.Simulate(*arb, simReq, now)
 
 	writeOK(w, result)
 }
