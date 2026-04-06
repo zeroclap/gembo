@@ -1584,3 +1584,246 @@ func TestExecuteClose_OneLegAlreadyClosed(t *testing.T) {
 		t.Errorf("expected 1 close order on Bybit, got %d", len(bybitMock.createdOrders))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Mock TradingExchange — fails on CreateMarketOrder
+// ---------------------------------------------------------------------------
+
+// mockFailingCreateExchange simulates an exchange where CreateMarketOrder fails
+// immediately (e.g. InvalidOrder, amount below minimum precision). All other
+// methods behave like a normal mock exchange.
+type mockFailingCreateExchange struct {
+	mockTradingExchange
+	createErr error
+}
+
+func (m *mockFailingCreateExchange) CreateMarketOrder(_ context.Context, _ string, _ domain.OrderSide, _ float64) (*domain.ExchangeOrder, error) {
+	return nil, m.createErr
+}
+
+var _ exchange.TradingExchange = (*mockFailingCreateExchange)(nil)
+
+// ---------------------------------------------------------------------------
+// Tests: executeOpen rollback scenarios
+// ---------------------------------------------------------------------------
+
+// TestExecuteOpen_LongFailsShortSucceeds_RollsBackShort verifies that when the
+// long leg fails immediately (e.g. InvalidOrder) but the short leg succeeds,
+// the short leg is rolled back. This is the exact scenario from the production
+// logs: bybit rejects with "amount must be greater than minimum amount precision
+// of 10" while OKX's sell order fills.
+func TestExecuteOpen_LongFailsShortSucceeds_RollsBackShort(t *testing.T) {
+	ps := newMockPositionStore()
+	p := &domain.Position{
+		ID:              "pos-open-rollback",
+		Symbol:          "SOPH/USDT:USDT",
+		Status:          domain.PositionStatusPending,
+		SizeType:        domain.SizeTypeBase,
+		RequestedSize:   dec("5"),
+		LongExchangeID:  "bybit",
+		ShortExchangeID: "okx",
+	}
+	ps.positions[p.ID] = p
+
+	bybitMock := &mockFailingCreateExchange{
+		mockTradingExchange: mockTradingExchange{id: "bybit"},
+		createErr:           fmt.Errorf("bybit create market order buy SOPH/USDT:USDT: InvalidOrder: amount must be greater than minimum amount precision of 10"),
+	}
+	okxMock := &mockTradingExchange{id: "okx"}
+	tr := newTestTrader(ps, bybitMock, okxMock)
+
+	err := tr.executeOpen(context.Background(), p.ID)
+	if err == nil {
+		t.Fatal("expected error from executeOpen, got nil")
+	}
+
+	// Position should be failed.
+	ps.mu.Lock()
+	updated := ps.positions[p.ID]
+	ps.mu.Unlock()
+
+	if updated.Status != domain.PositionStatusFailed {
+		t.Errorf("expected status failed, got %s", updated.Status)
+	}
+
+	// OKX should have 2 orders: the initial sell (open) + the rollback buy (close).
+	okxMock.mu.Lock()
+	defer okxMock.mu.Unlock()
+	if len(okxMock.createdOrders) != 2 {
+		t.Fatalf("expected 2 orders on OKX (open + rollback), got %d", len(okxMock.createdOrders))
+	}
+	if okxMock.createdOrders[0].side != domain.OrderSideSell {
+		t.Errorf("expected first OKX order to be sell (open short), got %s", okxMock.createdOrders[0].side)
+	}
+	if okxMock.createdOrders[1].side != domain.OrderSideBuy {
+		t.Errorf("expected second OKX order to be buy (rollback short), got %s", okxMock.createdOrders[1].side)
+	}
+}
+
+// TestExecuteOpen_ShortFailsLongSucceeds_RollsBackLong verifies the mirror case:
+// the short leg fails but the long leg succeeds, so the long is rolled back.
+func TestExecuteOpen_ShortFailsLongSucceeds_RollsBackLong(t *testing.T) {
+	ps := newMockPositionStore()
+	p := &domain.Position{
+		ID:              "pos-open-rollback-2",
+		Symbol:          "SOPH/USDT:USDT",
+		Status:          domain.PositionStatusPending,
+		SizeType:        domain.SizeTypeBase,
+		RequestedSize:   dec("5"),
+		LongExchangeID:  "bybit",
+		ShortExchangeID: "okx",
+	}
+	ps.positions[p.ID] = p
+
+	bybitMock := &mockTradingExchange{id: "bybit"}
+	okxMock := &mockFailingCreateExchange{
+		mockTradingExchange: mockTradingExchange{id: "okx"},
+		createErr:           fmt.Errorf("okx create market order sell: InvalidOrder: insufficient margin"),
+	}
+	tr := newTestTrader(ps, bybitMock, okxMock)
+
+	err := tr.executeOpen(context.Background(), p.ID)
+	if err == nil {
+		t.Fatal("expected error from executeOpen, got nil")
+	}
+
+	// Position should be failed.
+	ps.mu.Lock()
+	updated := ps.positions[p.ID]
+	ps.mu.Unlock()
+
+	if updated.Status != domain.PositionStatusFailed {
+		t.Errorf("expected status failed, got %s", updated.Status)
+	}
+
+	// Bybit should have 2 orders: the initial buy (open) + the rollback sell (close).
+	bybitMock.mu.Lock()
+	defer bybitMock.mu.Unlock()
+	if len(bybitMock.createdOrders) != 2 {
+		t.Fatalf("expected 2 orders on Bybit (open + rollback), got %d", len(bybitMock.createdOrders))
+	}
+	if bybitMock.createdOrders[0].side != domain.OrderSideBuy {
+		t.Errorf("expected first Bybit order to be buy (open long), got %s", bybitMock.createdOrders[0].side)
+	}
+	if bybitMock.createdOrders[1].side != domain.OrderSideSell {
+		t.Errorf("expected second Bybit order to be sell (rollback long), got %s", bybitMock.createdOrders[1].side)
+	}
+}
+
+// TestExecuteOpen_BothFail_NoRollback verifies that when both legs fail,
+// no rollback orders are placed (nothing to roll back).
+func TestExecuteOpen_BothFail_NoRollback(t *testing.T) {
+	ps := newMockPositionStore()
+	p := &domain.Position{
+		ID:              "pos-open-both-fail",
+		Symbol:          "SOPH/USDT:USDT",
+		Status:          domain.PositionStatusPending,
+		SizeType:        domain.SizeTypeBase,
+		RequestedSize:   dec("5"),
+		LongExchangeID:  "bybit",
+		ShortExchangeID: "okx",
+	}
+	ps.positions[p.ID] = p
+
+	bybitMock := &mockFailingCreateExchange{
+		mockTradingExchange: mockTradingExchange{id: "bybit"},
+		createErr:           fmt.Errorf("bybit: InvalidOrder"),
+	}
+	okxMock := &mockFailingCreateExchange{
+		mockTradingExchange: mockTradingExchange{id: "okx"},
+		createErr:           fmt.Errorf("okx: InvalidOrder"),
+	}
+	tr := newTestTrader(ps, bybitMock, okxMock)
+
+	err := tr.executeOpen(context.Background(), p.ID)
+	if err == nil {
+		t.Fatal("expected error from executeOpen, got nil")
+	}
+
+	// Position should be failed.
+	ps.mu.Lock()
+	updated := ps.positions[p.ID]
+	ps.mu.Unlock()
+
+	if updated.Status != domain.PositionStatusFailed {
+		t.Errorf("expected status failed, got %s", updated.Status)
+	}
+
+	// Neither exchange should have any close/rollback orders.
+	// bybitMock inherits from mockTradingExchange so CreateMarketOrder is overridden,
+	// but CloseMarketOrder still works. Check no CloseMarketOrder was called.
+	bybitMock.mu.Lock()
+	defer bybitMock.mu.Unlock()
+	if len(bybitMock.createdOrders) != 0 {
+		t.Errorf("expected 0 orders on Bybit, got %d", len(bybitMock.createdOrders))
+	}
+
+	okxMock.mu.Lock()
+	defer okxMock.mu.Unlock()
+	if len(okxMock.createdOrders) != 0 {
+		t.Errorf("expected 0 orders on OKX, got %d", len(okxMock.createdOrders))
+	}
+}
+
+// TestExecuteOpen_OrphanedLegDetectedViaFetchPosition verifies that when
+// a leg's CreateMarketOrder returns an error but the exchange actually has an
+// open position (order was submitted but polling failed), the rollback fallback
+// detects it via FetchPosition and closes it.
+func TestExecuteOpen_OrphanedLegDetectedViaFetchPosition(t *testing.T) {
+	ps := newMockPositionStore()
+	p := &domain.Position{
+		ID:              "pos-open-orphan",
+		Symbol:          "SOPH/USDT:USDT",
+		Status:          domain.PositionStatusPending,
+		SizeType:        domain.SizeTypeBase,
+		RequestedSize:   dec("5"),
+		LongExchangeID:  "bybit",
+		ShortExchangeID: "okx",
+	}
+	ps.positions[p.ID] = p
+
+	// Bybit fails on create — order never submitted.
+	bybitMock := &mockFailingCreateExchange{
+		mockTradingExchange: mockTradingExchange{id: "bybit"},
+		createErr:           fmt.Errorf("bybit: InvalidOrder"),
+	}
+	// OKX also "fails" (e.g. timeout after order was submitted to exchange).
+	// But FetchPosition reveals an open short position.
+	okxMock := &mockFailingCreateExchange{
+		mockTradingExchange: mockTradingExchange{
+			id: "okx",
+			fetchedPosition: &exchange.ExchangePosition{
+				Symbol:    "SOPH/USDT:USDT",
+				Side:      domain.PositionSideShort,
+				Contracts: dec("5"),
+			},
+		},
+		createErr: fmt.Errorf("okx: timeout waiting for order response"),
+	}
+	tr := newTestTrader(ps, bybitMock, okxMock)
+
+	err := tr.executeOpen(context.Background(), p.ID)
+	if err == nil {
+		t.Fatal("expected error from executeOpen, got nil")
+	}
+
+	// Position should be failed.
+	ps.mu.Lock()
+	updated := ps.positions[p.ID]
+	ps.mu.Unlock()
+
+	if updated.Status != domain.PositionStatusFailed {
+		t.Errorf("expected status failed, got %s", updated.Status)
+	}
+
+	// OKX should have 1 CloseMarketOrder (rollback of orphaned short).
+	// CreateMarketOrder failed so createdOrders only has the close call.
+	okxMock.mu.Lock()
+	defer okxMock.mu.Unlock()
+	if len(okxMock.createdOrders) != 1 {
+		t.Fatalf("expected 1 rollback order on OKX, got %d", len(okxMock.createdOrders))
+	}
+	if okxMock.createdOrders[0].side != domain.OrderSideBuy {
+		t.Errorf("expected OKX rollback to be buy (close short), got %s", okxMock.createdOrders[0].side)
+	}
+}

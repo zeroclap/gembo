@@ -134,38 +134,42 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 	}
 
 	// Place both orders concurrently.
+	// IMPORTANT: we do NOT use errgroup.WithContext here because one leg
+	// failing must not cancel the other's context. If leg A fails instantly
+	// (e.g. InvalidOrder) but leg B already submitted an order to the exchange,
+	// cancelling B's context would prevent us from capturing its result — leaving
+	// an orphaned position on the exchange with no rollback.
 	type orderResult struct {
 		order *domain.ExchangeOrder
 		err   error
 	}
 
-	g, gCtx := errgroup.WithContext(ctx)
-	var longResult, shortResult *domain.ExchangeOrder
+	var longRes, shortRes orderResult
+
+	var g errgroup.Group
 
 	g.Go(func() error {
-		filled, err := t.placeAndPoll(gCtx, longExch, p.Symbol, domain.OrderSideBuy, amount, longOrder)
-		if err != nil {
-			return fmt.Errorf("long leg: %w", err)
-		}
-		longResult = filled
+		filled, err := t.placeAndPoll(ctx, longExch, p.Symbol, domain.OrderSideBuy, amount, longOrder)
+		longRes = orderResult{order: filled, err: err}
+		// Always return nil — we handle errors ourselves after both goroutines finish.
 		return nil
 	})
 
 	g.Go(func() error {
-		filled, err := t.placeAndPoll(gCtx, shortExch, p.Symbol, domain.OrderSideSell, amount, shortOrder)
-		if err != nil {
-			return fmt.Errorf("short leg: %w", err)
-		}
-		shortResult = filled
+		filled, err := t.placeAndPoll(ctx, shortExch, p.Symbol, domain.OrderSideSell, amount, shortOrder)
+		shortRes = orderResult{order: filled, err: err}
 		return nil
 	})
 
-	if err := g.Wait(); err != nil {
-		// Partial failure — at least one leg failed.
-		t.logger.Error("order execution failed, attempting rollback", "error", err)
-		t.attemptRollback(ctx, p, longExch, shortExch, longResult, shortResult)
+	_ = g.Wait() // both goroutines always return nil
+
+	if longRes.err != nil || shortRes.err != nil {
+		err := buildOpenError(longRes.err, shortRes.err)
+		t.attemptRollback(ctx, p, longExch, shortExch, longRes.order, shortRes.order)
 		return t.failPosition(ctx, p, err)
 	}
+
+	longResult, shortResult := longRes.order, shortRes.order
 
 	// Both legs filled — update position with fill details.
 	now := time.Now().UTC()
@@ -499,36 +503,118 @@ func (t *Trader) pollOrder(
 
 // attemptRollback tries to close any leg that was successfully opened when the
 // other leg failed. This is a best-effort operation.
+//
+// When one leg fails before even placing an order, the other leg's goroutine may
+// have already submitted and filled its order. We always attempt to roll back any
+// leg that has a filled result. Additionally, if a result is nil (no fill info
+// captured — e.g. the goroutine was interrupted or the order was placed but polling
+// didn't complete), we fall back to FetchPosition on the exchange to detect orphaned
+// positions that need to be rolled back.
 func (t *Trader) attemptRollback(
 	ctx context.Context,
 	p *domain.Position,
 	longExch, shortExch exchange.TradingExchange,
 	longResult, shortResult *domain.ExchangeOrder,
 ) {
+	longFilled := longResult != nil && longResult.Status == "closed"
+	shortFilled := shortResult != nil && shortResult.Status == "closed"
+
 	// If long leg filled but short didn't, close the long.
-	if longResult != nil && longResult.Status == "closed" && (shortResult == nil || shortResult.Status != "closed") {
+	if longFilled && !shortFilled {
 		t.logger.Warn("rolling back long leg", "position_id", p.ID)
-		qty := longResult.FilledQty.InexactFloat64()
-		if qty > 0 {
-			if _, err := longExch.CloseMarketOrder(ctx, p.Symbol, domain.OrderSideSell, qty); err != nil {
-				t.logger.Error("rollback long leg failed", "position_id", p.ID, "error", err)
-			} else {
-				t.logger.Info("rollback long leg succeeded", "position_id", p.ID)
-			}
-		}
+		t.rollbackOrder(ctx, longExch, p.Symbol, domain.OrderSideSell, longResult.FilledQty.InexactFloat64(), p.ID)
+		return
 	}
 
 	// If short leg filled but long didn't, close the short.
-	if shortResult != nil && shortResult.Status == "closed" && (longResult == nil || longResult.Status != "closed") {
+	if shortFilled && !longFilled {
 		t.logger.Warn("rolling back short leg", "position_id", p.ID)
-		qty := shortResult.FilledQty.InexactFloat64()
-		if qty > 0 {
-			if _, err := shortExch.CloseMarketOrder(ctx, p.Symbol, domain.OrderSideBuy, qty); err != nil {
-				t.logger.Error("rollback short leg failed", "position_id", p.ID, "error", err)
-			} else {
-				t.logger.Info("rollback short leg succeeded", "position_id", p.ID)
-			}
+		t.rollbackOrder(ctx, shortExch, p.Symbol, domain.OrderSideBuy, shortResult.FilledQty.InexactFloat64(), p.ID)
+		return
+	}
+
+	// Neither result captured a fill. This can happen when one leg failed before
+	// placing an order (so result is nil) while the other leg placed an order but
+	// returned an error during polling (result is also nil, but order may be filled
+	// on the exchange). Fall back to FetchPosition to detect orphaned legs.
+	if !longFilled && !shortFilled {
+		t.rollbackOrphanedLegs(ctx, p, longExch, shortExch)
+	}
+}
+
+// rollbackOrder places a reduce-only close order to unwind a single leg.
+func (t *Trader) rollbackOrder(ctx context.Context, exch exchange.TradingExchange, symbol string, side domain.OrderSide, qty float64, positionID string) {
+	if qty <= 0 {
+		return
+	}
+	if _, err := exch.CloseMarketOrder(ctx, symbol, side, qty); err != nil {
+		if !isPositionAlreadyClosed(err) {
+			t.logger.Error("rollback order failed", "position_id", positionID, "exchange", exch.ID(), "error", err)
 		}
+	} else {
+		t.logger.Info("rollback order succeeded", "position_id", positionID, "exchange", exch.ID())
+	}
+}
+
+// rollbackOrphanedLegs is the fallback when neither goroutine captured a fill
+// result. It fetches the actual exchange state via REST and closes any leg
+// that has an open position.
+func (t *Trader) rollbackOrphanedLegs(
+	ctx context.Context,
+	p *domain.Position,
+	longExch, shortExch exchange.TradingExchange,
+) {
+	t.logger.Warn("no fill results captured, checking exchanges for orphaned positions",
+		"position_id", p.ID)
+
+	longPos, longErr := longExch.FetchPosition(ctx, p.Symbol)
+	if longErr != nil {
+		t.logger.Error("rollback: fetch long position failed",
+			"position_id", p.ID, "exchange", p.LongExchangeID, "error", longErr)
+	}
+
+	shortPos, shortErr := shortExch.FetchPosition(ctx, p.Symbol)
+	if shortErr != nil {
+		t.logger.Error("rollback: fetch short position failed",
+			"position_id", p.ID, "exchange", p.ShortExchangeID, "error", shortErr)
+	}
+
+	longHas := longPos != nil && longPos.Contracts.GreaterThan(decimal.Zero)
+	shortHas := shortPos != nil && shortPos.Contracts.GreaterThan(decimal.Zero)
+
+	if longHas && !shortHas {
+		t.logger.Warn("rollback: orphaned long leg found, closing",
+			"position_id", p.ID, "contracts", longPos.Contracts)
+		t.rollbackOrder(ctx, longExch, p.Symbol, domain.OrderSideSell, longPos.Contracts.InexactFloat64(), p.ID)
+	}
+
+	if shortHas && !longHas {
+		t.logger.Warn("rollback: orphaned short leg found, closing",
+			"position_id", p.ID, "contracts", shortPos.Contracts)
+		t.rollbackOrder(ctx, shortExch, p.Symbol, domain.OrderSideBuy, shortPos.Contracts.InexactFloat64(), p.ID)
+	}
+
+	if longHas && shortHas {
+		// Both legs are open — this shouldn't happen in a partial failure,
+		// but log it for visibility. Don't roll back both — let reconciliation
+		// handle it on next startup.
+		t.logger.Error("rollback: both legs have open positions, skipping rollback",
+			"position_id", p.ID,
+			"long_contracts", longPos.Contracts,
+			"short_contracts", shortPos.Contracts,
+		)
+	}
+}
+
+// buildOpenError combines long and short leg errors into a single error.
+func buildOpenError(longErr, shortErr error) error {
+	switch {
+	case longErr != nil && shortErr != nil:
+		return fmt.Errorf("both legs failed: long: %w; short: %v", longErr, shortErr)
+	case longErr != nil:
+		return fmt.Errorf("long leg: %w", longErr)
+	default:
+		return fmt.Errorf("short leg: %w", shortErr)
 	}
 }
 

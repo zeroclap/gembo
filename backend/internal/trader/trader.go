@@ -47,7 +47,17 @@ func New(
 }
 
 // Run starts all trader loops and blocks until ctx is cancelled.
+// On startup, it reconciles all active positions against exchange state to
+// detect any changes that occurred while the trader was down. Reconciliation
+// failures are logged but do not prevent the trader from starting.
 func (t *Trader) Run(ctx context.Context) error {
+	// Reconcile positions before entering the main loops. This catches
+	// closures, partial closes, and stuck transitions that happened while
+	// the trader was offline (Redis pubsub events are fire-and-forget).
+	if err := t.reconcileOnStartup(ctx); err != nil {
+		t.logger.Error("position reconciliation failed, continuing", "error", err)
+	}
+
 	g, ctx := errgroup.WithContext(ctx)
 
 	// Executor loop: listens for position open/close signals via Redis Pub/Sub.
