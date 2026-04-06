@@ -7,6 +7,7 @@ import (
 	ccxt "github.com/ccxt/ccxt/go/v4"
 	"github.com/shopspring/decimal"
 	"github.com/zeroclap/gembo/internal/domain"
+	"github.com/zeroclap/gembo/internal/exchange/ccxtutil"
 )
 
 func ptrFloat(f float64) *float64 { return &f }
@@ -154,7 +155,7 @@ func TestResolveMarketType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := ccxt.MarketInterface{Swap: tt.swap, Future: tt.future}
-			got := resolveMarketType(m)
+			got := ccxtutil.ResolveMarketType(m)
 			if got != tt.want {
 				t.Errorf("resolveMarketType() = %q, want %q", got, tt.want)
 			}
@@ -181,7 +182,7 @@ func TestIntervalFromString(t *testing.T) {
 			name = *tt.input
 		}
 		t.Run(name, func(t *testing.T) {
-			got := intervalFromString(tt.input)
+			got := ccxtutil.IntervalFromString(tt.input)
 			if got != tt.want {
 				t.Errorf("intervalFromString(%v) = %d, want %d", tt.input, got, tt.want)
 			}
@@ -191,7 +192,7 @@ func TestIntervalFromString(t *testing.T) {
 
 func TestTimestampToTime(t *testing.T) {
 	ts := float64(1700000000000)
-	got := timestampToTime(&ts)
+	got := ccxtutil.TimestampToTime(&ts)
 	if got.IsZero() {
 		t.Error("expected non-zero time")
 	}
@@ -200,13 +201,13 @@ func TestTimestampToTime(t *testing.T) {
 	}
 
 	// nil case
-	if !timestampToTime(nil).IsZero() {
+	if !ccxtutil.TimestampToTime(nil).IsZero() {
 		t.Error("expected zero time for nil input")
 	}
 
 	// zero case
 	zero := float64(0)
-	if !timestampToTime(&zero).IsZero() {
+	if !ccxtutil.TimestampToTime(&zero).IsZero() {
 		t.Error("expected zero time for zero input")
 	}
 }

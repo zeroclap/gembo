@@ -26,7 +26,10 @@ func (m *mockTradingExchange) Tickers(_ context.Context, _ []string) (<-chan dom
 func (m *mockTradingExchange) FundingRates(_ context.Context) (<-chan domain.FundingRate, error) {
 	return nil, nil
 }
-func (m *mockTradingExchange) CreateMarketOrder(_ context.Context, _, _ string, _ float64) (*domain.ExchangeOrder, error) {
+func (m *mockTradingExchange) CreateMarketOrder(_ context.Context, _ string, _ domain.OrderSide, _ float64) (*domain.ExchangeOrder, error) {
+	return nil, nil
+}
+func (m *mockTradingExchange) CloseMarketOrder(_ context.Context, _ string, _ domain.OrderSide, _ float64) (*domain.ExchangeOrder, error) {
 	return nil, nil
 }
 func (m *mockTradingExchange) FetchOrder(_ context.Context, _, _ string) (*domain.ExchangeOrder, error) {

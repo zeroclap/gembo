@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"time"
 
+	goredis "github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/zeroclap/gembo/internal/domain"
 	"github.com/zeroclap/gembo/internal/exchange"
 	"github.com/zeroclap/gembo/internal/hook"
 	"github.com/zeroclap/gembo/internal/store"
+	"github.com/zeroclap/gembo/pkg/rediskey"
 )
 
 const marketsPollInterval = 60 * time.Second
@@ -22,6 +24,7 @@ const marketsPollInterval = 60 * time.Second
 type Collector struct {
 	registry     *exchange.Registry
 	store        store.Store
+	redis        *goredis.Client
 	emitter      hook.Emitter
 	logger       *slog.Logger
 	marketFilter domain.MarketFilter
@@ -31,6 +34,7 @@ type Collector struct {
 func New(
 	registry *exchange.Registry,
 	st store.Store,
+	rc *goredis.Client,
 	emitter hook.Emitter,
 	logger *slog.Logger,
 	marketFilter domain.MarketFilter,
@@ -38,6 +42,7 @@ func New(
 	return &Collector{
 		registry:     registry,
 		store:        st,
+		redis:        rc,
 		emitter:      emitter,
 		logger:       logger,
 		marketFilter: marketFilter,
@@ -69,6 +74,11 @@ func (c *Collector) runExchange(ctx context.Context, ex exchange.Exchange) error
 	g.Go(func() error { return c.marketLoop(ctx, ex) })
 	g.Go(func() error { return c.tickerLoop(ctx, ex) })
 	g.Go(func() error { return c.fundingRateLoop(ctx, ex) })
+
+	// Position loop: only for exchanges that implement PositionWatcher (have credentials).
+	if pw, ok := ex.(exchange.PositionWatcher); ok {
+		g.Go(func() error { return c.positionLoop(ctx, ex.ID(), pw) })
+	}
 
 	err := g.Wait()
 	c.logger.Info("exchange stopped", "exchange", ex.ID(), "error", err)
@@ -247,6 +257,59 @@ func (c *Collector) fundingRateLoop(ctx context.Context, ex exchange.Exchange) e
 				continue
 			}
 			c.emitFundingRate(ctx, fr)
+		}
+	}
+}
+
+// positionLoop consumes position updates from an exchange that implements
+// PositionWatcher and publishes each position as an ExchangePositionEvent to
+// Redis pubsub. The trader subscribes to these events.
+func (c *Collector) positionLoop(ctx context.Context, exchangeID string, pw exchange.PositionWatcher) error {
+	ch, err := pw.Positions(ctx)
+	if err != nil {
+		return fmt.Errorf("start position watcher for %s: %w", exchangeID, err)
+	}
+
+	c.logger.Info("position loop started", "exchange", exchangeID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			c.logger.Info("position loop shutting down", "exchange", exchangeID)
+			return ctx.Err()
+		case positions, ok := <-ch:
+			if !ok {
+				c.logger.Info("position channel closed", "exchange", exchangeID)
+				return nil
+			}
+			for _, pos := range positions {
+				event := domain.ExchangePositionEvent{
+					ExchangeID:       exchangeID,
+					Symbol:           pos.Symbol,
+					Side:             pos.Side,
+					Contracts:        pos.Contracts,
+					EntryPrice:       pos.EntryPrice,
+					MarkPrice:        pos.MarkPrice,
+					LiquidationPrice: pos.LiquidationPrice,
+					UnrealizedPnL:    pos.UnrealizedPnL,
+					Leverage:         pos.Leverage,
+					MarginMode:       pos.MarginMode,
+					Notional:         pos.Notional,
+					Timestamp:        time.Now().UTC(),
+				}
+				payload, err := json.Marshal(event)
+				if err != nil {
+					c.logger.Error("marshal position event", "error", err)
+					continue
+				}
+				if err := c.redis.Publish(ctx, rediskey.PositionStatePubSub(exchangeID), payload).Err(); err != nil {
+					c.logger.Warn("publish position event",
+						"exchange", exchangeID,
+						"symbol", pos.Symbol,
+						"error", err,
+					)
+				}
+			}
 		}
 	}
 }

@@ -1,0 +1,9 @@
+ALTER TABLE positions DROP COLUMN IF EXISTS long_liquidation_price;
+ALTER TABLE positions DROP COLUMN IF EXISTS short_liquidation_price;
+ALTER TABLE positions DROP COLUMN IF EXISTS long_leverage;
+ALTER TABLE positions DROP COLUMN IF EXISTS short_leverage;
+ALTER TABLE positions DROP COLUMN IF EXISTS long_margin_mode;
+ALTER TABLE positions DROP COLUMN IF EXISTS short_margin_mode;
+ALTER TABLE positions DROP COLUMN IF EXISTS long_notional;
+ALTER TABLE positions DROP COLUMN IF EXISTS short_notional;
+ALTER TABLE positions DROP COLUMN IF EXISTS close_reason;

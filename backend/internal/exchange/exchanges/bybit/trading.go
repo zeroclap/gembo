@@ -2,26 +2,54 @@ package bybit
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"time"
 
 	ccxt "github.com/ccxt/ccxt/go/v4"
 
 	"github.com/zeroclap/gembo/internal/domain"
 	"github.com/zeroclap/gembo/internal/exchange"
+	"github.com/zeroclap/gembo/internal/exchange/ccxtutil"
 )
 
+// isPositionAlreadyClosed checks whether a CCXT error from Bybit indicates
+// that a reduce-only order was rejected because the position is already at zero.
+// Bybit returns InvalidOrder in this case.
+func isPositionAlreadyClosed(err error) bool {
+	ccxtErr, ok := err.(*ccxt.Error)
+	if !ok {
+		return false
+	}
+	return ccxtErr.Type == "InvalidOrder"
+}
+
 // CreateMarketOrder places a market order on Bybit.
-func (c *Client) CreateMarketOrder(ctx context.Context, symbol, side string, amount float64) (*domain.ExchangeOrder, error) {
-	order, err := c.api.CreateOrder(symbol, "market", side, amount)
+func (c *Client) CreateMarketOrder(ctx context.Context, symbol string, side domain.OrderSide, amount float64) (*domain.ExchangeOrder, error) {
+	order, err := c.api.CreateOrder(symbol, "market", string(side), amount)
 	if err != nil {
 		return nil, fmt.Errorf("bybit create market order %s %s: %w", side, symbol, err)
 	}
 
-	d, _ := json.MarshalIndent(order, "", " ")
-	fmt.Printf("CreateOrder response: %s\n", d)
+	return ccxtutil.MapOrder(order, exchangeID), nil
+}
 
-	return mapOrder(order, exchangeID), nil
+// CloseMarketOrder places a reduce-only market order on Bybit.
+// Returns ErrPositionAlreadyClosed when the position is already at zero.
+func (c *Client) CloseMarketOrder(ctx context.Context, symbol string, side domain.OrderSide, amount float64) (*domain.ExchangeOrder, error) {
+	order, err := c.api.CreateOrder(
+		symbol, "market", string(side), amount,
+		ccxt.WithCreateOrderParams(map[string]interface{}{
+			"reduceOnly": true,
+		}),
+	)
+	if err != nil {
+		if isPositionAlreadyClosed(err) {
+			return nil, fmt.Errorf("bybit close market order %s %s: %w: %w", side, symbol, exchange.ErrPositionAlreadyClosed, err)
+		}
+		return nil, fmt.Errorf("bybit close market order %s %s: %w", side, symbol, err)
+	}
+
+	return ccxtutil.MapOrder(order, exchangeID), nil
 }
 
 // FetchOrder retrieves an order by its exchange-assigned ID.
@@ -36,7 +64,7 @@ func (c *Client) FetchOrder(ctx context.Context, orderID, symbol string) (*domai
 	if err != nil {
 		return nil, fmt.Errorf("bybit fetch order %s: %w", orderID, err)
 	}
-	return mapOrder(order, exchangeID), nil
+	return ccxtutil.MapOrder(order, exchangeID), nil
 }
 
 // FetchPosition returns the current position for a symbol, or nil if none is open.
@@ -45,7 +73,7 @@ func (c *Client) FetchPosition(ctx context.Context, symbol string) (*exchange.Ex
 	if err != nil {
 		return nil, fmt.Errorf("bybit fetch position %s: %w", symbol, err)
 	}
-	ep := mapPosition(pos)
+	ep := ccxtutil.MapPosition(pos)
 	if ep.Contracts.IsZero() {
 		return nil, nil
 	}
@@ -58,7 +86,7 @@ func (c *Client) FetchBalance(ctx context.Context) ([]exchange.Balance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bybit fetch balance: %w", err)
 	}
-	return mapBalances(balances), nil
+	return ccxtutil.MapBalances(balances), nil
 }
 
 // SetMarginMode sets the margin mode ("cross" or "isolated") for a symbol.
@@ -82,56 +110,65 @@ func (c *Client) HasCredentials() bool {
 	return c.apiKey != "" && c.secret != ""
 }
 
-// mapOrder converts a CCXT Order to a domain.ExchangeOrder.
-func mapOrder(o ccxt.Order, exchID string) *domain.ExchangeOrder {
-	var rawResp json.RawMessage
-	if o.Info != nil {
-		if b, err := json.Marshal(o.Info); err == nil {
-			rawResp = b
+// Positions subscribes to real-time position updates via WatchPositions WebSocket.
+// Returns a channel that emits []ExchangePosition on every update.
+// Satisfies exchange.PositionWatcher.
+func (c *Client) Positions(ctx context.Context) (<-chan []exchange.ExchangePosition, error) {
+	if !c.HasCredentials() {
+		return nil, fmt.Errorf("bybit: credentials required for position watching")
+	}
+
+	c.logger.Info("subscribing to position updates")
+
+	ch := make(chan []exchange.ExchangePosition, 256)
+
+	go func() {
+		defer close(ch)
+		backoff := ccxtutil.InitialBackoff
+
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+
+			positions, err := c.api.WatchPositions()
+			if err != nil {
+				if ctx.Err() != nil {
+					c.logger.Info("position subscription stopped", "reason", ctx.Err())
+					return
+				}
+				if ccxtutil.IsRetryable(err) {
+					c.logger.Warn("watch positions error, retrying",
+						"error", err,
+						"backoff", backoff,
+					)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(backoff):
+					}
+					backoff = ccxtutil.NextBackoff(backoff, maxBackoff)
+					continue
+				}
+				c.logger.Error("watch positions fatal error", "error", err)
+				return
+			}
+
+			backoff = ccxtutil.InitialBackoff
+
+			eps := make([]exchange.ExchangePosition, 0, len(positions))
+			for _, p := range positions {
+				c.logger.Debug("position update", "symbol", p.Symbol, "contracts", p.Contracts)
+				eps = append(eps, *ccxtutil.MapPosition(p))
+			}
+
+			select {
+			case ch <- eps:
+			case <-ctx.Done():
+				return
+			}
 		}
-	}
+	}()
 
-	return &domain.ExchangeOrder{
-		ExchangeID:      exchID,
-		ExchangeOrderID: derefString(o.Id),
-		Symbol:          derefString(o.Symbol),
-		Side:            derefString(o.Side),
-		RequestedQty:    floatToDecimal(o.Amount),
-		FilledQty:       floatToDecimal(o.Filled),
-		AveragePrice:    floatToDecimal(o.Average),
-		Cost:            floatToDecimal(o.Cost),
-		FeeCost:         floatToDecimal(o.Fee.Cost),
-		Status:          derefString(o.Status),
-		RawResponse:     rawResp,
-	}
-}
-
-// mapPosition converts a CCXT Position to an exchange.ExchangePosition.
-func mapPosition(p ccxt.Position) *exchange.ExchangePosition {
-	return &exchange.ExchangePosition{
-		Symbol:           derefString(p.Symbol),
-		Side:             derefString(p.Side),
-		Contracts:        floatToDecimal(p.Contracts),
-		EntryPrice:       floatToDecimal(p.EntryPrice),
-		MarkPrice:        floatToDecimal(p.MarkPrice),
-		LiquidationPrice: floatToDecimal(p.LiquidationPrice),
-		UnrealizedPnL:    floatToDecimal(p.UnrealizedPnl),
-		Leverage:         floatToDecimal(p.Leverage),
-		MarginMode:       derefString(p.MarginMode),
-		Notional:         floatToDecimal(p.Notional),
-	}
-}
-
-// mapBalances converts CCXT Balances to a slice of exchange.Balance.
-func mapBalances(b ccxt.Balances) []exchange.Balance {
-	var out []exchange.Balance
-	for currency, bal := range b.Balances {
-		out = append(out, exchange.Balance{
-			Currency: currency,
-			Free:     floatToDecimal(bal.Free),
-			Used:     floatToDecimal(bal.Used),
-			Total:    floatToDecimal(bal.Total),
-		})
-	}
-	return out
+	return ch, nil
 }

@@ -5,12 +5,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math"
 	"time"
 
 	ccxt "github.com/ccxt/ccxt/go/v4"
 	ccxtpro "github.com/ccxt/ccxt/go/v4/pro"
 	"github.com/zeroclap/gembo/internal/domain"
+	"github.com/zeroclap/gembo/internal/exchange/ccxtutil"
 )
 
 const (
@@ -18,7 +18,6 @@ const (
 	fundingPollDefault = 60 * time.Second
 	marketsPollDefault = 60 * time.Second
 	maxBackoff         = 60 * time.Second
-	initialBackoff     = 1 * time.Second
 )
 
 // Client is the Bybit exchange adapter.
@@ -120,7 +119,7 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 
 	go func() {
 		defer close(ch)
-		backoff := initialBackoff
+		backoff := ccxtutil.InitialBackoff
 
 		for {
 			if ctx.Err() != nil {
@@ -134,7 +133,7 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 					c.logger.Info("ticker subscription stopped", "reason", ctx.Err())
 					return
 				}
-				if isRetryable(err) {
+				if ccxtutil.IsRetryable(err) {
 					c.logger.Warn("watch tickers error, retrying",
 						"error", err,
 						"backoff", backoff,
@@ -144,14 +143,14 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 						return
 					case <-time.After(backoff):
 					}
-					backoff = nextBackoff(backoff)
+					backoff = ccxtutil.NextBackoff(backoff, maxBackoff)
 					continue
 				}
 				c.logger.Error("watch tickers fatal error", "error", err)
 				return
 			}
 
-			backoff = initialBackoff
+			backoff = ccxtutil.InitialBackoff
 			now := time.Now().UTC()
 
 			// c.logger.Info("received tickers update", "count", len(tickers.Tickers))
@@ -202,7 +201,7 @@ func (c *Client) FundingRates(ctx context.Context) (<-chan domain.FundingRate, e
 }
 
 func (c *Client) pollFundingRates(ctx context.Context, ch chan<- domain.FundingRate) {
-	backoff := initialBackoff
+	backoff := ccxtutil.InitialBackoff
 	for {
 		if ctx.Err() != nil {
 			return
@@ -210,7 +209,7 @@ func (c *Client) pollFundingRates(ctx context.Context, ch chan<- domain.FundingR
 
 		rates, err := c.api.FetchFundingRates()
 		if err != nil {
-			if isRetryable(err) {
+			if ccxtutil.IsRetryable(err) {
 				c.logger.Warn("fetch funding rates error, retrying",
 					"error", err,
 					"backoff", backoff,
@@ -220,7 +219,7 @@ func (c *Client) pollFundingRates(ctx context.Context, ch chan<- domain.FundingR
 					return
 				case <-time.After(backoff):
 				}
-				backoff = nextBackoff(backoff)
+				backoff = ccxtutil.NextBackoff(backoff, maxBackoff)
 				continue
 			}
 			c.logger.Error("fetch funding rates fatal error", "error", err)
@@ -241,27 +240,4 @@ func (c *Client) pollFundingRates(ctx context.Context, ch chan<- domain.FundingR
 		}
 		return
 	}
-}
-
-// isRetryable returns true for transient CCXT errors that warrant a retry.
-func isRetryable(err error) bool {
-	ccxtErr, ok := err.(*ccxt.Error)
-	if !ok {
-		return true // unknown errors — be optimistic
-	}
-	switch ccxtErr.Type {
-	case "NetworkError", "RateLimitExceeded", "ExchangeNotAvailable",
-		"DDoSProtection", "RequestTimeout", "OnMaintenance":
-		return true
-	}
-	return false
-}
-
-// nextBackoff returns the next exponential backoff duration, capped at maxBackoff.
-func nextBackoff(d time.Duration) time.Duration {
-	next := time.Duration(float64(d) * math.Phi)
-	if next > maxBackoff {
-		return maxBackoff
-	}
-	return next
 }

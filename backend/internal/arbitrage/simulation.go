@@ -233,14 +233,14 @@ func buildFeeEvents(kind domain.SimulationRowKind, fd feeBreakdown) []domain.Sim
 	return []domain.SimulationEvent{
 		{
 			ExchangeID: fd.longExchangeID,
-			Side:       "long",
+			Side:       domain.PositionSideLong,
 			Rate:       fd.longFeePct.Div(dec100),
 			PnlPct:     longPctNeg,
 			PnlUsd:     longUsd,
 		},
 		{
 			ExchangeID: fd.shortExchangeID,
-			Side:       "short",
+			Side:       domain.PositionSideShort,
 			Rate:       fd.shortFeePct.Div(dec100),
 			PnlPct:     shortPctNeg,
 			PnlUsd:     shortUsd,
@@ -396,7 +396,7 @@ func buildHoldSimulation(
 	type fundingEvent struct {
 		at         time.Time
 		exchangeID string
-		side       string
+		side       domain.PositionSide
 		rate       decimal.Decimal
 		pnlPct     decimal.Decimal
 	}
@@ -416,7 +416,7 @@ func buildHoldSimulation(
 			events = append(events, fundingEvent{
 				at:         t,
 				exchangeID: arb.Long.ExchangeID,
-				side:       "long",
+				side:       domain.PositionSideLong,
 				rate:       arb.Long.FundingRate,
 				pnlPct:     pnlPct,
 			})
@@ -436,7 +436,7 @@ func buildHoldSimulation(
 			events = append(events, fundingEvent{
 				at:         t,
 				exchangeID: arb.Short.ExchangeID,
-				side:       "short",
+				side:       domain.PositionSideShort,
 				rate:       arb.Short.FundingRate,
 				pnlPct:     pnlPct,
 			})

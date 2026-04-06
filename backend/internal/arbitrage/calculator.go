@@ -295,7 +295,7 @@ func computeNextPayment(long, short domain.ArbitrageLeg, now time.Time) domain.N
 		paymentPct := long.FundingRate.Neg() // long pays the opposite of rate sign
 		info = domain.NextPaymentInfo{
 			ExchangeID:    long.ExchangeID,
-			Side:          "long",
+			Side:          domain.PositionSideLong,
 			Rate:          long.FundingRate,
 			PaymentPct:    paymentPct,
 			At:            longNext,
@@ -307,7 +307,7 @@ func computeNextPayment(long, short domain.ArbitrageLeg, now time.Time) domain.N
 		paymentPct := short.FundingRate // short receives the rate as-is
 		info = domain.NextPaymentInfo{
 			ExchangeID:    short.ExchangeID,
-			Side:          "short",
+			Side:          domain.PositionSideShort,
 			Rate:          short.FundingRate,
 			PaymentPct:    paymentPct,
 			At:            shortNext,
@@ -336,7 +336,7 @@ func computeFullLoop(long, short domain.ArbitrageLeg) domain.FullLoopInfo {
 	type paymentEvent struct {
 		hour       int
 		exchangeID string
-		side       string
+		side       domain.PositionSide
 		rate       decimal.Decimal
 	}
 
@@ -348,7 +348,7 @@ func computeFullLoop(long, short domain.ArbitrageLeg) domain.FullLoopInfo {
 		events = append(events, paymentEvent{
 			hour:       h,
 			exchangeID: long.ExchangeID,
-			side:       "long",
+			side:       domain.PositionSideLong,
 			rate:       long.FundingRate,
 		})
 	}
@@ -359,7 +359,7 @@ func computeFullLoop(long, short domain.ArbitrageLeg) domain.FullLoopInfo {
 		events = append(events, paymentEvent{
 			hour:       h,
 			exchangeID: short.ExchangeID,
-			side:       "short",
+			side:       domain.PositionSideShort,
 			rate:       short.FundingRate,
 		})
 	}
@@ -376,7 +376,7 @@ func computeFullLoop(long, short domain.ArbitrageLeg) domain.FullLoopInfo {
 	payments := make([]domain.LoopPayment, len(events))
 	for i, ev := range events {
 		var pct decimal.Decimal
-		if ev.side == "long" {
+		if ev.side == domain.PositionSideLong {
 			pct = ev.rate.Neg() // long holder pays opposite of rate
 		} else {
 			pct = ev.rate // short holder receives rate

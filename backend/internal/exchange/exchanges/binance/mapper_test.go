@@ -7,6 +7,7 @@ import (
 	ccxt "github.com/ccxt/ccxt/go/v4"
 	"github.com/shopspring/decimal"
 	"github.com/zeroclap/gembo/internal/domain"
+	"github.com/zeroclap/gembo/internal/exchange/ccxtutil"
 )
 
 func ptrFloat(f float64) *float64 { return &f }
@@ -128,7 +129,7 @@ func TestResolveMarketType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := ccxt.MarketInterface{Swap: tt.swap, Future: tt.future}
-			got := resolveMarketType(m)
+			got := ccxtutil.ResolveMarketType(m)
 			if got != tt.want {
 				t.Errorf("resolveMarketType() = %q, want %q", got, tt.want)
 			}

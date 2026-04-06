@@ -287,7 +287,7 @@ func TestSimulate_LoopPayments(t *testing.T) {
 			Payments: []domain.LoopPayment{
 				{
 					ExchangeID: "bybit",
-					Side:       "long",
+					Side:       domain.PositionSideLong,
 					Rate:       d("0.0001"),
 					PaymentPct: d("-0.0001"),
 					AtHour:     0,
@@ -295,7 +295,7 @@ func TestSimulate_LoopPayments(t *testing.T) {
 				},
 				{
 					ExchangeID: "binance",
-					Side:       "short",
+					Side:       domain.PositionSideShort,
 					Rate:       d("0.0005"),
 					PaymentPct: d("0.0005"),
 					AtHour:     0,
@@ -731,8 +731,8 @@ func TestSimulate_CleanLoop_HasOpenAndCloseRows(t *testing.T) {
 			DurationHours: 8,
 			NetPctPerLoop: d("0.0004"),
 			Payments: []domain.LoopPayment{
-				{ExchangeID: "binance", Side: "short", Rate: d("0.0005"), PaymentPct: d("0.0005"), AtHour: 8, Cumulative: d("0.0005")},
-				{ExchangeID: "bybit", Side: "long", Rate: d("0.0001"), PaymentPct: d("-0.0001"), AtHour: 8, Cumulative: d("0.0004")},
+				{ExchangeID: "binance", Side: domain.PositionSideShort, Rate: d("0.0005"), PaymentPct: d("0.0005"), AtHour: 8, Cumulative: d("0.0005")},
+				{ExchangeID: "bybit", Side: domain.PositionSideLong, Rate: d("0.0001"), PaymentPct: d("-0.0001"), AtHour: 8, Cumulative: d("0.0004")},
 			},
 		},
 	}
@@ -828,8 +828,8 @@ func TestSimulate_CleanLoop_CumulativeIncludesFees(t *testing.T) {
 			DurationHours: 8,
 			NetPctPerLoop: d("0.0004"),
 			Payments: []domain.LoopPayment{
-				{ExchangeID: "bybit", Side: "long", Rate: d("0.0001"), PaymentPct: d("-0.0001"), AtHour: 8, Cumulative: d("-0.0001")},
-				{ExchangeID: "binance", Side: "short", Rate: d("0.0005"), PaymentPct: d("0.0005"), AtHour: 8, Cumulative: d("0.0004")},
+				{ExchangeID: "bybit", Side: domain.PositionSideLong, Rate: d("0.0001"), PaymentPct: d("-0.0001"), AtHour: 8, Cumulative: d("-0.0001")},
+				{ExchangeID: "binance", Side: domain.PositionSideShort, Rate: d("0.0005"), PaymentPct: d("0.0005"), AtHour: 8, Cumulative: d("0.0004")},
 			},
 		},
 	}

@@ -61,7 +61,7 @@ type ArbitrageFees struct {
 // NextPaymentInfo describes the very next funding payment across both legs.
 type NextPaymentInfo struct {
 	ExchangeID    string          `json:"exchange_id"`     // which exchange pays next
-	Side          string          `json:"side"`            // "long" or "short"
+	Side          PositionSide    `json:"side"`            // Long or Short
 	Rate          decimal.Decimal `json:"rate"`            // the rate for this payment
 	PaymentPct    decimal.Decimal `json:"payment_pct"`     // your P&L for this single payment
 	At            time.Time       `json:"at"`              // when it occurs
@@ -79,7 +79,7 @@ type FullLoopInfo struct {
 // LoopPayment is a single funding payment within a full loop.
 type LoopPayment struct {
 	ExchangeID string          `json:"exchange_id"`
-	Side       string          `json:"side"`        // "long" or "short"
+	Side       PositionSide    `json:"side"`        // Long or Short
 	Rate       decimal.Decimal `json:"rate"`        // the funding rate applied
 	PaymentPct decimal.Decimal `json:"payment_pct"` // your +/- for this step
 	AtHour     int             `json:"at_hour"`     // hour offset within the loop
@@ -150,7 +150,7 @@ const (
 // Every row always has at least one event (1 leg or 2 simultaneous legs).
 type SimulationEvent struct {
 	ExchangeID string          `json:"exchange_id"`    // which exchange
-	Side       string          `json:"side"`           // "long" or "short"
+	Side       PositionSide    `json:"side"`           // Long or Short
 	Rate       decimal.Decimal `json:"rate,omitempty"` // rate as fraction: funding rate or taker fee
 	PnlPct     decimal.Decimal `json:"pnl_pct"`        // P&L % for this event
 	PnlUsd     decimal.Decimal `json:"pnl_usd"`        // P&L $ for this event
@@ -177,7 +177,7 @@ type SimulationRow struct {
 // Deprecated: use SimulationRow in CleanLoop/HoldSimulation instead.
 type SimulationLoopPayment struct {
 	ExchangeID    string          `json:"exchange_id"`
-	Side          string          `json:"side"`
+	Side          PositionSide    `json:"side"`
 	Rate          decimal.Decimal `json:"rate"`
 	PaymentPct    decimal.Decimal `json:"payment_pct"`
 	AtHour        int             `json:"at_hour"`

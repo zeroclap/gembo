@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import { Sun, Moon } from "lucide-react";
+import { Sun, Moon, RefreshCw } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -17,7 +18,9 @@ const tabs = [
 export function AppHeader() {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const queryClient = useQueryClient();
   const [mounted, setMounted] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -51,7 +54,26 @@ export function AppHeader() {
             })}
           </nav>
         </div>
-        <div className="flex items-center">
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => {
+              setIsRefreshing(true);
+              queryClient.invalidateQueries().then(() => {
+                setIsRefreshing(false);
+              });
+            }}
+            aria-label="Refresh data"
+          >
+            <RefreshCw
+              className={cn(
+                "h-3.5 w-3.5",
+                isRefreshing && "animate-spin"
+              )}
+            />
+          </Button>
           {mounted && (
             <Button
               variant="ghost"

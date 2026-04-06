@@ -60,7 +60,6 @@ type ExchangeCfg struct {
 type TraderConfig struct {
 	Leverage             int           `yaml:"leverage"`
 	MarginMode           string        `yaml:"margin_mode"`
-	MonitorInterval      time.Duration `yaml:"monitor_interval"`
 	FundingCheckInterval time.Duration `yaml:"funding_check_interval"`
 }
 
@@ -126,7 +125,6 @@ func defaults() Config {
 		Trader: TraderConfig{
 			Leverage:             1,
 			MarginMode:           "cross",
-			MonitorInterval:      30 * time.Second,
 			FundingCheckInterval: 5 * time.Minute,
 		},
 		Log: LogConfig{
@@ -262,11 +260,6 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("TRADER_MARGIN_MODE"); v != "" {
 		cfg.Trader.MarginMode = v
-	}
-	if v := os.Getenv("TRADER_MONITOR_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Trader.MonitorInterval = d
-		}
 	}
 	if v := os.Getenv("TRADER_FUNDING_CHECK_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {

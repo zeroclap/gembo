@@ -20,6 +20,15 @@ const (
 	PositionStatusFailed        PositionStatus = "failed"
 )
 
+// CloseReason indicates why a position was closed.
+type CloseReason string
+
+const (
+	CloseReasonNormal     CloseReason = "normal"     // closed via API request
+	CloseReasonAutoClose  CloseReason = "auto_close" // reactor detected one leg gone, closed other
+	CloseReasonLiquidated CloseReason = "liquidated" // detected via zero contracts + liquidation indicators
+)
+
 // SizeType indicates how the user specified the position size.
 type SizeType string
 
@@ -62,12 +71,25 @@ type Position struct {
 	// This captures the "intent" — the values that led to the decision.
 	Snapshot json.RawMessage `json:"snapshot"`
 
-	// Live state updated by the trader monitor loop.
+	// Live state updated by the position reactor via collector events.
 	LongMarkPrice      decimal.Decimal `json:"long_mark_price"`
 	ShortMarkPrice     decimal.Decimal `json:"short_mark_price"`
 	LongUnrealizedPnL  decimal.Decimal `json:"long_unrealized_pnl"`
 	ShortUnrealizedPnL decimal.Decimal `json:"short_unrealized_pnl"`
 	TotalFundingPnL    decimal.Decimal `json:"total_funding_pnl"`
+
+	// Liquidation & margin state (per-leg, updated by position reactor).
+	LongLiquidationPrice  decimal.Decimal `json:"long_liquidation_price"`
+	ShortLiquidationPrice decimal.Decimal `json:"short_liquidation_price"`
+	LongLeverage          decimal.Decimal `json:"long_leverage"`
+	ShortLeverage         decimal.Decimal `json:"short_leverage"`
+	LongMarginMode        string          `json:"long_margin_mode"`
+	ShortMarginMode       string          `json:"short_margin_mode"`
+	LongNotional          decimal.Decimal `json:"long_notional"`
+	ShortNotional         decimal.Decimal `json:"short_notional"`
+
+	// Close metadata.
+	CloseReason CloseReason `json:"close_reason,omitempty"`
 
 	// Error info (set on failure).
 	ErrorMessage string `json:"error_message,omitempty"`
@@ -87,7 +109,7 @@ type ExchangeOrder struct {
 	ExchangeID      string          `json:"exchange_id"`
 	ExchangeOrderID string          `json:"exchange_order_id"`
 	Symbol          string          `json:"symbol"`
-	Side            string          `json:"side"`   // "buy" or "sell"
+	Side            OrderSide       `json:"side"`   // Buy or Sell
 	Leg             string          `json:"leg"`    // "long" or "short"
 	Action          string          `json:"action"` // "open" or "close"
 	RequestedQty    decimal.Decimal `json:"requested_qty"`
@@ -119,4 +141,22 @@ type FundingPayment struct {
 type PositionFilter struct {
 	Status []PositionStatus
 	Symbol string
+}
+
+// ExchangePositionEvent represents a position state update from an exchange,
+// published by the collector via Redis pubsub. The trader subscribes and
+// reacts to these events (update PG, detect closures, auto-close, rebalance).
+type ExchangePositionEvent struct {
+	ExchangeID       string          `json:"exchange_id"`
+	Symbol           string          `json:"symbol"`
+	Side             PositionSide    `json:"side"` // Long, Short, or None when closed
+	Contracts        decimal.Decimal `json:"contracts"`
+	EntryPrice       decimal.Decimal `json:"entry_price"`
+	MarkPrice        decimal.Decimal `json:"mark_price"`
+	LiquidationPrice decimal.Decimal `json:"liquidation_price"`
+	UnrealizedPnL    decimal.Decimal `json:"unrealized_pnl"`
+	Leverage         decimal.Decimal `json:"leverage"`
+	MarginMode       string          `json:"margin_mode"`
+	Notional         decimal.Decimal `json:"notional"`
+	Timestamp        time.Time       `json:"timestamp"`
 }

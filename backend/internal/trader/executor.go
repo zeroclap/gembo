@@ -3,6 +3,7 @@ package trader
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -110,7 +111,7 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 		PositionID: p.ID,
 		ExchangeID: p.LongExchangeID,
 		Symbol:     p.Symbol,
-		Side:       "buy",
+		Side:       domain.OrderSideBuy,
 		Leg:        "long",
 		Action:     "open",
 		Status:     "pending",
@@ -119,7 +120,7 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 		PositionID: p.ID,
 		ExchangeID: p.ShortExchangeID,
 		Symbol:     p.Symbol,
-		Side:       "sell",
+		Side:       domain.OrderSideSell,
 		Leg:        "short",
 		Action:     "open",
 		Status:     "pending",
@@ -142,7 +143,7 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 	var longResult, shortResult *domain.ExchangeOrder
 
 	g.Go(func() error {
-		filled, err := t.placeAndPoll(gCtx, longExch, p.Symbol, "buy", amount, longOrder)
+		filled, err := t.placeAndPoll(gCtx, longExch, p.Symbol, domain.OrderSideBuy, amount, longOrder)
 		if err != nil {
 			return fmt.Errorf("long leg: %w", err)
 		}
@@ -151,7 +152,7 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 	})
 
 	g.Go(func() error {
-		filled, err := t.placeAndPoll(gCtx, shortExch, p.Symbol, "sell", amount, shortOrder)
+		filled, err := t.placeAndPoll(gCtx, shortExch, p.Symbol, domain.OrderSideSell, amount, shortOrder)
 		if err != nil {
 			return fmt.Errorf("short leg: %w", err)
 		}
@@ -230,7 +231,7 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 		PositionID: p.ID,
 		ExchangeID: p.LongExchangeID,
 		Symbol:     p.Symbol,
-		Side:       "sell", // close long by selling
+		Side:       domain.OrderSideSell, // close long by selling
 		Leg:        "long",
 		Action:     "close",
 		Status:     "pending",
@@ -239,7 +240,7 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 		PositionID: p.ID,
 		ExchangeID: p.ShortExchangeID,
 		Symbol:     p.Symbol,
-		Side:       "buy", // close short by buying
+		Side:       domain.OrderSideBuy, // close short by buying
 		Leg:        "short",
 		Action:     "close",
 		Status:     "pending",
@@ -258,8 +259,18 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 
 	g.Go(func() error {
 		qty := p.LongFilledQty.InexactFloat64()
-		filled, err := t.placeAndPoll(gCtx, longExch, p.Symbol, "sell", qty, longCloseOrder)
+		filled, err := t.closeAndPoll(gCtx, longExch, p.Symbol, domain.OrderSideSell, qty, longCloseOrder)
 		if err != nil {
+			// Position was already closed on the exchange (e.g. manually closed
+			// while the app was down). Treat as a successful no-op close.
+			if isPositionAlreadyClosed(err) {
+				t.logger.Info("long leg already closed on exchange",
+					"position_id", p.ID, "exchange", p.LongExchangeID)
+				longCloseOrder.Status = "closed"
+				_ = t.store.UpdateOrder(ctx, longCloseOrder)
+				longResult = &domain.ExchangeOrder{}
+				return nil
+			}
 			return fmt.Errorf("close long leg: %w", err)
 		}
 		longResult = filled
@@ -268,8 +279,16 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 
 	g.Go(func() error {
 		qty := p.ShortFilledQty.InexactFloat64()
-		filled, err := t.placeAndPoll(gCtx, shortExch, p.Symbol, "buy", qty, shortCloseOrder)
+		filled, err := t.closeAndPoll(gCtx, shortExch, p.Symbol, domain.OrderSideBuy, qty, shortCloseOrder)
 		if err != nil {
+			if isPositionAlreadyClosed(err) {
+				t.logger.Info("short leg already closed on exchange",
+					"position_id", p.ID, "exchange", p.ShortExchangeID)
+				shortCloseOrder.Status = "closed"
+				_ = t.store.UpdateOrder(ctx, shortCloseOrder)
+				shortResult = &domain.ExchangeOrder{}
+				return nil
+			}
 			return fmt.Errorf("close short leg: %w", err)
 		}
 		shortResult = filled
@@ -284,6 +303,7 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 	now := time.Now().UTC()
 	p.Status = domain.PositionStatusClosed
 	p.ClosedAt = &now
+	p.CloseReason = domain.CloseReasonNormal
 	p.LongExitPrice = longResult.AveragePrice
 	p.LongCloseFees = longResult.FeeCost
 	p.ShortExitPrice = shortResult.AveragePrice
@@ -363,7 +383,8 @@ func (t *Trader) resolveAmount(ctx context.Context, p *domain.Position, longExch
 func (t *Trader) placeAndPoll(
 	ctx context.Context,
 	exch exchange.TradingExchange,
-	symbol, side string,
+	symbol string,
+	side domain.OrderSide,
 	amount float64,
 	orderRec *domain.ExchangeOrder,
 ) (*domain.ExchangeOrder, error) {
@@ -374,7 +395,6 @@ func (t *Trader) placeAndPoll(
 		"amount", amount,
 	)
 
-	// Place the market order.
 	logger.Info("placing market order")
 	result, err := exch.CreateMarketOrder(ctx, symbol, side, amount)
 	if err != nil {
@@ -383,6 +403,47 @@ func (t *Trader) placeAndPoll(
 		return nil, fmt.Errorf("create market order: %w", err)
 	}
 
+	return t.pollOrder(ctx, exch, symbol, result, orderRec, logger, amount)
+}
+
+// closeAndPoll places a reduce-only market order and polls until it reaches a
+// terminal state. It updates the order record in PG as the order progresses.
+func (t *Trader) closeAndPoll(
+	ctx context.Context,
+	exch exchange.TradingExchange,
+	symbol string,
+	side domain.OrderSide,
+	amount float64,
+	orderRec *domain.ExchangeOrder,
+) (*domain.ExchangeOrder, error) {
+	logger := t.logger.With(
+		"exchange", exch.ID(),
+		"symbol", symbol,
+		"side", side,
+		"amount", amount,
+	)
+
+	logger.Info("placing close market order")
+	result, err := exch.CloseMarketOrder(ctx, symbol, side, amount)
+	if err != nil {
+		orderRec.Status = "failed"
+		_ = t.store.UpdateOrder(ctx, orderRec)
+		return nil, fmt.Errorf("close market order: %w", err)
+	}
+
+	return t.pollOrder(ctx, exch, symbol, result, orderRec, logger, amount)
+}
+
+// pollOrder polls an exchange order until it reaches a terminal state.
+func (t *Trader) pollOrder(
+	ctx context.Context,
+	exch exchange.TradingExchange,
+	symbol string,
+	result *domain.ExchangeOrder,
+	orderRec *domain.ExchangeOrder,
+	logger *slog.Logger,
+	amount float64,
+) (*domain.ExchangeOrder, error) {
 	// Update order record with exchange ID.
 	orderRec.ExchangeOrderID = result.ExchangeOrderID
 	orderRec.Status = "submitted"
@@ -402,7 +463,6 @@ func (t *Trader) placeAndPoll(
 		case <-time.After(pollInterval):
 		}
 
-		fmt.Printf("> fetchOrder %s %s\n", result.ExchangeOrderID, symbol)
 		fetched, err := exch.FetchOrder(ctx, result.ExchangeOrderID, symbol)
 		if err != nil {
 			logger.Warn("poll order failed, retrying", "attempt", i+1, "error", err)
@@ -450,7 +510,7 @@ func (t *Trader) attemptRollback(
 		t.logger.Warn("rolling back long leg", "position_id", p.ID)
 		qty := longResult.FilledQty.InexactFloat64()
 		if qty > 0 {
-			if _, err := longExch.CreateMarketOrder(ctx, p.Symbol, "sell", qty); err != nil {
+			if _, err := longExch.CloseMarketOrder(ctx, p.Symbol, domain.OrderSideSell, qty); err != nil {
 				t.logger.Error("rollback long leg failed", "position_id", p.ID, "error", err)
 			} else {
 				t.logger.Info("rollback long leg succeeded", "position_id", p.ID)
@@ -463,7 +523,7 @@ func (t *Trader) attemptRollback(
 		t.logger.Warn("rolling back short leg", "position_id", p.ID)
 		qty := shortResult.FilledQty.InexactFloat64()
 		if qty > 0 {
-			if _, err := shortExch.CreateMarketOrder(ctx, p.Symbol, "buy", qty); err != nil {
+			if _, err := shortExch.CloseMarketOrder(ctx, p.Symbol, domain.OrderSideBuy, qty); err != nil {
 				t.logger.Error("rollback short leg failed", "position_id", p.ID, "error", err)
 			} else {
 				t.logger.Info("rollback short leg succeeded", "position_id", p.ID)

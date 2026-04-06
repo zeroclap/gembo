@@ -67,7 +67,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	c := collector.New(reg, st, emitter, logger, cfg.MarketFilter.ToDomain())
+	c := collector.New(reg, st, rc, emitter, logger, cfg.MarketFilter.ToDomain())
 
 	mf := cfg.MarketFilter
 	if len(mf.QuoteAssets) > 0 || len(mf.SettleAssets) > 0 || len(mf.MarketTypes) > 0 {
@@ -104,6 +104,13 @@ func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.
 			if ecfg.MarketsPollInterval > 0 {
 				opts = append(opts, bybitex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
 			}
+			// Pass credentials so the adapter can use WatchPositions (private WS).
+			if ecfg.APIKey != "" {
+				opts = append(opts, bybitex.WithAPIKey(ecfg.APIKey))
+			}
+			if ecfg.Secret != "" {
+				opts = append(opts, bybitex.WithSecret(ecfg.Secret))
+			}
 			reg.Register(bybitex.New(logger, opts...))
 		case "okx":
 			var opts []okxex.Option
@@ -112,6 +119,16 @@ func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.
 			}
 			if ecfg.MarketsPollInterval > 0 {
 				opts = append(opts, okxex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
+			}
+			// Pass credentials so the adapter can use WatchPositions (private WS).
+			if ecfg.APIKey != "" {
+				opts = append(opts, okxex.WithAPIKey(ecfg.APIKey))
+			}
+			if ecfg.Secret != "" {
+				opts = append(opts, okxex.WithSecret(ecfg.Secret))
+			}
+			if ecfg.Passphrase != "" {
+				opts = append(opts, okxex.WithPassphrase(ecfg.Passphrase))
 			}
 			reg.Register(okxex.New(logger, opts...))
 		case "gate":

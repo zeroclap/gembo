@@ -101,3 +101,12 @@ func PositionClosing() string {
 func PositionUpdates() string {
 	return fmt.Sprintf("%s:positions:updates", prefix)
 }
+
+// PositionStatePubSub returns the Pub/Sub channel for exchange position state
+// events published by the collector. Keyed per exchange so subscribers can
+// filter by exchange.
+//
+//	gembo:<exchange>:position:updates
+func PositionStatePubSub(exchangeID string) string {
+	return fmt.Sprintf("%s:%s:position:updates", prefix, exchangeID)
+}

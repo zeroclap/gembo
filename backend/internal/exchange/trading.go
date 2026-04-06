@@ -10,16 +10,27 @@ import (
 
 // ExchangePosition represents the current state of a position on an exchange.
 type ExchangePosition struct {
-	Symbol           string          `json:"symbol"`
-	Side             string          `json:"side"` // "long" or "short"
-	Contracts        decimal.Decimal `json:"contracts"`
-	EntryPrice       decimal.Decimal `json:"entry_price"`
-	MarkPrice        decimal.Decimal `json:"mark_price"`
-	LiquidationPrice decimal.Decimal `json:"liquidation_price"`
-	UnrealizedPnL    decimal.Decimal `json:"unrealized_pnl"`
-	Leverage         decimal.Decimal `json:"leverage"`
-	MarginMode       string          `json:"margin_mode"`
-	Notional         decimal.Decimal `json:"notional"`
+	Symbol           string              `json:"symbol"`
+	Side             domain.PositionSide `json:"side"` // Long, Short, or None when closed
+	Contracts        decimal.Decimal     `json:"contracts"`
+	EntryPrice       decimal.Decimal     `json:"entry_price"`
+	MarkPrice        decimal.Decimal     `json:"mark_price"`
+	LiquidationPrice decimal.Decimal     `json:"liquidation_price"`
+	UnrealizedPnL    decimal.Decimal     `json:"unrealized_pnl"`
+	Leverage         decimal.Decimal     `json:"leverage"`
+	MarginMode       string              `json:"margin_mode"`
+	Notional         decimal.Decimal     `json:"notional"`
+}
+
+// PositionWatcher is an optional interface for exchanges that support real-time
+// position monitoring via WebSocket (WatchPositions). The collector type-asserts
+// on this interface to start the position event loop. Only exchanges with valid
+// credentials will satisfy this interface.
+type PositionWatcher interface {
+	// Positions subscribes to real-time position updates via WebSocket.
+	// Returns a channel that emits ExchangePosition slices until ctx is cancelled.
+	// Each emission is the full set of current positions on the exchange.
+	Positions(ctx context.Context) (<-chan []ExchangePosition, error)
 }
 
 // Balance represents an account balance for a single currency.
@@ -36,8 +47,15 @@ type TradingExchange interface {
 	Exchange
 
 	// CreateMarketOrder places a market order on the exchange.
-	// side is "buy" or "sell", amount is in base currency.
-	CreateMarketOrder(ctx context.Context, symbol, side string, amount float64) (*domain.ExchangeOrder, error)
+	// side is OrderSideBuy or OrderSideSell, amount is in base currency.
+	CreateMarketOrder(ctx context.Context, symbol string, side domain.OrderSide, amount float64) (*domain.ExchangeOrder, error)
+
+	// CloseMarketOrder places a reduce-only market order on the exchange.
+	// The exchange will reject the order if it would increase a position
+	// (prevents accidentally opening a new position when the intended one
+	// is already closed). Returns ErrPositionAlreadyClosed when the
+	// exchange reports the position is already at zero.
+	CloseMarketOrder(ctx context.Context, symbol string, side domain.OrderSide, amount float64) (*domain.ExchangeOrder, error)
 
 	// FetchOrder retrieves the current state of an order.
 	FetchOrder(ctx context.Context, orderID, symbol string) (*domain.ExchangeOrder, error)
