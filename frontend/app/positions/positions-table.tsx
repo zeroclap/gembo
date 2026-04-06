@@ -1094,8 +1094,106 @@ function DetailPanel({
                 <span className="font-mono tabular-nums text-right">
                   {formatUsdPlain(String(longEntryCost + shortEntryCost))}
                 </span>
+                {position.leverage > 0 && (
+                  <>
+                    <span className="text-muted-foreground">Leverage</span>
+                    <span className="font-mono tabular-nums text-right">
+                      {position.leverage}x
+                    </span>
+                  </>
+                )}
+                {parseFloat(position.margin_capital) > 0 && (
+                  <>
+                    <span className="text-muted-foreground">Margin capital</span>
+                    <span className="font-mono tabular-nums text-right">
+                      {formatUsdPlain(position.margin_capital)}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
+
+            {/* Stepped Execution (only show if steps_total > 0) */}
+            {position.steps_total > 0 && (
+              <div>
+                <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-2">
+                  Stepped Execution
+                </div>
+                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                  <span className="text-muted-foreground">Progress</span>
+                  <span className="font-mono tabular-nums text-right">
+                    {position.steps_completed} / {position.steps_total} steps
+                  </span>
+                  <span className="text-muted-foreground">Portion size</span>
+                  <span className="font-mono tabular-nums text-right">
+                    {position.size_type === "usd" ? "$" : ""}
+                    {formatQty(position.portion_size)}
+                    <span className="ml-1 text-[0.625rem] text-muted-foreground uppercase">
+                      {position.size_type}
+                    </span>
+                  </span>
+                  {parseFloat(position.price_min) > 0 && (
+                    <>
+                      <span className="text-muted-foreground">Price min</span>
+                      <span className="font-mono tabular-nums text-right">
+                        {formatPrice(position.price_min)}
+                      </span>
+                    </>
+                  )}
+                  {parseFloat(position.price_max) > 0 && (
+                    <>
+                      <span className="text-muted-foreground">Price max</span>
+                      <span className="font-mono tabular-nums text-right">
+                        {formatPrice(position.price_max)}
+                      </span>
+                    </>
+                  )}
+                  {parseFloat(position.slippage_pct) > 0 && (
+                    <>
+                      <span className="text-muted-foreground">Max slippage</span>
+                      <span className="font-mono tabular-nums text-right">
+                        {position.slippage_pct}%
+                      </span>
+                    </>
+                  )}
+                  {position.stop_reason && (
+                    <>
+                      <span className="text-muted-foreground">Stop reason</span>
+                      <span className="font-mono tabular-nums text-right">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[0.625rem]",
+                            "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                          )}
+                        >
+                          {position.stop_reason.replace(/_/g, " ")}
+                        </Badge>
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/* Progress bar */}
+                <div className="mt-2">
+                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all",
+                        position.stop_reason
+                          ? "bg-amber-500"
+                          : position.steps_completed === position.steps_total
+                            ? "bg-emerald-500"
+                            : "bg-violet-500"
+                      )}
+                      style={{
+                        width: `${(position.steps_completed / position.steps_total) * 100}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Timing */}
             <div>

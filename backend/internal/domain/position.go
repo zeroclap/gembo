@@ -38,6 +38,16 @@ const (
 	SizeTypeQty  SizeType = "qty" // contract count (used in simulations)
 )
 
+// StopReason indicates why stepped execution stopped before completing all steps.
+type StopReason string
+
+const (
+	StopReasonNone          StopReason = ""               // completed all steps
+	StopReasonPriceExceeded StopReason = "price_exceeded" // bid/ask outside min/max range
+	StopReasonSlippage      StopReason = "slippage"       // spread exceeded slippage tolerance
+	StopReasonStepFailed    StopReason = "step_failed"    // a portion order failed on one or both legs
+)
+
 // Position represents an open or historical funding rate arbitrage position
 // consisting of a long leg on one exchange and a short leg on another.
 type Position struct {
@@ -46,6 +56,19 @@ type Position struct {
 	Status        PositionStatus  `json:"status"`
 	SizeType      SizeType        `json:"size_type"`
 	RequestedSize decimal.Decimal `json:"requested_size"`
+
+	// Stepped execution parameters (set at creation, immutable).
+	PortionSize   decimal.Decimal `json:"portion_size"`   // size per step (same unit as SizeType); 0 = single-shot
+	PriceMin      decimal.Decimal `json:"price_min"`      // min acceptable price; 0 = no lower bound
+	PriceMax      decimal.Decimal `json:"price_max"`      // max acceptable price; 0 = no upper bound
+	SlippagePct   decimal.Decimal `json:"slippage_pct"`   // max slippage % per portion (e.g. 0.1 = 0.1%)
+	Leverage      int             `json:"leverage"`       // per-position leverage (1, 2, 3, etc.)
+	MarginCapital decimal.Decimal `json:"margin_capital"` // declared available collateral in USD; 0 = unchecked
+
+	// Stepped execution progress.
+	StepsCompleted int        `json:"steps_completed"` // portions successfully filled
+	StepsTotal     int        `json:"steps_total"`     // total planned portions (0 = single-shot)
+	StopReason     StopReason `json:"stop_reason"`     // why execution stopped early; "" = normal
 
 	// Long leg.
 	LongExchangeID string          `json:"long_exchange_id"`

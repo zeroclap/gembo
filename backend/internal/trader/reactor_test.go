@@ -139,6 +139,7 @@ type mockTradingExchange struct {
 	id              string
 	createdOrders   []mockOrderCall
 	fetchedPosition *exchange.ExchangePosition
+	lastOrderAmount float64 // track last order amount for FetchOrder
 	mu              sync.Mutex
 }
 
@@ -165,6 +166,7 @@ func (m *mockTradingExchange) CreateMarketOrder(_ context.Context, symbol string
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.createdOrders = append(m.createdOrders, mockOrderCall{symbol: symbol, side: side, amount: amount})
+	m.lastOrderAmount = amount
 	return &domain.ExchangeOrder{
 		ExchangeOrderID: "mock-order-123",
 		Status:          "closed", // CCXT uses "closed" for filled
@@ -178,6 +180,7 @@ func (m *mockTradingExchange) CloseMarketOrder(_ context.Context, symbol string,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.createdOrders = append(m.createdOrders, mockOrderCall{symbol: symbol, side: side, amount: amount})
+	m.lastOrderAmount = amount
 	return &domain.ExchangeOrder{
 		ExchangeOrderID: "mock-order-123",
 		Status:          "closed",
@@ -188,12 +191,15 @@ func (m *mockTradingExchange) CloseMarketOrder(_ context.Context, symbol string,
 	}, nil
 }
 func (m *mockTradingExchange) FetchOrder(_ context.Context, _, _ string) (*domain.ExchangeOrder, error) {
+	m.mu.Lock()
+	amount := m.lastOrderAmount
+	m.mu.Unlock()
 	return &domain.ExchangeOrder{
 		ExchangeOrderID: "mock-order-123",
 		Status:          "closed",
-		FilledQty:       decimal.NewFromFloat(0.1),
+		FilledQty:       decimal.NewFromFloat(amount),
 		AveragePrice:    decimal.NewFromFloat(50000),
-		Cost:            decimal.NewFromFloat(5000),
+		Cost:            decimal.NewFromFloat(amount * 50000),
 		FeeCost:         decimal.NewFromFloat(0.5),
 	}, nil
 }

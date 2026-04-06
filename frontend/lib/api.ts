@@ -219,12 +219,31 @@ export type PositionStatus =
 
 export type SizeType = "usd" | "base";
 
+export type StopReason =
+  | ""
+  | "price_exceeded"
+  | "slippage"
+  | "step_failed";
+
 export interface Position {
   id: string;
   symbol: string;
   status: PositionStatus;
   size_type: SizeType;
   requested_size: string;
+
+  // Stepped execution parameters.
+  portion_size: string;
+  price_min: string;
+  price_max: string;
+  slippage_pct: string;
+  leverage: number;
+  margin_capital: string;
+
+  // Stepped execution progress.
+  steps_completed: number;
+  steps_total: number;
+  stop_reason: StopReason;
 
   long_exchange_id: string;
   long_entry_price: string;
@@ -296,6 +315,12 @@ export interface CreatePositionRequest {
   short_exchange_id: string;
   size_type: SizeType;
   requested_size: string;
+  portion_size?: string;
+  price_min?: string;
+  price_max?: string;
+  slippage_pct?: string;
+  leverage?: number;
+  margin_capital?: string;
 }
 
 export function fetchPositions(params?: {

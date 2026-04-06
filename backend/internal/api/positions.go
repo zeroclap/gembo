@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"strings"
 
@@ -27,8 +28,14 @@ type createPositionRequest struct {
 	Symbol          string `json:"symbol"`
 	LongExchangeID  string `json:"long_exchange_id"`
 	ShortExchangeID string `json:"short_exchange_id"`
-	SizeType        string `json:"size_type"` // "usd" or "base"
-	RequestedSize   string `json:"requested_size"`
+	SizeType        string `json:"size_type"`      // "usd" or "base"
+	RequestedSize   string `json:"requested_size"` // total position size
+	PortionSize     string `json:"portion_size"`   // size per step (optional; 0 or empty = single-shot)
+	PriceMin        string `json:"price_min"`      // min acceptable price (optional)
+	PriceMax        string `json:"price_max"`      // max acceptable price (optional)
+	SlippagePct     string `json:"slippage_pct"`   // max slippage % per portion (optional)
+	Leverage        int    `json:"leverage"`       // per-position leverage (1, 2, 3, etc.)
+	MarginCapital   string `json:"margin_capital"` // declared available collateral in USD (optional)
 }
 
 // handleCreatePosition creates a new position and signals the trader.
@@ -62,6 +69,69 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate leverage. Zero means "use global config fallback".
+	if req.Leverage < 0 {
+		writeErr(w, http.StatusBadRequest, "invalid_leverage", "leverage must be >= 0 (0 = use global default)")
+		return
+	}
+
+	// Parse optional stepped execution parameters.
+	var portionSize, priceMin, priceMax, slippagePct, marginCapital decimal.Decimal
+
+	if req.PortionSize != "" {
+		portionSize, err = decimal.NewFromString(req.PortionSize)
+		if err != nil || portionSize.LessThan(decimal.Zero) {
+			writeErr(w, http.StatusBadRequest, "invalid_portion_size", "portion_size must be a non-negative number")
+			return
+		}
+		if portionSize.GreaterThan(decimal.Zero) && portionSize.GreaterThan(size) {
+			writeErr(w, http.StatusBadRequest, "invalid_portion_size", "portion_size must not exceed requested_size")
+			return
+		}
+	}
+
+	if req.PriceMin != "" {
+		priceMin, err = decimal.NewFromString(req.PriceMin)
+		if err != nil || priceMin.LessThan(decimal.Zero) {
+			writeErr(w, http.StatusBadRequest, "invalid_price_min", "price_min must be a non-negative number")
+			return
+		}
+	}
+	if req.PriceMax != "" {
+		priceMax, err = decimal.NewFromString(req.PriceMax)
+		if err != nil || priceMax.LessThanOrEqual(decimal.Zero) {
+			writeErr(w, http.StatusBadRequest, "invalid_price_max", "price_max must be a positive number")
+			return
+		}
+	}
+	if !priceMin.IsZero() && !priceMax.IsZero() && priceMin.GreaterThanOrEqual(priceMax) {
+		writeErr(w, http.StatusBadRequest, "invalid_price_range", "price_min must be less than price_max")
+		return
+	}
+
+	if req.SlippagePct != "" {
+		slippagePct, err = decimal.NewFromString(req.SlippagePct)
+		if err != nil || slippagePct.LessThan(decimal.Zero) {
+			writeErr(w, http.StatusBadRequest, "invalid_slippage_pct", "slippage_pct must be a non-negative number")
+			return
+		}
+	}
+
+	if req.MarginCapital != "" {
+		marginCapital, err = decimal.NewFromString(req.MarginCapital)
+		if err != nil || marginCapital.LessThan(decimal.Zero) {
+			writeErr(w, http.StatusBadRequest, "invalid_margin_capital", "margin_capital must be a non-negative number")
+			return
+		}
+	}
+
+	// Compute steps total.
+	var stepsTotal int
+	if portionSize.GreaterThan(decimal.Zero) {
+		// ceil(requested_size / portion_size)
+		stepsTotal = int(math.Ceil(size.Div(portionSize).InexactFloat64()))
+	}
+
 	// Snapshot the current arbitrage opportunity for this symbol pair.
 	snapshot, err := h.snapshotArbitrage(r, req.Symbol, req.LongExchangeID, req.ShortExchangeID)
 	if err != nil {
@@ -74,6 +144,13 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 		Status:          domain.PositionStatusPending,
 		SizeType:        domain.SizeType(req.SizeType),
 		RequestedSize:   size,
+		PortionSize:     portionSize,
+		PriceMin:        priceMin,
+		PriceMax:        priceMax,
+		SlippagePct:     slippagePct,
+		Leverage:        req.Leverage,
+		MarginCapital:   marginCapital,
+		StepsTotal:      stepsTotal,
 		LongExchangeID:  req.LongExchangeID,
 		ShortExchangeID: req.ShortExchangeID,
 		Snapshot:        snapshot,

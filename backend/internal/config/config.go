@@ -58,6 +58,8 @@ type ExchangeCfg struct {
 
 // TraderConfig holds settings for the trader binary.
 type TraderConfig struct {
+	// Leverage is the default leverage for positions that don't specify their own.
+	// Deprecated: prefer per-position leverage in the create request.
 	Leverage             int           `yaml:"leverage"`
 	MarginMode           string        `yaml:"margin_mode"`
 	FundingCheckInterval time.Duration `yaml:"funding_check_interval"`

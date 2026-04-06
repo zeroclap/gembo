@@ -36,7 +36,8 @@ import { Button } from "@/components/ui/button";
 import { useArbitrageFilters } from "@/hooks/use-arbitrage-filters";
 import { FilterPanel } from "./filter-bar";
 import { Countdown } from "./countdown";
-import { OpenPositionDialog } from "./open-position-dialog";
+import { useRouter } from "next/navigation";
+import { encodeArbSlug } from "./[slug]/page";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -745,11 +746,11 @@ function ScheduleVirtualList({ rows }: { rows: SimulationRow[] }) {
 function DetailPanel({
   arb,
   onClose,
-  onOpenPosition,
+  onNavigate,
 }: {
   arb: FundingArbitrage;
   onClose: () => void;
-  onOpenPosition: () => void;
+  onNavigate: () => void;
 }) {
   const [sizeType, setSizeType] = useState<SimSizeType>("usd");
   const [positionSize, setPositionSize] = useState("100");
@@ -871,7 +872,7 @@ function DetailPanel({
             className="h-7 px-2 text-xs"
             onClick={(e) => {
               e.stopPropagation();
-              onOpenPosition();
+              onNavigate();
             }}
           >
             Open Position
@@ -1292,13 +1293,13 @@ function DetailPanel({
 // ---------------------------------------------------------------------------
 
 export function ArbitrageTable() {
+  const router = useRouter();
   const [sort, setSort] = useState<SortState>({
     key: "funding_spread",
     desc: true,
   });
   const [selectedArbKey, setSelectedArbKey] = useState<string | null>(null);
   const [openPanel, setOpenPanel] = useState<"none" | "filters">("none");
-  const [openPositionArb, setOpenPositionArb] = useState<FundingArbitrage | null>(null);
 
   // Resizable detail panel
   const PANEL_MIN = 340;
@@ -1665,22 +1666,20 @@ export function ArbitrageTable() {
               key={getRowKey(selectedArb)}
               arb={selectedArb}
               onClose={() => setSelectedArbKey(null)}
-              onOpenPosition={() => setOpenPositionArb(selectedArb)}
+              onNavigate={() => {
+                const slug = encodeArbSlug(
+                  selectedArb.symbol,
+                  selectedArb.long.exchange_id,
+                  selectedArb.short.exchange_id
+                );
+                router.push(`/arbitrage/${slug}`);
+              }}
             />
           </div>
         </>
       )}
 
-      {/* Open position dialog */}
-      {openPositionArb && (
-        <OpenPositionDialog
-          arb={openPositionArb}
-          open={!!openPositionArb}
-          onOpenChange={(open) => {
-            if (!open) setOpenPositionArb(null);
-          }}
-        />
-      )}
+      {/* Open position dialog removed — navigation to /arbitrage/[slug] used instead */}
     </div>
   );
 }

@@ -1,0 +1,9 @@
+ALTER TABLE positions DROP COLUMN IF EXISTS portion_size;
+ALTER TABLE positions DROP COLUMN IF EXISTS price_min;
+ALTER TABLE positions DROP COLUMN IF EXISTS price_max;
+ALTER TABLE positions DROP COLUMN IF EXISTS slippage_pct;
+ALTER TABLE positions DROP COLUMN IF EXISTS leverage;
+ALTER TABLE positions DROP COLUMN IF EXISTS margin_capital;
+ALTER TABLE positions DROP COLUMN IF EXISTS steps_completed;
+ALTER TABLE positions DROP COLUMN IF EXISTS steps_total;
+ALTER TABLE positions DROP COLUMN IF EXISTS stop_reason;

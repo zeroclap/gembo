@@ -81,6 +81,11 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 		return fmt.Errorf("update position to opening: %w", err)
 	}
 
+	// Stepped execution: delegate to the stepped executor if configured.
+	if isStepped(p) {
+		return t.executeSteppedOpen(ctx, p)
+	}
+
 	longExch, err := t.registry.Get(p.LongExchangeID)
 	if err != nil {
 		return t.failPosition(ctx, p, fmt.Errorf("long exchange: %w", err))
@@ -91,10 +96,12 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 	}
 
 	// Configure leverage and margin mode on both exchanges.
-	if err := t.configureExchange(ctx, longExch, p.Symbol); err != nil {
+	// Use per-position leverage when set, falling back to global config.
+	leverage := t.resolveLeverage(p)
+	if err := t.configureExchangeWithLeverage(ctx, longExch, p.Symbol, leverage); err != nil {
 		return t.failPosition(ctx, p, fmt.Errorf("configure long exchange: %w", err))
 	}
-	if err := t.configureExchange(ctx, shortExch, p.Symbol); err != nil {
+	if err := t.configureExchangeWithLeverage(ctx, shortExch, p.Symbol, leverage); err != nil {
 		return t.failPosition(ctx, p, fmt.Errorf("configure short exchange: %w", err))
 	}
 
@@ -339,13 +346,18 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 }
 
 // configureExchange sets margin mode (with optional leverage) on an exchange for a symbol.
+// Deprecated: use configureExchangeWithLeverage for per-position leverage support.
 func (t *Trader) configureExchange(ctx context.Context, exch exchange.TradingExchange, symbol string) error {
-	if t.cfg.MarginMode != "" {
-		if err := exch.SetMarginMode(ctx, symbol, t.cfg.MarginMode, t.cfg.Leverage); err != nil {
-			return fmt.Errorf("set margin mode: %w", err)
-		}
+	return t.configureExchangeWithLeverage(ctx, exch, symbol, t.cfg.Leverage)
+}
+
+// resolveLeverage returns the per-position leverage if set, otherwise falls back
+// to the global TraderConfig.Leverage.
+func (t *Trader) resolveLeverage(p *domain.Position) int {
+	if p.Leverage > 0 {
+		return p.Leverage
 	}
-	return nil
+	return t.cfg.Leverage
 }
 
 // resolveAmount determines the order amount in base currency.
