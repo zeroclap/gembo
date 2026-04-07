@@ -24,9 +24,12 @@ const (
 type CloseReason string
 
 const (
-	CloseReasonNormal     CloseReason = "normal"     // closed via API request
-	CloseReasonAutoClose  CloseReason = "auto_close" // reactor detected one leg gone, closed other
-	CloseReasonLiquidated CloseReason = "liquidated" // detected via zero contracts + liquidation indicators
+	CloseReasonNormal        CloseReason = "normal"         // closed via API request
+	CloseReasonAutoClose     CloseReason = "auto_close"     // reactor detected one leg gone, closed other
+	CloseReasonLiquidated    CloseReason = "liquidated"     // detected via zero contracts + liquidation indicators
+	CloseReasonTargetReached CloseReason = "target_reached" // spread converged to target (spread arb)
+	CloseReasonStopLoss      CloseReason = "stop_loss"      // spread widened beyond stop-loss (spread arb)
+	CloseReasonTimeout       CloseReason = "timeout"        // max hold duration exceeded (spread arb)
 )
 
 // SizeType indicates how the user specified the position size.
@@ -48,14 +51,24 @@ const (
 	StopReasonStepFailed    StopReason = "step_failed"    // a portion order failed on one or both legs
 )
 
-// Position represents an open or historical funding rate arbitrage position
-// consisting of a long leg on one exchange and a short leg on another.
+// Position represents an open or historical arbitrage position consisting of
+// a long leg on one exchange and a short leg on another. Supports both funding
+// rate arbitrage and cross-exchange spread arbitrage.
 type Position struct {
 	ID            string          `json:"id"`
 	Symbol        string          `json:"symbol"`
 	Status        PositionStatus  `json:"status"`
 	SizeType      SizeType        `json:"size_type"`
 	RequestedSize decimal.Decimal `json:"requested_size"`
+
+	// Arbitrage type: "funding" (default) or "spread".
+	ArbitrageType ArbitrageType `json:"arbitrage_type"`
+
+	// Spread arbitrage parameters (only used when ArbitrageType == "spread").
+	EntrySpreadPct    decimal.Decimal `json:"entry_spread_pct"`     // spread % at position open time
+	TargetSpreadPct   decimal.Decimal `json:"target_spread_pct"`    // close when spread <= this (convergence target)
+	StopLossSpreadPct decimal.Decimal `json:"stop_loss_spread_pct"` // close when spread >= this (risk limit)
+	MaxHoldDuration   int64           `json:"max_hold_duration"`    // max hold time in seconds; 0 = no limit
 
 	// Stepped execution parameters (set at creation, immutable).
 	PortionSize   decimal.Decimal `json:"portion_size"`   // size per step (same unit as SizeType); 0 = single-shot

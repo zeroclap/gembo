@@ -111,6 +111,18 @@ func (m *mockStore) SetFundingRate(context.Context, domain.FundingRate) error {
 func (m *mockStore) GetFundingRate(context.Context, string, string) (*domain.FundingRate, error) {
 	panic("not implemented")
 }
+func (m *mockStore) SetSpreadArbitrage(context.Context, domain.SpreadArbitrage) error {
+	panic("not implemented")
+}
+func (m *mockStore) GetSpreadArbitrage(context.Context, string, string, string) (*domain.SpreadArbitrage, error) {
+	panic("not implemented")
+}
+func (m *mockStore) ListSpreadArbitrage(context.Context) ([]domain.SpreadArbitrage, error) {
+	panic("not implemented")
+}
+func (m *mockStore) RemoveSpreadArbitrage(context.Context, string, string, string) error {
+	panic("not implemented")
+}
 func (m *mockStore) FlushAll(context.Context) (int64, error) { panic("not implemented") }
 
 // --- helpers ---

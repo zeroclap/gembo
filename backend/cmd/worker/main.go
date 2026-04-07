@@ -54,6 +54,7 @@ func main() {
 	}
 
 	calc := arbitrage.NewCalculator(st, logger)
+	spreadCalc := arbitrage.NewSpreadCalculator(st, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -63,7 +64,7 @@ func main() {
 	// Subscribe to ticker and funding rate update channels from all exchanges.
 	// Uses PSubscribe with patterns: gembo:*:ticker:updates, gembo:*:funding:updates
 	g.Go(func() error {
-		return runSubscriber(ctx, rc, calc, exchangeIDs, logger)
+		return runSubscriber(ctx, rc, calc, spreadCalc, exchangeIDs, logger)
 	})
 
 	logger.Info("worker starting", "exchanges", exchangeIDs)
@@ -80,6 +81,7 @@ func runSubscriber(
 	ctx context.Context,
 	rc *goredis.Client,
 	calc *arbitrage.Calculator,
+	spreadCalc *arbitrage.SpreadCalculator,
 	exchangeIDs []string,
 	logger *slog.Logger,
 ) error {
@@ -118,10 +120,12 @@ func runSubscriber(
 			pending = false
 			start := time.Now()
 			if err := calc.Recompute(ctx, exchangeIDs); err != nil {
-				logger.Warn("recompute failed", "error", err)
-			} else {
-				logger.Debug("recompute done", "duration", time.Since(start))
+				logger.Warn("funding recompute failed", "error", err)
 			}
+			if err := spreadCalc.Recompute(ctx, exchangeIDs); err != nil {
+				logger.Warn("spread recompute failed", "error", err)
+			}
+			logger.Debug("recompute done", "duration", time.Since(start))
 		}
 	}
 }

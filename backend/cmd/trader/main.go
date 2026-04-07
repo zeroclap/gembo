@@ -18,6 +18,7 @@ import (
 	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
 	pgstore "github.com/zeroclap/gembo/internal/store/postgres"
+	redistore "github.com/zeroclap/gembo/internal/store/redis"
 	"github.com/zeroclap/gembo/internal/trader"
 )
 
@@ -73,7 +74,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	t := trader.New(reg, ps, rc, logger, cfg.Trader)
+	// Redis store for market data reads (used by spread monitor).
+	marketStore := redistore.New(rc)
+
+	t := trader.New(reg, ps, rc, logger, cfg.Trader, trader.WithMarketStore(marketStore))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

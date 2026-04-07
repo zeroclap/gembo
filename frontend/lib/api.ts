@@ -206,7 +206,75 @@ export function simulateArbitrage(
   });
 }
 
+// --- Spread Arbitrage ---
+
+export interface SpreadArbitrageFees {
+  buy_taker_fee_pct: string;
+  sell_taker_fee_pct: string;
+  open_fees_pct: string;
+  close_fees_pct: string;
+  round_trip_fees_pct: string;
+}
+
+export interface SpreadArbitrage {
+  symbol: string;
+  buy_exchange_id: string;
+  sell_exchange_id: string;
+  buy_ask: string;
+  sell_bid: string;
+  mid_price: string;
+  spread_pct: string;
+  spread_abs: string;
+  buy_volume_24h: string;
+  sell_volume_24h: string;
+  fees: SpreadArbitrageFees;
+  net_spread_pct: string;
+  updated_at: string;
+}
+
+export function fetchSpreadArbitrage(): Promise<SpreadArbitrage[]> {
+  return fetchApi<SpreadArbitrage[]>("/arbitrage/spread");
+}
+
+// --- Spread Simulation ---
+
+export interface SpreadSimulationRequest {
+  symbol: string;
+  buy_exchange_id: string;
+  sell_exchange_id: string;
+  position_size: string;
+  target_spread_pct: string;
+  slippage_pct: string;
+}
+
+export interface SpreadSimulationResult {
+  position_size: string;
+  entry_spread_pct: string;
+  target_spread_pct: string;
+  spread_capture_pct: string;
+  spread_capture_usd: string;
+  entry_cost: string;
+  exit_cost: string;
+  total_cost: string;
+  gross_pnl: string;
+  net_pnl: string;
+  net_pnl_pct: string;
+  breakeven_spread_pct: string;
+}
+
+export function simulateSpreadArbitrage(
+  req: SpreadSimulationRequest
+): Promise<SpreadSimulationResult> {
+  return fetchApi<SpreadSimulationResult>("/arbitrage/spread/simulate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
 // --- Positions ---
+
+export type ArbitrageType = "funding" | "spread";
 
 export type PositionStatus =
   | "pending"
@@ -216,6 +284,15 @@ export type PositionStatus =
   | "closing"
   | "closed"
   | "failed";
+
+export type CloseReason =
+  | ""
+  | "normal"
+  | "auto_close"
+  | "liquidated"
+  | "target_reached"
+  | "stop_loss"
+  | "timeout";
 
 export type SizeType = "usd" | "base";
 
@@ -231,6 +308,15 @@ export interface Position {
   status: PositionStatus;
   size_type: SizeType;
   requested_size: string;
+
+  // Arbitrage type.
+  arbitrage_type: ArbitrageType;
+
+  // Spread arbitrage parameters (only used when arbitrage_type == "spread").
+  entry_spread_pct: string;
+  target_spread_pct: string;
+  stop_loss_spread_pct: string;
+  max_hold_duration: number; // seconds; 0 = no limit
 
   // Stepped execution parameters.
   portion_size: string;
@@ -262,13 +348,16 @@ export interface Position {
   short_exit_price: string;
   short_close_fees: string;
 
-  snapshot: FundingArbitrage | Record<string, never>;
+  snapshot: FundingArbitrage | SpreadArbitrage | Record<string, never>;
 
   long_mark_price: string;
   short_mark_price: string;
   long_unrealized_pnl: string;
   short_unrealized_pnl: string;
   total_funding_pnl: string;
+
+  // Close metadata.
+  close_reason: CloseReason;
 
   error_message?: string;
 
@@ -321,6 +410,12 @@ export interface CreatePositionRequest {
   slippage_pct?: string;
   leverage?: number;
   margin_capital?: string;
+
+  // Spread arbitrage parameters (optional).
+  arbitrage_type?: ArbitrageType;
+  target_spread_pct?: string;
+  stop_loss_spread_pct?: string;
+  max_hold_duration?: number; // seconds; 0 = no limit
 }
 
 export function fetchPositions(params?: {

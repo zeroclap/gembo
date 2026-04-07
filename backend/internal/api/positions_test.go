@@ -174,7 +174,17 @@ func (m *mockStore) GetFundingArbitrage(_ context.Context, _, _, _ string) (*dom
 	return nil, nil
 }
 func (m *mockStore) RemoveFundingArbitrage(_ context.Context, _, _, _ string) error { return nil }
-func (m *mockStore) FlushAll(_ context.Context) (int64, error)                      { return 0, nil }
+func (m *mockStore) SetSpreadArbitrage(_ context.Context, _ domain.SpreadArbitrage) error {
+	return nil
+}
+func (m *mockStore) GetSpreadArbitrage(_ context.Context, _, _, _ string) (*domain.SpreadArbitrage, error) {
+	return nil, nil
+}
+func (m *mockStore) ListSpreadArbitrage(_ context.Context) ([]domain.SpreadArbitrage, error) {
+	return nil, nil
+}
+func (m *mockStore) RemoveSpreadArbitrage(_ context.Context, _, _, _ string) error { return nil }
+func (m *mockStore) FlushAll(_ context.Context) (int64, error)                     { return 0, nil }
 
 var _ store.Store = (*mockStore)(nil)
 

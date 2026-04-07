@@ -15,6 +15,9 @@ import (
 // Every Get/List query must use this exact list and scan order.
 const positionColumns = `
 	id, symbol, status, size_type, requested_size,
+	COALESCE(arbitrage_type, 'funding'),
+	COALESCE(entry_spread_pct, 0), COALESCE(target_spread_pct, 0),
+	COALESCE(stop_loss_spread_pct, 0), COALESCE(max_hold_duration, 0),
 	COALESCE(portion_size, 0), COALESCE(price_min, 0), COALESCE(price_max, 0),
 	COALESCE(slippage_pct, 0), COALESCE(leverage, 1), COALESCE(margin_capital, 0),
 	COALESCE(steps_completed, 0), COALESCE(steps_total, 0), COALESCE(stop_reason, ''),
@@ -42,6 +45,9 @@ func scanPosition(scanner interface{ Scan(...any) error }) (*domain.Position, er
 	var snapshot []byte
 	err := scanner.Scan(
 		&p.ID, &p.Symbol, &p.Status, &p.SizeType, &p.RequestedSize,
+		&p.ArbitrageType,
+		&p.EntrySpreadPct, &p.TargetSpreadPct,
+		&p.StopLossSpreadPct, &p.MaxHoldDuration,
 		&p.PortionSize, &p.PriceMin, &p.PriceMax,
 		&p.SlippagePct, &p.Leverage, &p.MarginCapital,
 		&p.StepsCompleted, &p.StepsTotal, &p.StopReason,
@@ -75,12 +81,17 @@ func (s *Store) CreatePosition(ctx context.Context, p *domain.Position) error {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO positions (
 			symbol, status, size_type, requested_size,
+			arbitrage_type, entry_spread_pct, target_spread_pct,
+			stop_loss_spread_pct, max_hold_duration,
 			portion_size, price_min, price_max, slippage_pct,
 			leverage, margin_capital, steps_total,
 			long_exchange_id, short_exchange_id, snapshot
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING id, created_at, updated_at`,
 		p.Symbol, p.Status, p.SizeType, p.RequestedSize,
+		p.ArbitrageType, decimalToNullable(p.EntrySpreadPct),
+		decimalToNullable(p.TargetSpreadPct), decimalToNullable(p.StopLossSpreadPct),
+		nullableInt64(p.MaxHoldDuration),
 		decimalToNullable(p.PortionSize), decimalToNullable(p.PriceMin),
 		decimalToNullable(p.PriceMax), decimalToNullable(p.SlippagePct),
 		p.Leverage, decimalToNullable(p.MarginCapital), p.StepsTotal,
@@ -230,4 +241,12 @@ func nullableString(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+// nullableInt64 returns nil for zero int64 values.
+func nullableInt64(v int64) interface{} {
+	if v == 0 {
+		return nil
+	}
+	return v
 }

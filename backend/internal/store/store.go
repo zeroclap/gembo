@@ -29,6 +29,12 @@ type Store interface {
 	ListFundingArbitrage(ctx context.Context) ([]domain.FundingArbitrage, error)
 	RemoveFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error
 
+	// Spread Arbitrage
+	SetSpreadArbitrage(ctx context.Context, a domain.SpreadArbitrage) error
+	GetSpreadArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) (*domain.SpreadArbitrage, error)
+	ListSpreadArbitrage(ctx context.Context) ([]domain.SpreadArbitrage, error)
+	RemoveSpreadArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error
+
 	// Admin
 	FlushAll(ctx context.Context) (int64, error)
 }

@@ -36,6 +36,12 @@ type createPositionRequest struct {
 	SlippagePct     string `json:"slippage_pct"`   // max slippage % per portion (optional)
 	Leverage        int    `json:"leverage"`       // per-position leverage (1, 2, 3, etc.)
 	MarginCapital   string `json:"margin_capital"` // declared available collateral in USD (optional)
+
+	// Spread arbitrage parameters (optional; only used when arbitrage_type == "spread").
+	ArbitrageType     string `json:"arbitrage_type"`       // "funding" (default) or "spread"
+	TargetSpreadPct   string `json:"target_spread_pct"`    // target convergence spread %
+	StopLossSpreadPct string `json:"stop_loss_spread_pct"` // stop-loss spread %
+	MaxHoldDuration   int64  `json:"max_hold_duration"`    // max hold time in seconds; 0 = no limit
 }
 
 // handleCreatePosition creates a new position and signals the trader.
@@ -144,6 +150,7 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 		Status:          domain.PositionStatusPending,
 		SizeType:        domain.SizeType(req.SizeType),
 		RequestedSize:   size,
+		ArbitrageType:   domain.ArbitrageTypeFunding,
 		PortionSize:     portionSize,
 		PriceMin:        priceMin,
 		PriceMax:        priceMax,
@@ -154,6 +161,37 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 		LongExchangeID:  req.LongExchangeID,
 		ShortExchangeID: req.ShortExchangeID,
 		Snapshot:        snapshot,
+	}
+
+	// Handle spread arbitrage type.
+	if req.ArbitrageType == string(domain.ArbitrageTypeSpread) {
+		p.ArbitrageType = domain.ArbitrageTypeSpread
+
+		if req.TargetSpreadPct != "" {
+			targetSpread, terr := decimal.NewFromString(req.TargetSpreadPct)
+			if terr != nil {
+				writeErr(w, http.StatusBadRequest, "invalid_target_spread_pct",
+					"target_spread_pct must be a valid number")
+				return
+			}
+			p.TargetSpreadPct = targetSpread
+		}
+		if req.StopLossSpreadPct != "" {
+			slSpread, serr := decimal.NewFromString(req.StopLossSpreadPct)
+			if serr != nil {
+				writeErr(w, http.StatusBadRequest, "invalid_stop_loss_spread_pct",
+					"stop_loss_spread_pct must be a valid number")
+				return
+			}
+			p.StopLossSpreadPct = slSpread
+		}
+		p.MaxHoldDuration = req.MaxHoldDuration
+
+		// Snapshot the current spread opportunity instead of funding.
+		spreadSnap, serr := h.snapshotSpreadArbitrage(r, req.Symbol, req.LongExchangeID, req.ShortExchangeID)
+		if serr == nil {
+			p.Snapshot = spreadSnap
+		}
 	}
 
 	if err := h.positionStore.CreatePosition(r.Context(), p); err != nil {
@@ -366,4 +404,22 @@ func (h *Handler) snapshotArbitrage(r *http.Request, symbol, longExch, shortExch
 
 	// No matching arbitrage found — store an empty snapshot.
 	return json.RawMessage("{}"), nil
+}
+
+// snapshotSpreadArbitrage looks up the current SpreadArbitrage opportunity for
+// the given symbol and exchange pair. Returns the snapshot as JSON.
+func (h *Handler) snapshotSpreadArbitrage(r *http.Request, symbol, buyExch, sellExch string) (json.RawMessage, error) {
+	arb, err := h.store.GetSpreadArbitrage(r.Context(), symbol, buyExch, sellExch)
+	if err != nil {
+		return nil, err
+	}
+	if arb == nil {
+		return json.RawMessage("{}"), nil
+	}
+
+	b, err := json.Marshal(arb)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
 }

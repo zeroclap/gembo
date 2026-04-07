@@ -110,3 +110,18 @@ func PositionUpdates() string {
 func PositionStatePubSub(exchangeID string) string {
 	return fmt.Sprintf("%s:%s:position:updates", prefix, exchangeID)
 }
+
+// SpreadArbitragePairs returns the set key that tracks all spread arbitrage pair identifiers.
+//
+//	gembo:arbitrage:spread:pairs
+func SpreadArbitragePairs() string {
+	return fmt.Sprintf("%s:arbitrage:spread:pairs", prefix)
+}
+
+// SpreadArbitragePair returns the key for a single spread arbitrage opportunity.
+// Exchange IDs are expected to be sorted alphabetically by the caller to ensure uniqueness.
+//
+//	gembo:arbitrage:spread:<symbol>|<exchangeA>|<exchangeB>
+func SpreadArbitragePair(symbol, exchangeA, exchangeB string) string {
+	return fmt.Sprintf("%s:arbitrage:spread:%s|%s|%s", prefix, symbol, exchangeA, exchangeB)
+}

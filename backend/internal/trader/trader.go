@@ -21,12 +21,23 @@ import (
 //   - Executor: subscribes to Redis Pub/Sub for pending/closing position signals
 //   - Position Reactor: subscribes to exchange position state events from the collector
 //   - FundingTracker: periodically checks for new funding payments
+//   - SpreadMonitor: subscribes to ticker events, monitors spread position auto-close triggers
 type Trader struct {
-	registry *exchange.TradingRegistry
-	store    store.PositionStore
-	redis    *goredis.Client
-	logger   *slog.Logger
-	cfg      config.TraderConfig
+	registry      *exchange.TradingRegistry
+	store         store.PositionStore
+	marketStore   store.Store // Redis store for ticker data (used by SpreadMonitor).
+	redis         *goredis.Client
+	logger        *slog.Logger
+	cfg           config.TraderConfig
+	spreadMonitor *SpreadMonitor
+}
+
+// Option is a functional option for configuring a Trader.
+type Option func(*Trader)
+
+// WithMarketStore sets the market data store (Redis) for the spread monitor.
+func WithMarketStore(st store.Store) Option {
+	return func(t *Trader) { t.marketStore = st }
 }
 
 // New creates a new Trader.
@@ -36,14 +47,23 @@ func New(
 	rc *goredis.Client,
 	logger *slog.Logger,
 	cfg config.TraderConfig,
+	opts ...Option,
 ) *Trader {
-	return &Trader{
+	t := &Trader{
 		registry: registry,
 		store:    st,
 		redis:    rc,
 		logger:   logger.With("component", "trader"),
 		cfg:      cfg,
 	}
+	for _, o := range opts {
+		o(t)
+	}
+	// Initialize spread monitor if market store is available.
+	if t.marketStore != nil {
+		t.spreadMonitor = newSpreadMonitor(t, t.marketStore)
+	}
+	return t
 }
 
 // Run starts all trader loops and blocks until ctx is cancelled.
@@ -56,6 +76,13 @@ func (t *Trader) Run(ctx context.Context) error {
 	// the trader was offline (Redis pubsub events are fire-and-forget).
 	if err := t.reconcileOnStartup(ctx); err != nil {
 		t.logger.Error("position reconciliation failed, continuing", "error", err)
+	}
+
+	// Reconcile spread positions (check for timeouts and trigger closures).
+	if t.spreadMonitor != nil {
+		if err := t.spreadMonitor.reconcileSpreadPositions(ctx); err != nil {
+			t.logger.Error("spread position reconciliation failed, continuing", "error", err)
+		}
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -75,6 +102,14 @@ func (t *Trader) Run(ctx context.Context) error {
 	g.Go(func() error {
 		return t.runFundingTracker(ctx)
 	})
+
+	// Spread monitor: subscribes to ticker events, checks open spread
+	// positions for auto-close triggers (target, stop-loss, timeout).
+	if t.spreadMonitor != nil {
+		g.Go(func() error {
+			return t.spreadMonitor.run(ctx)
+		})
+	}
 
 	t.logger.Info("trader started",
 		"funding_check_interval", t.cfg.FundingCheckInterval,
