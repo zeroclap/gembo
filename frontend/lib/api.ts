@@ -44,6 +44,48 @@ export function fetchAllTickers(): Promise<TickerRow[]> {
   return fetchApi<TickerRow[]>("/tickers");
 }
 
+export function fetchTicker(
+  exchange: string,
+  symbol: string
+): Promise<Ticker> {
+  return fetchApi<Ticker>(
+    `/exchanges/${encodeURIComponent(exchange)}/tickers/${encodeURIComponent(symbol)}`
+  );
+}
+
+// --- Funding Rate ---
+
+export interface FundingRate {
+  exchange_id: string;
+  symbol: string;
+  rate: string;
+  next_funding_time: string;
+  interval_hours: number;
+  mark_price: string;
+  index_price: string;
+  next_funding_rate: string;
+  previous_funding_rate: string;
+  interest_rate: string;
+  updated_at: string;
+}
+
+export function fetchFundingRate(
+  exchange: string,
+  symbol: string
+): Promise<FundingRate> {
+  return fetchApi<FundingRate>(
+    `/exchanges/${encodeURIComponent(exchange)}/funding-rates/${encodeURIComponent(symbol)}`
+  );
+}
+
+export function fetchExchangeFundingRates(
+  exchange: string
+): Promise<FundingRate[]> {
+  return fetchApi<FundingRate[]>(
+    `/exchanges/${encodeURIComponent(exchange)}/funding-rates`
+  );
+}
+
 export function fetchExchanges(): Promise<string[]> {
   return fetchApi<string[]>("/exchanges");
 }
@@ -355,6 +397,15 @@ export interface Position {
   long_unrealized_pnl: string;
   short_unrealized_pnl: string;
   total_funding_pnl: string;
+
+  long_liquidation_price: string;
+  short_liquidation_price: string;
+  long_leverage: number;
+  short_leverage: number;
+  long_margin_mode: string;
+  short_margin_mode: string;
+  long_notional: string;
+  short_notional: string;
 
   // Close metadata.
   close_reason: CloseReason;

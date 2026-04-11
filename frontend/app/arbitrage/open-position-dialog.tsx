@@ -103,7 +103,7 @@ export function OpenPositionDialog({
               <span
                 className={cn(
                   "text-xs font-mono tabular-nums",
-                  parseFloat(arb.long.funding_rate) >= 0
+                  parseFloat(arb.long.funding_rate) <= 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-red-600 dark:text-red-400"
                 )}

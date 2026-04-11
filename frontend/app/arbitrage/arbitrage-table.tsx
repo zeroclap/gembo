@@ -308,7 +308,7 @@ function DataRowPair({
                 <span
                   className={cn(
                     "font-mono tabular-nums",
-                    longRate >= 0
+                    longRate <= 0
                       ? "text-emerald-600 dark:text-emerald-400"
                       : "text-red-600 dark:text-red-400"
                   )}

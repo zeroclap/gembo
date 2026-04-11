@@ -3,13 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Sun, Moon, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
+const emptySubscribe = () => () => {};
+const getTrue = () => true;
+const getFalse = () => false;
+
 const tabs = [
+  { label: "Monitor", href: "/monitor" },
   { label: "Tickers", href: "/tickers" },
   { label: "Arbitrage", href: "/arbitrage" },
   { label: "Positions", href: "/positions" },
@@ -19,12 +24,8 @@ export function AppHeader() {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(emptySubscribe, getTrue, getFalse);
   const [isRefreshing, setIsRefreshing] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">

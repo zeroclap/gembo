@@ -348,3 +348,139 @@ func TestComputePair_LongShortAssignment(t *testing.T) {
 		t.Errorf("expected positive NetRate8h, got %s", arb.NetRate8h)
 	}
 }
+
+func TestComputeNextPayment_Simultaneous(t *testing.T) {
+	// Both legs fire at the same time: next payment should be the combined net.
+	// Long rate = -0.0043 (long holder receives: +0.0043)
+	// Short rate = -0.00274305 (short holder pays: -0.00274305)
+	// Expected combined = +0.0043 - 0.00274305 = +0.00155695
+	now := time.Now().UTC()
+	at := now.Add(2 * time.Hour)
+
+	long := domain.ArbitrageLeg{
+		ExchangeID:    "okx",
+		FundingRate:   d("-0.0043154208523262"),
+		IntervalHours: 4,
+		NextFundingAt: at,
+	}
+	short := domain.ArbitrageLeg{
+		ExchangeID:    "bybit",
+		FundingRate:   d("-0.00274305"),
+		IntervalHours: 4,
+		NextFundingAt: at,
+	}
+
+	info := computeNextPayment(long, short, now)
+
+	// Combined: long receives +0.0043154208523262, short pays -0.00274305
+	// net = 0.0043154208523262 - 0.00274305 = 0.0015723708523262
+	expected := d("0.0015723708523262")
+	if !info.PaymentPct.Equal(expected) {
+		t.Errorf("expected PaymentPct %s, got %s", expected, info.PaymentPct)
+	}
+	if info.ExchangeID != "both" {
+		t.Errorf("expected exchange_id 'both', got %s", info.ExchangeID)
+	}
+	if !info.At.Equal(at) {
+		t.Errorf("expected At %v, got %v", at, info.At)
+	}
+}
+
+func TestComputeNextPayment_Simultaneous_WithinTolerance(t *testing.T) {
+	// Legs fire 30s apart — still within the 1-minute tolerance.
+	now := time.Now().UTC()
+	longAt := now.Add(2 * time.Hour)
+	shortAt := longAt.Add(30 * time.Second)
+
+	long := domain.ArbitrageLeg{
+		ExchangeID:    "okx",
+		FundingRate:   d("-0.004"),
+		IntervalHours: 4,
+		NextFundingAt: longAt,
+	}
+	short := domain.ArbitrageLeg{
+		ExchangeID:    "bybit",
+		FundingRate:   d("0.002"),
+		IntervalHours: 4,
+		NextFundingAt: shortAt,
+	}
+
+	info := computeNextPayment(long, short, now)
+
+	// Long receives +0.004, short receives +0.002 → combined = +0.006
+	expected := d("0.006")
+	if !info.PaymentPct.Equal(expected) {
+		t.Errorf("expected PaymentPct %s, got %s", expected, info.PaymentPct)
+	}
+	if info.ExchangeID != "both" {
+		t.Errorf("expected exchange_id 'both', got %s", info.ExchangeID)
+	}
+}
+
+func TestComputeNextPayment_LongFirst(t *testing.T) {
+	// Long fires 2 hours before short — only long's contribution.
+	now := time.Now().UTC()
+	longAt := now.Add(1 * time.Hour)
+	shortAt := now.Add(3 * time.Hour)
+
+	long := domain.ArbitrageLeg{
+		ExchangeID:    "okx",
+		FundingRate:   d("-0.004"),
+		IntervalHours: 4,
+		NextFundingAt: longAt,
+	}
+	short := domain.ArbitrageLeg{
+		ExchangeID:    "bybit",
+		FundingRate:   d("0.002"),
+		IntervalHours: 8,
+		NextFundingAt: shortAt,
+	}
+
+	info := computeNextPayment(long, short, now)
+
+	// Only long fires: long holder receives +0.004
+	expected := d("0.004")
+	if !info.PaymentPct.Equal(expected) {
+		t.Errorf("expected PaymentPct %s, got %s", expected, info.PaymentPct)
+	}
+	if info.ExchangeID != "okx" {
+		t.Errorf("expected exchange_id 'okx', got %s", info.ExchangeID)
+	}
+	if info.Side != domain.PositionSideLong {
+		t.Errorf("expected side Long, got %s", info.Side)
+	}
+}
+
+func TestComputeNextPayment_ShortFirst(t *testing.T) {
+	// Short fires before long — only short's contribution.
+	now := time.Now().UTC()
+	longAt := now.Add(3 * time.Hour)
+	shortAt := now.Add(1 * time.Hour)
+
+	long := domain.ArbitrageLeg{
+		ExchangeID:    "okx",
+		FundingRate:   d("-0.004"),
+		IntervalHours: 8,
+		NextFundingAt: longAt,
+	}
+	short := domain.ArbitrageLeg{
+		ExchangeID:    "bybit",
+		FundingRate:   d("-0.002"),
+		IntervalHours: 4,
+		NextFundingAt: shortAt,
+	}
+
+	info := computeNextPayment(long, short, now)
+
+	// Only short fires: short holder pays -0.002
+	expected := d("-0.002")
+	if !info.PaymentPct.Equal(expected) {
+		t.Errorf("expected PaymentPct %s, got %s", expected, info.PaymentPct)
+	}
+	if info.ExchangeID != "bybit" {
+		t.Errorf("expected exchange_id 'bybit', got %s", info.ExchangeID)
+	}
+	if info.Side != domain.PositionSideShort {
+		t.Errorf("expected side Short, got %s", info.Side)
+	}
+}

@@ -281,19 +281,53 @@ func getMarketFees(ed *exchangeData, symbol string) (marketFees, bool) {
 	return marketFees{Maker: m.MakerFee, Taker: m.TakerFee}, true
 }
 
-// computeNextPayment determines which leg has the next funding payment and
-// what the P&L impact is for the arbitrageur.
+// simultaneous defines the tolerance window within which two funding times
+// are treated as firing at the same time (both legs settle together).
+const simultaneous = time.Minute
+
+// computeNextPayment determines the next funding payment event across both legs
+// and returns the combined P&L impact for the arbitrageur.
+//
+// When both legs fire at the same time (within [simultaneous]), both
+// contributions are summed into a single NextPaymentInfo so the caller sees
+// the true combined net — identical to the first step of the LCM loop.
 func computeNextPayment(long, short domain.ArbitrageLeg, now time.Time) domain.NextPaymentInfo {
 	longNext := long.NextFundingAt
 	shortNext := short.NextFundingAt
 
-	// Pick the earlier of the two.
-	var info domain.NextPaymentInfo
-	if !longNext.IsZero() && (shortNext.IsZero() || longNext.Before(shortNext)) {
-		// Long leg pays next.
-		// As a long holder: if rate > 0, you pay (negative P&L); if rate < 0, you receive.
-		paymentPct := long.FundingRate.Neg() // long pays the opposite of rate sign
-		info = domain.NextPaymentInfo{
+	longValid := !longNext.IsZero()
+	shortValid := !shortNext.IsZero()
+
+	// Both legs fire simultaneously — sum the P&L contributions.
+	if longValid && shortValid {
+		diff := longNext.Sub(shortNext)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff <= simultaneous {
+			longPct := long.FundingRate.Neg() // long holder: receive when rate < 0
+			shortPct := short.FundingRate     // short holder: receive when rate > 0
+			combined := longPct.Add(shortPct)
+			at := longNext
+			if shortNext.Before(at) {
+				at = shortNext
+			}
+			return domain.NextPaymentInfo{
+				ExchangeID:    "both",
+				Side:          domain.PositionSideLong, // not meaningful for combined
+				Rate:          combined,
+				PaymentPct:    combined,
+				At:            at,
+				TimeUntilSecs: max(0, int64(at.Sub(now).Seconds())),
+			}
+		}
+	}
+
+	// Only long is valid, or long fires strictly before short.
+	if longValid && (!shortValid || longNext.Before(shortNext)) {
+		// Long holder: if rate > 0, you pay; if rate < 0, you receive.
+		paymentPct := long.FundingRate.Neg()
+		return domain.NextPaymentInfo{
 			ExchangeID:    long.ExchangeID,
 			Side:          domain.PositionSideLong,
 			Rate:          long.FundingRate,
@@ -301,21 +335,19 @@ func computeNextPayment(long, short domain.ArbitrageLeg, now time.Time) domain.N
 			At:            longNext,
 			TimeUntilSecs: max(0, int64(longNext.Sub(now).Seconds())),
 		}
-	} else {
-		// Short leg pays next.
-		// As a short holder: if rate > 0, you receive; if rate < 0, you pay.
-		paymentPct := short.FundingRate // short receives the rate as-is
-		info = domain.NextPaymentInfo{
-			ExchangeID:    short.ExchangeID,
-			Side:          domain.PositionSideShort,
-			Rate:          short.FundingRate,
-			PaymentPct:    paymentPct,
-			At:            shortNext,
-			TimeUntilSecs: max(0, int64(shortNext.Sub(now).Seconds())),
-		}
 	}
 
-	return info
+	// Short fires next (or is the only valid leg).
+	// Short holder: if rate > 0, you receive; if rate < 0, you pay.
+	paymentPct := short.FundingRate
+	return domain.NextPaymentInfo{
+		ExchangeID:    short.ExchangeID,
+		Side:          domain.PositionSideShort,
+		Rate:          short.FundingRate,
+		PaymentPct:    paymentPct,
+		At:            shortNext,
+		TimeUntilSecs: max(0, int64(shortNext.Sub(now).Seconds())),
+	}
 }
 
 // computeFullLoop calculates the full funding cycle (LCM of intervals) and
