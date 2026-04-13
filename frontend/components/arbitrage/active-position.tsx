@@ -10,7 +10,7 @@ import {
   StatusBadge,
   PnlValue,
   SectionHeader,
-} from "@/components/monitor/shared";
+} from "@/components/arbitrage/shared";
 import {
   formatPrice,
   formatQty,

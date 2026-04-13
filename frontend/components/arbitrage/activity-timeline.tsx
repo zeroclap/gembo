@@ -3,9 +3,6 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  SectionHeader,
-} from "@/components/monitor/shared";
 import { formatTimeRelative, formatUsd } from "@/lib/format";
 import type { Position } from "@/lib/api";
 import {
@@ -15,7 +12,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Timer,
-  ArrowRightLeft,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -55,7 +51,7 @@ export function ActivityTimeline({
 
   if (isLoading) {
     return (
-      <div className="rounded-lg border bg-card/50 p-4 space-y-3">
+      <div className="p-4 space-y-3">
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-12 w-full" />
         <Skeleton className="h-12 w-full" />
@@ -65,7 +61,7 @@ export function ActivityTimeline({
 
   if (events.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed bg-card/30 p-6 text-center">
+      <div className="p-6 text-center">
         <Timer className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
         <div className="text-sm text-muted-foreground">
           No activity yet
@@ -75,51 +71,39 @@ export function ActivityTimeline({
   }
 
   return (
-    <div className="rounded-lg border bg-card/50 overflow-hidden">
-      <div className="flex items-center justify-between border-b px-4 py-2.5">
-        <SectionHeader>
-          <ArrowRightLeft className="inline h-3 w-3 mr-0.5 align-text-top" />
-          Activity
-        </SectionHeader>
-        <span className="text-[0.625rem] text-muted-foreground">
-          {events.length} event{events.length !== 1 ? "s" : ""}
-        </span>
-      </div>
+    <div className="relative px-4 py-3">
+      {/* Vertical line */}
+      <div className="absolute left-[1.65rem] top-3 bottom-3 w-px bg-border" />
 
-      <div className="relative px-4 py-3">
-        {/* Vertical line */}
-        <div className="absolute left-[1.65rem] top-3 bottom-3 w-px bg-border" />
-
-        <div className="space-y-3">
-          {events.map((event) => (
-            <div key={event.id} className="relative flex gap-3 items-start">
-              {/* Icon dot */}
-              <div
-                className={cn(
-                  "relative z-10 flex items-center justify-center h-5 w-5 rounded-full border bg-background shrink-0",
-                  event.color
-                )}
-              >
-                {event.icon}
-              </div>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0 -mt-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium">{event.label}</span>
-                  <span className="text-[0.625rem] text-muted-foreground font-mono tabular-nums">
-                    {formatTimeRelative(event.time)}
-                  </span>
-                </div>
-                {event.detail && (
-                  <p className="text-[0.625rem] text-muted-foreground mt-0.5 truncate">
-                    {event.detail}
-                  </p>
-                )}
-              </div>
+      <div className="space-y-3">
+        {events.map((event) => (
+          <div key={event.id} className="relative flex gap-3 items-start">
+            {/* Icon dot */}
+            <div
+              className={cn(
+                "relative z-10 flex items-center justify-center h-5 w-5 rounded-full border bg-background shrink-0",
+                event.color
+              )}
+            >
+              {event.icon}
             </div>
-          ))}
-        </div>
+
+            {/* Content */}
+            <div className="flex-1 min-w-0 -mt-0.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium">{event.label}</span>
+                <span className="text-[0.625rem] text-muted-foreground font-mono tabular-nums">
+                  {formatTimeRelative(event.time)}
+                </span>
+              </div>
+              {event.detail && (
+                <p className="text-[0.625rem] text-muted-foreground mt-0.5 truncate">
+                  {event.detail}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

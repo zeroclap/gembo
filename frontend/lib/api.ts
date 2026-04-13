@@ -19,15 +19,6 @@ export interface Ticker {
   updated_at: string;
 }
 
-export interface TickerRow {
-  symbol: string;
-  tickers: Ticker[];
-}
-
-export interface FlushResult {
-  deleted_keys: number;
-}
-
 async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) {
@@ -38,10 +29,6 @@ async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(json.error.message);
   }
   return json.data;
-}
-
-export function fetchAllTickers(): Promise<TickerRow[]> {
-  return fetchApi<TickerRow[]>("/tickers");
 }
 
 export function fetchTicker(
@@ -76,22 +63,6 @@ export function fetchFundingRate(
   return fetchApi<FundingRate>(
     `/exchanges/${encodeURIComponent(exchange)}/funding-rates/${encodeURIComponent(symbol)}`
   );
-}
-
-export function fetchExchangeFundingRates(
-  exchange: string
-): Promise<FundingRate[]> {
-  return fetchApi<FundingRate[]>(
-    `/exchanges/${encodeURIComponent(exchange)}/funding-rates`
-  );
-}
-
-export function fetchExchanges(): Promise<string[]> {
-  return fetchApi<string[]>("/exchanges");
-}
-
-export function flushAllData(): Promise<FlushResult> {
-  return fetchApi<FlushResult>("/flush", { method: "DELETE" });
 }
 
 // --- Funding Arbitrage ---
@@ -278,42 +249,6 @@ export function fetchSpreadArbitrage(): Promise<SpreadArbitrage[]> {
   return fetchApi<SpreadArbitrage[]>("/arbitrage/spread");
 }
 
-// --- Spread Simulation ---
-
-export interface SpreadSimulationRequest {
-  symbol: string;
-  buy_exchange_id: string;
-  sell_exchange_id: string;
-  position_size: string;
-  target_spread_pct: string;
-  slippage_pct: string;
-}
-
-export interface SpreadSimulationResult {
-  position_size: string;
-  entry_spread_pct: string;
-  target_spread_pct: string;
-  spread_capture_pct: string;
-  spread_capture_usd: string;
-  entry_cost: string;
-  exit_cost: string;
-  total_cost: string;
-  gross_pnl: string;
-  net_pnl: string;
-  net_pnl_pct: string;
-  breakeven_spread_pct: string;
-}
-
-export function simulateSpreadArbitrage(
-  req: SpreadSimulationRequest
-): Promise<SpreadSimulationResult> {
-  return fetchApi<SpreadSimulationResult>("/arbitrage/spread/simulate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
-  });
-}
-
 // --- Positions ---
 
 export type ArbitrageType = "funding" | "spread";
@@ -494,23 +429,6 @@ export function createPosition(req: CreatePositionRequest): Promise<Position> {
 
 export function closePosition(id: string): Promise<Position> {
   return fetchApi<Position>(`/positions/${id}/close`, { method: "POST" });
-}
-
-export async function deletePosition(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/positions/${id}`, {
-    method: "DELETE",
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    let message = `API error: ${res.status} ${res.statusText}`;
-    try {
-      const json = JSON.parse(text);
-      if (json.error?.message) message = json.error.message;
-    } catch {
-      // response wasn't JSON, use default message
-    }
-    throw new Error(message);
-  }
 }
 
 export function fetchPositionOrders(id: string): Promise<ExchangeOrder[]> {

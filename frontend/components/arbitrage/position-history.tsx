@@ -8,8 +8,7 @@ import {
   ExchangeBadge,
   StatusBadge,
   PnlValue,
-  SectionHeader,
-} from "@/components/monitor/shared";
+} from "@/components/arbitrage/shared";
 import {
   formatPrice,
   formatQty,
@@ -19,7 +18,7 @@ import {
   formatTimeShort,
   formatDuration,
 } from "@/lib/format";
-import { usePositionOrders, usePositionFunding } from "@/hooks/use-monitor-data";
+import { usePositionOrders, usePositionFunding } from "@/hooks/use-arbitrage-data";
 import type { Position } from "@/lib/api";
 import {
   ChevronDown,
@@ -43,7 +42,7 @@ export function PositionHistory({ positions, isLoading }: PositionHistoryProps) 
 
   if (isLoading) {
     return (
-      <div className="rounded-lg border bg-card/50 p-4 space-y-3">
+      <div className="p-4 space-y-3">
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-16 w-full" />
@@ -53,7 +52,7 @@ export function PositionHistory({ positions, isLoading }: PositionHistoryProps) 
 
   if (positions.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed bg-card/30 p-6 text-center">
+      <div className="p-6 text-center">
         <History className="h-5 w-5 text-muted-foreground mx-auto mb-2" />
         <div className="text-sm text-muted-foreground">
           No closed positions yet
@@ -63,29 +62,17 @@ export function PositionHistory({ positions, isLoading }: PositionHistoryProps) 
   }
 
   return (
-    <div className="rounded-lg border bg-card/50 overflow-hidden">
-      <div className="flex items-center justify-between border-b px-4 py-2.5">
-        <SectionHeader>
-          <History className="inline h-3 w-3 mr-0.5 align-text-top" />
-          Position History
-        </SectionHeader>
-        <span className="text-[0.625rem] text-muted-foreground">
-          {positions.length} position{positions.length !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      <div className="divide-y divide-border/50">
-        {positions.map((pos) => (
-          <PositionRow
-            key={pos.id}
-            position={pos}
-            isExpanded={expandedId === pos.id}
-            onToggle={() =>
-              setExpandedId((prev) => (prev === pos.id ? null : pos.id))
-            }
-          />
-        ))}
-      </div>
+    <div className="divide-y divide-border/50">
+      {positions.map((pos) => (
+        <PositionRow
+          key={pos.id}
+          position={pos}
+          isExpanded={expandedId === pos.id}
+          onToggle={() =>
+            setExpandedId((prev) => (prev === pos.id ? null : pos.id))
+          }
+        />
+      ))}
     </div>
   );
 }

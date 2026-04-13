@@ -20,14 +20,14 @@ import {
 } from "@/lib/api";
 
 /** Pair selection state from URL query params. */
-export interface MonitorPair {
+export interface ArbitragePair {
   symbol: string;
   longExchange: string;
   shortExchange: string;
 }
 
 /** Aggregated ticker data for both legs. */
-export interface MonitorTickers {
+export interface ArbitrageTickers {
   long: Ticker | undefined;
   short: Ticker | undefined;
   isLoading: boolean;
@@ -35,7 +35,7 @@ export interface MonitorTickers {
 }
 
 /** Aggregated funding rate data for both legs. */
-export interface MonitorFundingRates {
+export interface ArbitrageFundingRates {
   long: FundingRate | undefined;
   short: FundingRate | undefined;
   isLoading: boolean;
@@ -43,14 +43,14 @@ export interface MonitorFundingRates {
 }
 
 /** Matched arbitrage data for this pair (both types). */
-export interface MonitorArbitrage {
+export interface ArbitrageData {
   funding: FundingArbitrage | null;
   spread: SpreadArbitrage | null;
   isLoading: boolean;
 }
 
 /** Positions for this pair, split by status. */
-export interface MonitorPositions {
+export interface ArbitragePositions {
   active: Position | null;
   history: Position[];
   all: Position[];
@@ -71,7 +71,7 @@ const ACTIVE_STATUSES = new Set([
 // Individual hooks
 // ---------------------------------------------------------------------------
 
-export function useMonitorTickers(pair: MonitorPair | null): MonitorTickers {
+export function useArbitrageTickers(pair: ArbitragePair | null): ArbitrageTickers {
   const longQuery = useQuery({
     queryKey: ["ticker", pair?.longExchange, pair?.symbol],
     queryFn: () => fetchTicker(pair!.longExchange, pair!.symbol),
@@ -92,9 +92,9 @@ export function useMonitorTickers(pair: MonitorPair | null): MonitorTickers {
   };
 }
 
-export function useMonitorFundingRates(
-  pair: MonitorPair | null
-): MonitorFundingRates {
+export function useArbitrageFundingRates(
+  pair: ArbitragePair | null
+): ArbitrageFundingRates {
   const longQuery = useQuery({
     queryKey: ["funding-rate", pair?.longExchange, pair?.symbol],
     queryFn: () => fetchFundingRate(pair!.longExchange, pair!.symbol),
@@ -115,9 +115,9 @@ export function useMonitorFundingRates(
   };
 }
 
-export function useMonitorArbitrage(
-  pair: MonitorPair | null
-): MonitorArbitrage {
+export function useArbitrageData(
+  pair: ArbitragePair | null
+): ArbitrageData {
   const fundingQuery = useQuery({
     queryKey: ["funding-arbitrage"],
     queryFn: fetchFundingArbitrage,
@@ -163,9 +163,9 @@ export function useMonitorArbitrage(
   };
 }
 
-export function useMonitorPositions(
-  pair: MonitorPair | null
-): MonitorPositions {
+export function useArbitragePositions(
+  pair: ArbitragePair | null
+): ArbitragePositions {
   const query = useQuery({
     queryKey: ["positions", pair?.symbol],
     queryFn: () => fetchPositions({ symbol: pair!.symbol }),
