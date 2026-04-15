@@ -1,6 +1,13 @@
-.PHONY: build collector api worker trader run-collector run-api run-worker run-trader tidy lint test clean docker-build docker-up docker-down
+.PHONY: build collector api worker trader \
+        run-collector run-api run-worker run-trader \
+        tidy lint vet test clean \
+        docker-build \
+        up down
 
-BIN_DIR := bin
+BIN_DIR  := bin
+COMPOSE  := deployments/docker-compose.yml
+
+# ---- local build -------------------------------------------------------
 
 build: collector api worker trader
 
@@ -32,6 +39,8 @@ run-worker: worker
 run-trader: trader
 	./$(BIN_DIR)/trader
 
+# ---- quality -----------------------------------------------------------
+
 tidy:
 	go mod tidy
 
@@ -47,20 +56,18 @@ lint:
 clean:
 	rm -rf $(BIN_DIR)
 
+# ---- docker (production/CI) --------------------------------------------
+
 docker-build:
 	docker build -f deployments/Dockerfile --target collector -t gembo-collector:latest .
 	docker build -f deployments/Dockerfile --target api       -t gembo-api:latest .
 	docker build -f deployments/Dockerfile --target worker    -t gembo-worker:latest .
 	docker build -f deployments/Dockerfile --target trader    -t gembo-trader:latest .
 
+# ---- dev: full stack (infra + services) --------------------------------
+
 docker-up:
-	docker compose --env-file .env -f deployments/docker-compose.yml up -d --wait
-
-docker-stop:
-	docker compose --env-file .env -f deployments/docker-compose.yml stop
-
-docker-restart:
-	docker compose --env-file .env -f deployments/docker-compose.yml restart
+	docker compose -f $(COMPOSE) up -d --wait
 
 docker-down:
-	docker compose --env-file .env -f deployments/docker-compose.yml down
+	docker compose -f $(COMPOSE) down

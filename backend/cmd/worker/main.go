@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -136,17 +135,6 @@ func enabledExchangeIDs(cfg *config.Config) []string {
 	for _, ecfg := range cfg.Exchanges {
 		if ecfg.Enabled {
 			ids = append(ids, ecfg.ID)
-		}
-	}
-	// Fallback: parse EXCHANGES env directly if config had none.
-	if len(ids) == 0 {
-		if v := os.Getenv("EXCHANGES"); v != "" {
-			for _, id := range strings.Split(v, ",") {
-				id = strings.TrimSpace(id)
-				if id != "" {
-					ids = append(ids, id)
-				}
-			}
 		}
 	}
 	return ids

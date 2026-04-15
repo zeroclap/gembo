@@ -193,20 +193,27 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("BULLMQ_QUEUE_PREFIX"); v != "" {
 		cfg.Hooks.BullMQ.QueuePrefix = v
 	}
-	// EXCHANGES=bybit,okx enables exchanges without a config file.
-	// Each comma-separated ID is upserted into the exchanges list with enabled=true
-	// and default poll intervals. IDs already present in the YAML list are updated
-	// in place so explicit YAML settings are preserved.
+	// EXCHANGES=bybit,okx is the authoritative list of enabled exchanges.
+	// When set it acts as an exact filter: exchanges in the list are enabled
+	// (added with defaults if absent from YAML), and exchanges NOT in the list
+	// are disabled regardless of their YAML setting.
 	if v := os.Getenv("EXCHANGES"); v != "" {
+		allowed := make(map[string]bool)
 		for _, id := range strings.Split(v, ",") {
 			id = strings.TrimSpace(id)
-			if id == "" {
-				continue
+			if id != "" {
+				allowed[id] = true
 			}
+		}
+		// Disable any YAML-loaded exchange that is not in the allowed set.
+		for i := range cfg.Exchanges {
+			cfg.Exchanges[i].Enabled = allowed[cfg.Exchanges[i].ID]
+		}
+		// Add entries for IDs that were not present in YAML at all.
+		for id := range allowed {
 			found := false
-			for i := range cfg.Exchanges {
-				if cfg.Exchanges[i].ID == id {
-					cfg.Exchanges[i].Enabled = true
+			for _, ex := range cfg.Exchanges {
+				if ex.ID == id {
 					found = true
 					break
 				}

@@ -1,0 +1,70 @@
+# gembo configuration example
+# Copy to configs/config.yaml and edit as needed.
+# All values can also be overridden via environment variables (see .env.example).
+
+server:
+  host: "0.0.0.0"       # SERVER_HOST
+  port: 8080             # SERVER_PORT
+  read_timeout: 10s
+  write_timeout: 10s
+
+redis:
+  addr: "localhost:6379" # REDIS_ADDR
+  password: ""           # REDIS_PASSWORD
+  db: 0                  # REDIS_DB
+
+# PostgreSQL — required for trader, optional for api.
+# Env override: DATABASE_URL
+database:
+  url: ""  # postgres://gembo:gembo@localhost:5432/gembo?sslmode=disable
+
+# Exchanges — controls which exchanges are active and their poll intervals.
+# The EXCHANGES env var is the authoritative filter: when set, only the listed
+# IDs are enabled regardless of the enabled flags below.
+# Credentials must be provided via env vars (<ID>_API_KEY / _API_SECRET / _API_PASSPHRASE).
+exchanges:
+  - id: bybit
+    enabled: true
+    markets_poll_interval: 60s
+    funding_poll_interval: 60s
+
+  # - id: okx
+  #   enabled: true
+  #   markets_poll_interval: 60s
+  #   funding_poll_interval: 60s
+
+  - id: binance
+    enabled: false
+    markets_poll_interval: 60s
+    funding_poll_interval: 60s
+
+  # - id: gate
+  #   enabled: false
+  #   markets_poll_interval: 60s
+  #   funding_poll_interval: 60s
+
+# Market filter — controls which markets enter the data pipeline.
+# Leave a field empty (or remove it) to include all values for that dimension.
+# Env overrides: MARKET_QUOTE_ASSETS, MARKET_SETTLE_ASSETS, MARKET_TYPES
+market_filter:
+  quote_assets: ["USDT"]      # MARKET_QUOTE_ASSETS  (e.g. USDT,USDC)
+  settle_assets: ["USDT"]     # MARKET_SETTLE_ASSETS (e.g. USDT,USDC)
+  market_types: ["perpetual"] # MARKET_TYPES         (spot|perpetual|futures)
+
+# BullMQ event hooks (collector only).
+# Env overrides: BULLMQ_ENABLED, BULLMQ_QUEUE_PREFIX
+hooks:
+  bullmq:
+    enabled: false
+    queue_prefix: "gembo"
+
+# Trader settings (trader binary only).
+# Env overrides: TRADER_LEVERAGE, TRADER_MARGIN_MODE, TRADER_FUNDING_CHECK_INTERVAL
+trader:
+  leverage: 1
+  margin_mode: "isolated"     # isolated | cross
+  funding_check_interval: 5m
+
+log:
+  level: "info"   # LOG_LEVEL  (debug|info|warn|error)
+  format: "json"  # LOG_FORMAT (json|text)

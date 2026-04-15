@@ -1,10 +1,24 @@
+# Dev stack: infrastructure + backend services
+#
+# Usage:
+#   docker compose -f deployments/docker-compose.yml up
+
 name: gembo
 
 networks:
   gembo:
     driver: bridge
 
+volumes:
+  pgdata:
+  redisinsight:
+  gomodcache:
+  gobuildcache:
+
 services:
+
+  # ---- infrastructure ----------------------------------------------------
+
   redis:
     image: redis:7-alpine
     networks: [gembo]
@@ -16,6 +30,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
   postgres:
     image: postgres:17-alpine
@@ -33,49 +48,85 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
-  collector:
-    build:
-      context: ..
-      dockerfile: deployments/Dockerfile
-      target: collector
+  redisinsight:
+    image: redis/redisinsight:latest
     networks: [gembo]
-    environment:
-      BYBIT_API_KEY: ${BYBIT_API_KEY}
-      BYBIT_API_SECRET: ${BYBIT_API_SECRET}
-      OKX_API_KEY: ${OKX_API_KEY}
-      OKX_API_SECRET: ${OKX_API_SECRET}
-      OKX_API_PASSPHRASE: ${OKX_API_PASSPHRASE}
-      # No CONFIG_PATH — all config via env vars.
-      REDIS_ADDR: redis:6379
-      EXCHANGES: bybit,okx
-      LOG_LEVEL: debug
-      LOG_FORMAT: json
-      # Enable both exchanges.  Add BULLMQ_ENABLED=true here to test events.
-      BULLMQ_ENABLED: "false"
-      BULLMQ_QUEUE_PREFIX: gembo
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight:/data
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
 
-  api:
-    build:
-      context: ..
-      dockerfile: deployments/Dockerfile
-      target: api
+  # ---- dependency warm-up ------------------------------------------------
+
+  # One-shot init container: downloads all modules and compiles every dependency
+  # in go.mod into the shared cache volumes. All services depend on it so deps
+  # are only built once rather than in parallel per service.
+  deps:
+    image: golang:1.25-alpine
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    environment:
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
+    command: sh -c "go mod download && go build ./..."
+    mem_limit: 8g
+    restart: "no"
+
+  # ---- backend services --------------------------------------------------
+
+  collector:
+    image: golang:1.25-alpine
     networks: [gembo]
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    env_file:
+      - ../.env
     environment:
       REDIS_ADDR: redis:6379
-      EXCHANGES: bybit,okx
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
+    command: go run ./cmd/collector
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    image: golang:1.25-alpine
+    networks: [gembo]
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    env_file:
+      - ../.env
+    environment:
+      REDIS_ADDR: redis:6379
       SERVER_HOST: "0.0.0.0"
-      SERVER_PORT: "8080"
       DATABASE_URL: postgres://gembo:gembo@postgres:5432/gembo?sslmode=disable
-      LOG_LEVEL: debug
-      LOG_FORMAT: json
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
     ports:
       - "8080:8080"
+    command: go run ./cmd/api
     depends_on:
+      deps:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       postgres:
@@ -83,46 +134,48 @@ services:
     restart: unless-stopped
 
   worker:
-    build:
-      context: ..
-      dockerfile: deployments/Dockerfile
-      target: worker
+    image: golang:1.25-alpine
     networks: [gembo]
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    env_file:
+      - ../.env
     environment:
       REDIS_ADDR: redis:6379
-      EXCHANGES: bybit,okx
-      LOG_LEVEL: debug
-      LOG_FORMAT: json
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
+    command: go run ./cmd/worker
     depends_on:
+      deps:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     restart: unless-stopped
 
   trader:
-    build:
-      context: ..
-      dockerfile: deployments/Dockerfile
-      target: trader
+    image: golang:1.25-alpine
     networks: [gembo]
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    env_file:
+      - ../.env
     environment:
       REDIS_ADDR: redis:6379
-      EXCHANGES: bybit,okx
       DATABASE_URL: postgres://gembo:gembo@postgres:5432/gembo?sslmode=disable
-      BYBIT_API_KEY: ${BYBIT_API_KEY}
-      BYBIT_API_SECRET: ${BYBIT_API_SECRET}
-      OKX_API_KEY: ${OKX_API_KEY}
-      OKX_API_SECRET: ${OKX_API_SECRET}
-      OKX_API_PASSPHRASE: ${OKX_API_PASSPHRASE}
-      TRADER_LEVERAGE: "1"
-      TRADER_MARGIN_MODE: isolated
-      LOG_LEVEL: debug
-      LOG_FORMAT: json
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
+    command: go run ./cmd/trader
     depends_on:
+      deps:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
     restart: unless-stopped
-
-volumes:
-  pgdata:
