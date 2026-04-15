@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useState, useSyncExternalStore } from "react";
-import { Sun, Moon, RefreshCw, Activity, User } from "lucide-react";
+import { Sun, Moon, RefreshCw, Activity, User, LayoutDashboard } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -14,10 +14,12 @@ const getTrue = () => true;
 const getFalse = () => false;
 
 const navTabs = [
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Arbitrage", href: "/arbitrage", icon: Activity },
 ];
 
 const mobileTabs = [
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Arbitrage", href: "/arbitrage", icon: Activity },
   { label: "Account", href: "/account", icon: User },
 ];
