@@ -267,7 +267,7 @@ function PositionDetail({
           <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
             <span className="text-muted-foreground">Requested size</span>
             <span className="font-mono tabular-nums text-right">
-              {position.size_type === "usd" ? "$" : ""}
+              {position.size_type === "price" ? "$" : ""}
               {formatQty(position.requested_size)}
               <span className="ml-1 text-[0.625rem] text-muted-foreground uppercase">
                 {position.size_type}

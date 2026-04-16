@@ -131,7 +131,7 @@ function PositionRow({
 
         {/* Size */}
         <span className="font-mono tabular-nums text-muted-foreground ml-auto">
-          {position.size_type === "usd" ? "$" : ""}
+          {position.size_type === "price" ? "$" : ""}
           {formatQty(position.requested_size)}
         </span>
 

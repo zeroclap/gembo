@@ -8,7 +8,7 @@ import {
   fetchFundingArbitrage,
   type FundingArbitrage,
 } from "@/lib/api";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, formatCountdown } from "@/lib/format";
 import { ExchangeBadge } from "@/components/arbitrage/shared";
 import {
   ArrowUp,
@@ -18,6 +18,7 @@ import {
   X,
   Search,
   Check,
+  Filter,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +52,10 @@ interface DirectionalPair {
   openSpread: number;    // open spread (same either way)
   longRate: number;
   shortRate: number;
+  longInterval: number;
+  shortInterval: number;
+  longNextFunding: string;
+  shortNextFunding: string;
   longPrice: string;
   shortPrice: string;
   lcmSpread: number;
@@ -76,6 +81,10 @@ function buildDirectionalPairs(
       openSpread,
       longRate: parseFloat(arb.long.funding_rate) * 100,
       shortRate: parseFloat(arb.short.funding_rate) * 100,
+      longInterval: arb.long.interval_hours,
+      shortInterval: arb.short.interval_hours,
+      longNextFunding: arb.long.next_funding_at,
+      shortNextFunding: arb.short.next_funding_at,
       longPrice: arb.long.price,
       shortPrice: arb.short.price,
       lcmSpread: lcm,
@@ -91,6 +100,10 @@ function buildDirectionalPairs(
       openSpread: -openSpread,
       longRate: parseFloat(arb.short.funding_rate) * 100,
       shortRate: parseFloat(arb.long.funding_rate) * 100,
+      longInterval: arb.short.interval_hours,
+      shortInterval: arb.long.interval_hours,
+      longNextFunding: arb.short.next_funding_at,
+      shortNextFunding: arb.long.next_funding_at,
       longPrice: arb.short.price,
       shortPrice: arb.long.price,
       lcmSpread: -lcm,
@@ -284,6 +297,155 @@ function SpreadModeDropdown({
 }
 
 // ---------------------------------------------------------------------------
+// ExchangeFilterDropdown
+// ---------------------------------------------------------------------------
+
+function ExchangeFilterDropdown({
+  exchanges,
+  selected,
+  onToggle,
+  onClear,
+}: {
+  exchanges: string[];
+  selected: Set<string>;
+  onToggle: (exchange: string) => void;
+  onClear: () => void;
+}) {
+  const { open, setOpen, ref } = useDropdown();
+  const hasFilter = selected.size > 0;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        title={hasFilter ? `Exchanges: ${[...selected].join(", ")}` : "Filter by exchange"}
+        onClick={() => setOpen((v) => !v)}
+        className={iconBtnCls(hasFilter)}
+      >
+        <Filter className="h-3.5 w-3.5" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[130px] rounded-md border bg-popover p-1 shadow-md">
+          <button
+            type="button"
+            className={cn(
+              "flex w-full items-center gap-2 rounded-sm px-2 py-1 text-xs transition-colors hover:bg-accent hover:text-accent-foreground",
+              !hasFilter
+                ? "text-foreground font-medium"
+                : "text-muted-foreground"
+            )}
+            onClick={onClear}
+          >
+            <span
+              className={cn(
+                "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border",
+                !hasFilter
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-muted-foreground/40"
+              )}
+            >
+              {!hasFilter && <Check className="h-2.5 w-2.5" />}
+            </span>
+            All exchanges
+          </button>
+          {exchanges.map((ex) => {
+            const active = selected.has(ex);
+            return (
+              <button
+                key={ex}
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-sm px-2 py-1 text-xs transition-colors hover:bg-accent hover:text-accent-foreground",
+                  active
+                    ? "text-foreground font-medium"
+                    : "text-muted-foreground"
+                )}
+                onClick={() => onToggle(ex)}
+              >
+                <span
+                  className={cn(
+                    "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border",
+                    active
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-muted-foreground/40"
+                  )}
+                >
+                  {active && <Check className="h-2.5 w-2.5" />}
+                </span>
+                <span className="uppercase">{ex}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Grid templates shared between header and rows
+const GRID_DESKTOP = "hidden md:grid grid-cols-[1fr_100px_90px_minmax(200px,1.5fr)_100px_100px]";
+const GRID_MOBILE = "grid md:hidden grid-cols-[1fr_80px_80px]";
+
+// ---------------------------------------------------------------------------
+// LegLine — compact per-leg info for mobile sublines
+// ---------------------------------------------------------------------------
+
+function LegLine({
+  side,
+  exchangeId,
+  rate,
+  interval,
+  nextFunding,
+  price,
+}: {
+  side: "long" | "short";
+  exchangeId: string;
+  rate: number;
+  interval: number;
+  nextFunding: string;
+  price: string;
+}) {
+  const isLong = side === "long";
+  return (
+    <span className="flex items-center gap-1 text-[10px]">
+      <span
+        className={cn(
+          "inline-flex items-center justify-center h-3 w-3 rounded-sm shrink-0",
+          isLong ? "bg-emerald-600 dark:bg-emerald-500" : "bg-red-600 dark:bg-red-500"
+        )}
+      >
+        {isLong ? (
+          <ArrowUp className="h-2 w-2 text-white" strokeWidth={2.5} />
+        ) : (
+          <ArrowDown className="h-2 w-2 text-white" strokeWidth={2.5} />
+        )}
+      </span>
+      <ExchangeBadge exchangeId={exchangeId} />
+      <span className="font-mono tabular-nums text-muted-foreground/70">{formatPrice(price)}</span>
+      <span className="text-muted-foreground/30 select-none">·</span>
+      <span
+        className={cn(
+          "font-mono tabular-nums",
+          (isLong ? rate <= 0 : rate >= 0)
+            ? "text-emerald-600/70 dark:text-emerald-400/70"
+            : "text-red-600/70 dark:text-red-400/70"
+        )}
+      >
+        {formatPct(rate)}
+      </span>
+      <span className="text-muted-foreground/50 font-mono">{interval}h</span>
+      {nextFunding && (
+        <>
+          <span className="text-muted-foreground/30 select-none">·</span>
+          <span className="text-muted-foreground/40 font-mono">{formatCountdown(nextFunding)}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // DataRowPair
 // ---------------------------------------------------------------------------
 
@@ -300,41 +462,46 @@ function DataRowPair({
 }) {
   const spreadVal = spreadMode === "lcm" ? pair.lcmSpread : pair.nextSpread;
 
+  const activeCls = isActive && "bg-violet-500/5 dark:bg-violet-500/10 border-violet-500/20";
+
   return (
     <div
       className={cn(
         "group/row cursor-pointer border-b transition-colors hover:bg-muted/50 text-[11px] leading-tight",
-        isActive && "bg-violet-500/5 dark:bg-violet-500/10 border-violet-500/20"
+        activeCls
       )}
       onClick={onClick}
     >
-      <div className="flex max-w-4xl mx-auto">
-        {/* Col 1: Symbol + Exchange badges */}
-        <div className="flex flex-col justify-center px-3 py-2 min-w-[110px] flex-[1.2]">
+      {/* ── Mobile: 3 columns ── */}
+      <div className={cn(GRID_MOBILE, "items-center")}>
+        <div className="px-3 py-2 flex flex-col gap-0.5 min-w-0">
           <div className="flex items-center gap-1 whitespace-nowrap font-medium text-xs">
             {isActive && (
               <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />
             )}
             {pair.symbol}
           </div>
-          <div className="flex items-center gap-1 mt-0.5">
-            <span className="inline-flex items-center justify-center h-3 w-3 rounded-sm bg-emerald-600 dark:bg-emerald-500 shrink-0">
-              <ArrowUp className="h-2 w-2 text-white" strokeWidth={2.5} />
-            </span>
-            <ExchangeBadge exchangeId={pair.longExchange} />
-            <span className="text-muted-foreground/40 text-[9px]">/</span>
-            <span className="inline-flex items-center justify-center h-3 w-3 rounded-sm bg-red-600 dark:bg-red-500 shrink-0">
-              <ArrowDown className="h-2 w-2 text-white" strokeWidth={2.5} />
-            </span>
-            <ExchangeBadge exchangeId={pair.shortExchange} />
-          </div>
+          <LegLine
+            side="long"
+            exchangeId={pair.longExchange}
+            rate={pair.longRate}
+            interval={pair.longInterval}
+            nextFunding={pair.longNextFunding}
+            price={pair.longPrice}
+          />
+          <LegLine
+            side="short"
+            exchangeId={pair.shortExchange}
+            rate={pair.shortRate}
+            interval={pair.shortInterval}
+            nextFunding={pair.shortNextFunding}
+            price={pair.shortPrice}
+          />
         </div>
 
-        {/* Col 2: Funding Spread */}
-        <div className="flex flex-col justify-center px-3 py-2 min-w-[120px] flex-1 whitespace-nowrap">
+        <div className="px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs">
           <span
             className={cn(
-              "font-mono tabular-nums font-medium text-xs",
               spreadVal >= 0
                 ? "text-emerald-600 dark:text-emerald-400"
                 : "text-red-600 dark:text-red-400"
@@ -342,7 +509,52 @@ function DataRowPair({
           >
             {formatPct(spreadVal)}
           </span>
-          <div className="flex items-center gap-2 mt-0.5 text-[10px]">
+        </div>
+
+        <div className={cn(
+          "px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs",
+          pair.openSpread > 0 ? "text-emerald-600 dark:text-emerald-400" :
+          pair.openSpread < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"
+        )}>
+          {formatPct(pair.openSpread)}
+        </div>
+      </div>
+
+      {/* ── Desktop: 6 columns ── */}
+      <div className={cn(GRID_DESKTOP, "items-center")}>
+        {/* Symbol */}
+        <div className="px-3 py-2 flex items-center gap-1 whitespace-nowrap font-medium text-xs">
+          {isActive && (
+            <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />
+          )}
+          {pair.symbol}
+        </div>
+
+        {/* Exchanges */}
+        <div className="px-2 py-2 flex flex-col text-[10px]">
+          <span className="flex items-center gap-1">
+            <span className="inline-flex items-center justify-center h-3 w-3 rounded-sm bg-emerald-600 dark:bg-emerald-500 shrink-0">
+              <ArrowUp className="h-2 w-2 text-white" strokeWidth={2.5} />
+            </span>
+            <ExchangeBadge exchangeId={pair.longExchange} />
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-flex items-center justify-center h-3 w-3 rounded-sm bg-red-600 dark:bg-red-500 shrink-0">
+              <ArrowDown className="h-2 w-2 text-white" strokeWidth={2.5} />
+            </span>
+            <ExchangeBadge exchangeId={pair.shortExchange} />
+          </span>
+        </div>
+
+        {/* Price */}
+        <div className="px-2 py-2 flex flex-col whitespace-nowrap text-[10px] font-mono tabular-nums text-muted-foreground/70">
+          <span>{formatPrice(pair.longPrice)}</span>
+          <span>{formatPrice(pair.shortPrice)}</span>
+        </div>
+
+        {/* Funding Rate */}
+        <div className="px-2 py-2 flex flex-col whitespace-nowrap text-[10px]">
+          <span className="flex items-center gap-1">
             <span
               className={cn(
                 "font-mono tabular-nums",
@@ -353,7 +565,15 @@ function DataRowPair({
             >
               {formatPct(pair.longRate)}
             </span>
-            <span className="text-muted-foreground/40">/</span>
+            <span className="text-muted-foreground/50 font-mono">{pair.longInterval}h</span>
+            {pair.longNextFunding && (
+              <>
+                <span className="text-muted-foreground/30 select-none">·</span>
+                <span className="text-muted-foreground/40 font-mono">{formatCountdown(pair.longNextFunding)}</span>
+              </>
+            )}
+          </span>
+          <span className="flex items-center gap-1">
             <span
               className={cn(
                 "font-mono tabular-nums",
@@ -364,23 +584,36 @@ function DataRowPair({
             >
               {formatPct(pair.shortRate)}
             </span>
-          </div>
+            <span className="text-muted-foreground/50 font-mono">{pair.shortInterval}h</span>
+            {pair.shortNextFunding && (
+              <>
+                <span className="text-muted-foreground/30 select-none">·</span>
+                <span className="text-muted-foreground/40 font-mono">{formatCountdown(pair.shortNextFunding)}</span>
+              </>
+            )}
+          </span>
         </div>
 
-        {/* Col 3: Price Spread */}
-        <div className="flex flex-col justify-center px-3 py-2 min-w-[100px] flex-1 whitespace-nowrap">
-          <span className="font-mono tabular-nums font-medium text-xs text-muted-foreground">
-            {formatPct(pair.openSpread)}
+        {/* F. Spread */}
+        <div className="px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs">
+          <span
+            className={cn(
+              spreadVal >= 0
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-red-600 dark:text-red-400"
+            )}
+          >
+            {formatPct(spreadVal)}
           </span>
-          <div className="flex items-center gap-2 mt-0.5 text-[10px]">
-            <span className="font-mono tabular-nums text-muted-foreground/70">
-              {formatPrice(pair.longPrice)}
-            </span>
-            <span className="text-muted-foreground/40">/</span>
-            <span className="font-mono tabular-nums text-muted-foreground/70">
-              {formatPrice(pair.shortPrice)}
-            </span>
-          </div>
+        </div>
+
+        {/* P. Spread */}
+        <div className={cn(
+          "px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs",
+          pair.openSpread > 0 ? "text-emerald-600 dark:text-emerald-400" :
+          pair.openSpread < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"
+        )}>
+          {formatPct(pair.openSpread)}
         </div>
       </div>
     </div>
@@ -402,6 +635,10 @@ interface PairSelectorPanelProps {
   onSpreadModeChange: (mode: SpreadMode) => void;
   search: string;
   onSearchChange: (v: string) => void;
+  exchanges: string[];
+  exchangeFilter: Set<string>;
+  onToggleExchange: (exchange: string) => void;
+  onClearExchangeFilter: () => void;
 }
 
 function PairSelectorPanel({
@@ -415,6 +652,10 @@ function PairSelectorPanel({
   onSpreadModeChange,
   search,
   onSearchChange,
+  exchanges,
+  exchangeFilter,
+  onToggleExchange,
+  onClearExchangeFilter,
 }: PairSelectorPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -438,10 +679,18 @@ function PairSelectorPanel({
               type="text"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Search symbol or exchange..."
+              placeholder="Search symbol..."
               className="w-full h-7 rounded-md border bg-background pl-6 pr-2 text-xs outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
             />
           </div>
+
+          {/* Exchange filter */}
+          <ExchangeFilterDropdown
+            exchanges={exchanges}
+            selected={exchangeFilter}
+            onToggle={onToggleExchange}
+            onClear={onClearExchangeFilter}
+          />
 
           {/* Spread mode */}
           <SpreadModeDropdown value={spreadMode} onChange={onSpreadModeChange} />
@@ -461,30 +710,31 @@ function PairSelectorPanel({
 
       {/* Table header */}
       <div className="border-b bg-background text-xs text-foreground font-medium shrink-0">
-        <div className="flex items-center max-w-4xl mx-auto">
-          <div className="px-3 py-2 min-w-[110px] flex-[1.2]">
-            <SortButton
-              label="Symbol"
-              sortKey="symbol"
-              current={sort}
-              onToggle={toggleSort}
-            />
+        {/* Mobile header */}
+        <div className={cn(GRID_MOBILE, "items-center")}>
+          <div className="px-3 py-2">
+            <SortButton label="Symbol" sortKey="symbol" current={sort} onToggle={toggleSort} />
           </div>
-          <div className="px-3 py-2 min-w-[120px] flex-1">
-            <SortButton
-              label="F. Spread"
-              sortKey="funding_spread"
-              current={sort}
-              onToggle={toggleSort}
-            />
+          <div className="px-2 py-2">
+            <SortButton label="F. Spread" sortKey="funding_spread" current={sort} onToggle={toggleSort} />
           </div>
-          <div className="px-3 py-2 min-w-[100px] flex-1">
-            <SortButton
-              label="P. Spread"
-              sortKey="open_spread"
-              current={sort}
-              onToggle={toggleSort}
-            />
+          <div className="px-2 py-2">
+            <SortButton label="P. Spread" sortKey="open_spread" current={sort} onToggle={toggleSort} />
+          </div>
+        </div>
+        {/* Desktop header */}
+        <div className={cn(GRID_DESKTOP, "items-center")}>
+          <div className="px-3 py-2">
+            <SortButton label="Symbol" sortKey="symbol" current={sort} onToggle={toggleSort} />
+          </div>
+          <div className="px-2 py-2">Exchanges</div>
+          <div className="px-2 py-2">Price</div>
+          <div className="px-2 py-2">Funding Rate</div>
+          <div className="px-2 py-2">
+            <SortButton label="F. Spread" sortKey="funding_spread" current={sort} onToggle={toggleSort} />
+          </div>
+          <div className="px-2 py-2">
+            <SortButton label="P. Spread" sortKey="open_spread" current={sort} onToggle={toggleSort} />
           </div>
         </div>
       </div>
@@ -552,6 +802,7 @@ export function PairCommand({
   });
   const [spreadMode, setSpreadMode] = useState<SpreadMode>("lcm");
   const [search, setSearch] = useState("");
+  const [exchangeFilter, setExchangeFilter] = useState<Set<string>>(new Set());
 
   const { data: arbitrages } = useQuery({
     queryKey: ["funding-arbitrage"],
@@ -564,21 +815,35 @@ export function PairCommand({
     [arbitrages]
   );
 
-  // Simple text search — no filtering applied, just substring match on symbol/exchanges
-  const searchedPairs = useMemo(() => {
+  // Unique exchange list for filter dropdown
+  const exchanges = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of allPairs) {
+      set.add(p.longExchange);
+      set.add(p.shortExchange);
+    }
+    return [...set].sort();
+  }, [allPairs]);
+
+  // Filter by symbol text + exchange dropdown
+  const filteredPairs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return allPairs;
-    return allPairs.filter(
-      (p) =>
-        p.symbol.toLowerCase().includes(q) ||
-        p.longExchange.toLowerCase().includes(q) ||
-        p.shortExchange.toLowerCase().includes(q)
-    );
-  }, [allPairs, search]);
+    return allPairs.filter((p) => {
+      if (q && !p.symbol.toLowerCase().includes(q)) return false;
+      if (exchangeFilter.size === 1) {
+        if (!exchangeFilter.has(p.longExchange) && !exchangeFilter.has(p.shortExchange))
+          return false;
+      } else if (exchangeFilter.size >= 2) {
+        if (!exchangeFilter.has(p.longExchange) || !exchangeFilter.has(p.shortExchange))
+          return false;
+      }
+      return true;
+    });
+  }, [allPairs, search, exchangeFilter]);
 
   const sortedPairs = useMemo(
-    () => sortPairs(searchedPairs, sort, spreadMode),
-    [searchedPairs, sort, spreadMode]
+    () => sortPairs(filteredPairs, sort, spreadMode),
+    [filteredPairs, sort, spreadMode]
   );
 
   // Escape + body scroll lock
@@ -629,37 +894,31 @@ export function PairCommand({
     onSpreadModeChange: setSpreadMode,
     search,
     onSearchChange: setSearch,
+    exchanges,
+    exchangeFilter,
+    onToggleExchange: (ex: string) => {
+      setExchangeFilter((prev) => {
+        const next = new Set(prev);
+        if (next.has(ex)) next.delete(ex);
+        else next.add(ex);
+        return next;
+      });
+    },
+    onClearExchangeFilter: () => setExchangeFilter(new Set()),
   };
 
   if (!open) return null;
 
   return createPortal(
-    <>
-      {/* Desktop: full-page overlay */}
-      <div className="hidden md:flex fixed inset-0 z-50">
-        <div
-          className="absolute inset-0 bg-background/70 backdrop-blur-sm"
-          onClick={() => onOpenChange(false)}
-        />
-        <div className="relative z-10 flex flex-col w-full h-full bg-background shadow-2xl animate-in fade-in-0 slide-in-from-top-1 duration-150">
-          <PairSelectorPanel {...panelProps} />
-        </div>
+    <div className="fixed inset-0 z-50 flex">
+      <div
+        className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+        onClick={() => onOpenChange(false)}
+      />
+      <div className="relative z-10 flex flex-col w-full h-full bg-background shadow-2xl animate-in fade-in-0 slide-in-from-top-1 duration-150">
+        <PairSelectorPanel {...panelProps} />
       </div>
-
-      {/* Mobile: bottom sheet */}
-      <div className="md:hidden fixed inset-0 z-50">
-        <div
-          className="absolute inset-0 bg-background/70 backdrop-blur-sm"
-          onClick={() => onOpenChange(false)}
-        />
-        <div className="absolute bottom-0 left-0 right-0 h-[90dvh] bg-background border-t rounded-t-xl shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-200">
-          <div className="flex justify-center pt-2.5 pb-0.5 shrink-0">
-            <div className="w-8 h-1 rounded-full bg-muted-foreground/30" />
-          </div>
-          <PairSelectorPanel {...panelProps} />
-        </div>
-      </div>
-    </>,
+    </div>,
     document.body
   );
 }

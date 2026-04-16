@@ -36,9 +36,8 @@ const (
 type SizeType string
 
 const (
-	SizeTypeUSD  SizeType = "usd"
-	SizeTypeBase SizeType = "base"
-	SizeTypeQty  SizeType = "qty" // contract count (used in simulations)
+	SizeTypePrice    SizeType = "price"
+	SizeTypeQuantity SizeType = "quantity"
 )
 
 // StopReason indicates why stepped execution stopped before completing all steps.

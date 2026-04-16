@@ -123,7 +123,7 @@ function buildTimeline(positions: Position[]): TimelineEvent[] {
       time: pos.created_at,
       type: "created",
       label: "Position created",
-      detail: `${pos.size_type === "usd" ? "$" : ""}${pos.requested_size} ${pos.arbitrage_type || "funding"}`,
+      detail: `${pos.size_type === "price" ? "$" : ""}${pos.requested_size} ${pos.arbitrage_type || "funding"}`,
       positionId: pos.id,
       icon: <CircleDot className="h-3 w-3" />,
       color: "border-blue-500/30 text-blue-500",

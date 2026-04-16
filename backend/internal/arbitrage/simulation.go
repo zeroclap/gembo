@@ -14,8 +14,8 @@ import (
 // resolvePositionSize computes the effective quantity and notional position
 // size from the simulation request and arbitrage opportunity.
 //
-// When size_type=usd: quantity = floor(position_size / (price * contract_size)).
-// When size_type=qty: quantity is used as-is.
+// When size_type=price: quantity = floor(position_size / (price * contract_size)).
+// When size_type=quantity: quantity is used as-is.
 //
 // Returns (quantity, actual_position_size). actual_position_size is always
 // qty * price * contract_size. If contract_size is zero (unknown) it defaults to 1.
@@ -47,10 +47,10 @@ func resolvePositionSize(arb domain.FundingArbitrage, req domain.SimulationReque
 
 	var qty decimal.Decimal
 	switch req.SizeType {
-	case domain.SizeTypeQty:
+	case domain.SizeTypeQuantity:
 		qty = req.Quantity
 	default:
-		// SizeTypeUSD or legacy (empty string = usd).
+		// SizeTypePrice or legacy (empty string = price).
 		if valuePerContract.IsPositive() {
 			// Floor to whole contracts.
 			qty = req.PositionSize.Div(valuePerContract).Floor()
@@ -137,16 +137,14 @@ func Simulate(arb domain.FundingArbitrage, req domain.SimulationRequest, now tim
 	dec8 := decimal.NewFromInt(8)
 	fundingHold := funding8h.Mul(holdHours).Div(dec8)
 
-	// Funding per 24h (used for breakeven calculation).
-	funding24h := funding8h.Mul(dec3)
-
-	// Breakeven.
-	var breakevenDays decimal.Decimal
-	if funding24h.IsPositive() {
-		breakevenDays = totalCost.Div(funding24h)
+	// Breakeven in hours: hours to recoup total cost from funding.
+	// fundingPerHour = funding8h / 8.
+	var breakevenHours decimal.Decimal
+	fundingPerHour := funding8h.Div(dec8)
+	if fundingPerHour.IsPositive() {
+		breakevenHours = totalCost.Div(fundingPerHour)
 	} else {
-		// -1 means "never" — Infinity is not representable in decimal.
-		breakevenDays = decimal.NewFromInt(-1)
+		breakevenHours = decimal.NewFromInt(-1)
 	}
 
 	// LCM P&L: funding earned over one full LCM loop (no cost amortization).
@@ -181,6 +179,21 @@ func Simulate(arb domain.FundingArbitrage, req domain.SimulationRequest, now tim
 	// Build hold-based simulation (time-aware).
 	holdSim := buildHoldSimulation(arb, size, openCostPct, entryCost, closeCostPct, exitCost, holdHours, now, feeDetail)
 
+	// Spread context.
+	currentSpreadPct := arb.OpenSpread
+
+	// Mock 24h ranges with ±15% variance for spread, ±20% for funding.
+	spreadRange24h := mockSpreadRange24h(currentSpreadPct)
+	fundingRange24h := mockFundingRange24h(netRate8h)
+
+	// Timing for countdowns.
+	var nextFundingAt *time.Time
+	if !arb.NextPayment.At.IsZero() {
+		t := arb.NextPayment.At
+		nextFundingAt = &t
+	}
+	lcmDurationHours := arb.FullLoop.DurationHours
+
 	return domain.SimulationResult{
 		PositionSize:       req.PositionSize,
 		ActualPositionSize: actualSize,
@@ -192,10 +205,15 @@ func Simulate(arb domain.FundingArbitrage, req domain.SimulationRequest, now tim
 		Funding8h:          funding8h,
 		FundingHold:        fundingHold,
 		HoldHours:          holdHours,
-		BreakevenDays:      breakevenDays,
+		BreakevenHours:     breakevenHours,
 		LcmPnL:             lcmPnL,
 		NextPnL:            nextPnL,
 		PnlHold:            pnlHold,
+		OpenSpreadPct:      currentSpreadPct,
+		SpreadRange24h:     spreadRange24h,
+		FundingRange24h:    fundingRange24h,
+		NextFundingAt:      nextFundingAt,
+		LcmDurationHours:   lcmDurationHours,
 		CleanLoop:          cleanLoop,
 		HoldSimulation:     holdSim,
 		LoopPayments:       loopPayments,
@@ -586,4 +604,32 @@ func computeNextPaymentPct(arb domain.FundingArbitrage) decimal.Decimal {
 		return longPnl
 	}
 	return shortPnl
+}
+
+// ---------------------------------------------------------------------------
+// 24h range mocks — to be replaced with real historical data source.
+// ---------------------------------------------------------------------------
+
+// mockSpreadRange24h produces a mocked 24h spread range with ±15% variance
+// around the current spread value.
+func mockSpreadRange24h(current decimal.Decimal) domain.SpreadRange24h {
+	variance := current.Abs().Mul(decimal.NewFromFloat(0.15))
+	return domain.SpreadRange24h{
+		Min:     current.Sub(variance),
+		Max:     current.Add(variance),
+		Mean:    current,
+		Current: current,
+	}
+}
+
+// mockFundingRange24h produces a mocked 24h funding rate range with ±20%
+// variance around the current net 8h rate.
+func mockFundingRange24h(currentRate8h decimal.Decimal) domain.FundingRange24h {
+	variance := currentRate8h.Abs().Mul(decimal.NewFromFloat(0.20))
+	return domain.FundingRange24h{
+		MinRate8h:     currentRate8h.Sub(variance),
+		MaxRate8h:     currentRate8h.Add(variance),
+		MeanRate8h:    currentRate8h,
+		CurrentRate8h: currentRate8h,
+	}
 }

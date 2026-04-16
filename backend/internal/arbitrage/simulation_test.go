@@ -78,6 +78,9 @@ func TestSimulate_BasicCalculation(t *testing.T) {
 			DurationHours: 8,
 			NetPctPerLoop: d("0.0004"),
 		},
+		NextPayment: domain.NextPaymentInfo{
+			At: now.Add(2 * time.Hour),
+		},
 	}
 
 	req := domain.SimulationRequest{
@@ -116,9 +119,18 @@ func TestSimulate_BasicCalculation(t *testing.T) {
 	// TotalCost = 1.6 + 1.6 = 3.2
 	assertDecimalEqual(t, "TotalCost", d("3.2"), result.TotalCost)
 
-	// Breakeven: 3.2 / 1.2 ~ 2.666...
-	expectedBreakeven := d("3.2").Div(d("1.2"))
-	assertDecimalClose(t, "BreakevenDays", expectedBreakeven, result.BreakevenDays, d("0.001"))
+	// Breakeven hours: totalCost / (funding8h / 8) = 3.2 / (0.4/8) = 3.2 / 0.05 = 64h
+	expectedBreakevenHours := d("3.2").Div(d("0.4").Div(d("8")))
+	assertDecimalClose(t, "BreakevenHours", expectedBreakevenHours, result.BreakevenHours, d("0.001"))
+
+	// New fields should be populated.
+	assertDecimalEqual(t, "OpenSpreadPct", d("0.05"), result.OpenSpreadPct)
+	if result.NextFundingAt == nil {
+		t.Error("NextFundingAt should not be nil")
+	}
+	if result.LcmDurationHours != 8 {
+		t.Errorf("LcmDurationHours: expected 8, got %d", result.LcmDurationHours)
+	}
 }
 
 func TestSimulate_NegativeSpread(t *testing.T) {
@@ -199,7 +211,7 @@ func TestSimulate_ZeroFunding_BreakevenNever(t *testing.T) {
 	result := Simulate(arb, req, now)
 
 	// Breakeven should be -1 (never).
-	assertDecimalEqual(t, "BreakevenDays", d("-1"), result.BreakevenDays)
+	assertDecimalEqual(t, "BreakevenHours", d("-1"), result.BreakevenHours)
 }
 
 func TestComputeNextPaymentPct_BothAtSameTime(t *testing.T) {
@@ -417,7 +429,7 @@ func TestSimulate_UsdMode_FloorRounding(t *testing.T) {
 	}
 
 	req := domain.SimulationRequest{
-		SizeType:     domain.SizeTypeUSD,
+		SizeType:     domain.SizeTypePrice,
 		PositionSize: d("100"),
 		SlippagePct:  d("0"),
 	}
@@ -468,7 +480,7 @@ func TestSimulate_UsdMode_CantAffordSingleContract(t *testing.T) {
 	}
 
 	req := domain.SimulationRequest{
-		SizeType:     domain.SizeTypeUSD,
+		SizeType:     domain.SizeTypePrice,
 		PositionSize: d("10"),
 		SlippagePct:  d("0"),
 	}
@@ -516,7 +528,7 @@ func TestSimulate_QtyMode(t *testing.T) {
 	}
 
 	req := domain.SimulationRequest{
-		SizeType:    domain.SizeTypeQty,
+		SizeType:    domain.SizeTypeQuantity,
 		Quantity:    d("5"),
 		SlippagePct: d("0"),
 	}
@@ -568,7 +580,7 @@ func TestSimulate_UsdMode_SmallContractSize(t *testing.T) {
 	}
 
 	req := domain.SimulationRequest{
-		SizeType:     domain.SizeTypeUSD,
+		SizeType:     domain.SizeTypePrice,
 		PositionSize: d("1000"),
 		SlippagePct:  d("0"),
 	}
@@ -613,7 +625,7 @@ func TestSimulate_UsdMode_PartialContract(t *testing.T) {
 	}
 
 	req := domain.SimulationRequest{
-		SizeType:     domain.SizeTypeUSD,
+		SizeType:     domain.SizeTypePrice,
 		PositionSize: d("75"),
 		SlippagePct:  d("0"),
 	}
@@ -662,7 +674,7 @@ func TestSimulate_UsdMode_DifferentContractSizes(t *testing.T) {
 	}
 
 	req := domain.SimulationRequest{
-		SizeType:     domain.SizeTypeUSD,
+		SizeType:     domain.SizeTypePrice,
 		PositionSize: d("55"),
 		SlippagePct:  d("0"),
 	}
@@ -686,7 +698,7 @@ func TestResolvePositionSize_ZeroContractSize_DefaultsToOne(t *testing.T) {
 	}
 
 	req := domain.SimulationRequest{
-		SizeType:     domain.SizeTypeUSD,
+		SizeType:     domain.SizeTypePrice,
 		PositionSize: d("25"),
 	}
 

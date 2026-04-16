@@ -131,7 +131,9 @@ func (c *Client) Positions(ctx context.Context) (<-chan []exchange.ExchangePosit
 				return
 			}
 
-			positions, err := c.api.WatchPositions()
+			positions, err := ccxtutil.WatchWithContext(ctx, func() ([]ccxt.Position, error) {
+				return c.api.WatchPositions()
+			})
 			if err != nil {
 				if ctx.Err() != nil {
 					c.logger.Info("position subscription stopped", "reason", ctx.Err())

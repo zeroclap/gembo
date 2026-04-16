@@ -4,10 +4,10 @@
 
 Gembo is a cryptocurrency exchange monitoring platform. Monorepo with two components:
 
-- **Backend** (`backend/`): Go 1.25, pure `net/http`. Ingests real-time market data from crypto exchanges via CCXT, normalizes into domain models, stores in Redis, serves via REST/WebSocket. Three binaries: `collector` (data ingestion), `api` (HTTP server), `worker` (background jobs).
+- **Backend** (`backend/`): Go 1.25, pure `net/http`. Ingests real-time market data from crypto exchanges via CCXT, normalizes into domain models, stores in Redis, serves via REST/WebSocket. Binaries: `collector-public` (public market data), `collector-private` (authenticated account data), `api` (HTTP server), `worker` (background jobs), `trader` (position management).
 - **Frontend** (`frontend/`): TypeScript, Next.js 16 (App Router), React 19, Tailwind v4, shadcn/ui v4. Dashboards for tickers and exchange data.
 
-Architecture: collector, API, and worker are separate processes communicating through Redis.
+Architecture: collectors, API, worker, and trader are separate processes communicating through Redis. The two collectors can run independently — `collector-public` requires no API keys and fetches markets, tickers, and funding rates; `collector-private` requires exchange credentials and watches positions via WebSocket.
 
 ## Build & test commands
 
@@ -15,17 +15,21 @@ Architecture: collector, API, and worker are separate processes communicating th
 
 | Command | Purpose |
 |---|---|
-| `make build` | Build all three binaries (`collector`, `api`, `worker`) |
-| `make collector` | Build collector only |
+| `make build` | Build all binaries (`collector-public`, `collector-private`, `api`, `worker`, `trader`) |
+| `make collector-public` | Build public collector only |
+| `make collector-private` | Build private collector only |
 | `make api` | Build API only |
 | `make worker` | Build worker only |
+| `make trader` | Build trader only |
 | `make test` | Run all Go tests (`go test ./...`) |
 | `make lint` | Run `golangci-lint run ./...` (default config, no `.golangci.yml`) |
 | `make vet` | Run `go vet ./...` |
 | `make tidy` | Run `go mod tidy` |
-| `make run-collector` | Build + run collector |
+| `make run-collector-public` | Build + run public collector |
+| `make run-collector-private` | Build + run private collector |
 | `make run-api` | Build + run API server |
 | `make run-worker` | Build + run worker |
+| `make run-trader` | Build + run trader |
 | `make docker-up` / `docker-down` | Full stack via docker-compose |
 
 **Running a single test:**
@@ -49,7 +53,7 @@ No test framework is configured in the frontend.
 
 ### Project layout
 
-- `cmd/` — entrypoints (`api/`, `collector/`, `worker/`), each with a single `main.go`
+- `cmd/` — entrypoints (`api/`, `collector-public/`, `collector-private/`, `worker/`, `trader/`), each with a single `main.go`
 - `internal/` — private packages: `api/`, `arbitrage/`, `collector/`, `config/`, `domain/`, `exchange/`, `hook/`, `store/`
 - `pkg/` — shared utilities (e.g., `rediskey`)
 - Module path: `github.com/zeroclap/gembo`

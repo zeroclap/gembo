@@ -28,20 +28,20 @@ exchanges:
     markets_poll_interval: 60s
     funding_poll_interval: 60s
 
-  # - id: okx
-  #   enabled: true
-  #   markets_poll_interval: 60s
-  #   funding_poll_interval: 60s
-
-  - id: binance
-    enabled: false
+  - id: okx
+    enabled: true
     markets_poll_interval: 60s
     funding_poll_interval: 60s
 
-  # - id: gate
-  #   enabled: false
-  #   markets_poll_interval: 60s
-  #   funding_poll_interval: 60s
+  - id: binance
+    enabled: true
+    markets_poll_interval: 60s
+    funding_poll_interval: 60s
+
+  - id: gate
+    enabled: true
+    markets_poll_interval: 60s
+    funding_poll_interval: 60s
 
 # Market filter — controls which markets enter the data pipeline.
 # Leave a field empty (or remove it) to include all values for that dimension.

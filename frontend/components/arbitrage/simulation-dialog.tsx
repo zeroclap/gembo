@@ -10,10 +10,8 @@ import {
   type SimSizeType,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExchangeBadge, SectionHeader } from "@/components/arbitrage/shared";
-import { formatUsd, formatUsdPlain, formatPct } from "@/lib/format";
+import { ExchangeBadge } from "@/components/arbitrage/shared";
+import { formatUsd, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Loader2, ChevronRight } from "lucide-react";
 
@@ -37,7 +35,7 @@ interface SimulationPanelViewProps {
   symbol: string;
   longExchange: string;
   shortExchange: string;
-  /** "usd" = position_size (USDT), "qty" = quantity (contracts) */
+  /** "price" = position_size (USDT), "quantity" = quantity (contracts) */
   sizeType: SimSizeType;
   size: string;
   slippagePct: string;
@@ -67,7 +65,7 @@ export function SimulationPanelView({
         long_exchange_id: longExchange,
         short_exchange_id: shortExchange,
         size_type: sizeType,
-        ...(sizeType === "usd"
+        ...(sizeType === "price"
           ? { position_size: size }
           : { quantity: size }),
         slippage_pct: slippagePct || "0",
@@ -162,123 +160,17 @@ function SimulationContent({ result }: { result: SimulationResult }) {
   const loop = result.hold_simulation;
   const rows = loop?.rows ?? [];
 
-  return (
-    <Tabs
-      defaultValue="summary"
-      className="flex-1 min-h-0 flex flex-col h-full"
-    >
-      <div className="flex justify-end px-3 pt-2 shrink-0">
-        <TabsList className="h-6 p-0.5 text-[0.625rem]">
-          <TabsTrigger value="summary" className="h-5 px-2 text-[0.625rem]">
-            Summary
-          </TabsTrigger>
-          <TabsTrigger value="breakdown" className="h-5 px-2 text-[0.625rem]">
-            Breakdown
-          </TabsTrigger>
-        </TabsList>
+  if (!rows.length || !loop) {
+    return (
+      <div className="px-3 py-3 text-xs text-muted-foreground">
+        No breakdown data available.
       </div>
-
-      <TabsContent
-        value="summary"
-        className="flex-1 min-h-0 overflow-y-auto px-3 pb-4"
-      >
-        <SimulationSummary result={result} />
-      </TabsContent>
-
-      <TabsContent
-        value="breakdown"
-        className="flex-1 min-h-0 flex flex-col overflow-hidden pb-2"
-      >
-        {rows.length > 0 && loop ? (
-          <SimulationBreakdown loop={loop} rows={rows} />
-        ) : (
-          <div className="px-3 py-3 text-xs text-muted-foreground">
-            No breakdown data available.
-          </div>
-        )}
-      </TabsContent>
-    </Tabs>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// SimulationSummary
-// ---------------------------------------------------------------------------
-
-function SimulationSummary({ result }: { result: SimulationResult }) {
-  const holdHoursNum = parseFloat(result.hold_hours);
-  const holdLabel =
-    holdHoursNum >= 24
-      ? `${Math.round(holdHoursNum / 24)}d`
-      : `${holdHoursNum}h`;
+    );
+  }
 
   return (
-    <div className="space-y-3 pt-2">
-      {/* Position sizing */}
-      <div>
-        <SectionHeader className="mb-1.5">Position</SectionHeader>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-          <span className="text-muted-foreground">Quantity</span>
-          <span className="font-mono tabular-nums text-right">
-            {result.quantity} contracts
-          </span>
-          <span className="text-muted-foreground">Position size</span>
-          <span className="font-mono tabular-nums text-right">
-            {formatUsdPlain(result.actual_position_size || result.position_size)}
-          </span>
-          <span className="text-muted-foreground">Capital required</span>
-          <span className="font-mono tabular-nums text-right">
-            {formatUsdPlain(result.capital)}
-          </span>
-        </div>
-      </div>
-
-      <Separator />
-
-      {/* Fees */}
-      <div>
-        <SectionHeader className="mb-1.5">Fees</SectionHeader>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-          <span className="text-muted-foreground">Entry cost</span>
-          <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
-            {formatUsdPlain(result.entry_cost)}
-          </span>
-          <span className="text-muted-foreground">Exit cost</span>
-          <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
-            {formatUsdPlain(result.exit_cost)}
-          </span>
-          <span className="text-muted-foreground">Total fees</span>
-          <span className="font-mono tabular-nums text-right font-medium text-red-600 dark:text-red-400">
-            {formatUsdPlain(result.total_cost)}
-          </span>
-        </div>
-      </div>
-
-      <Separator />
-
-      {/* P&L projections */}
-      <div>
-        <SectionHeader className="mb-1.5">P&L Projection</SectionHeader>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-          <span className="text-muted-foreground">Funding (8h)</span>
-          <PnlSpan value={result.funding_8h} />
-          <span className="text-muted-foreground">Hold ({holdLabel})</span>
-          <PnlSpan value={result.funding_hold} />
-          <span className="text-muted-foreground">Breakeven</span>
-          <span className="font-mono tabular-nums text-right">
-            {parseFloat(result.breakeven_days).toFixed(1)} days
-          </span>
-
-          <span className="col-span-2 border-t border-border/30 my-1" />
-
-          <span className="text-muted-foreground">Next P&L</span>
-          <PnlSpan value={result.next_pnl} bold />
-          <span className="text-muted-foreground">LCM P&L</span>
-          <PnlSpan value={result.lcm_pnl} bold />
-          <span className="text-muted-foreground">{holdLabel} P&L</span>
-          <PnlSpan value={result.pnl_hold} bold />
-        </div>
-      </div>
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <SimulationBreakdown loop={loop} rows={rows} />
     </div>
   );
 }
@@ -542,26 +434,5 @@ function EventRow({ event }: { event: SimulationEvent }) {
       </td>
       <td className="pr-2 py-0.5 align-middle" />
     </tr>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// PnlSpan
-// ---------------------------------------------------------------------------
-
-function PnlSpan({ value, bold }: { value: string; bold?: boolean }) {
-  const num = parseFloat(value);
-  return (
-    <span
-      className={cn(
-        "font-mono tabular-nums text-right",
-        bold && "font-medium",
-        num >= 0
-          ? "text-emerald-600 dark:text-emerald-400"
-          : "text-red-600 dark:text-red-400"
-      )}
-    >
-      {formatUsd(value)}
-    </span>
   );
 }

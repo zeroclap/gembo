@@ -206,10 +206,12 @@ export function ArbitrageTopBar({
       <div className="flex items-center gap-2 px-3 border-b bg-card/20 md:py-0 py-2">
         {/* Symbol button + spread values: side-by-side on mobile, stacked on desktop */}
         <div className="flex items-center gap-2 md:flex-col md:items-start md:gap-0">
-          <SymbolButton
-            symbol={symbol}
-            onClick={() => setCommandOpen(true)}
-          />
+          {hasPair && (
+            <SymbolButton
+              symbol={symbol}
+              onClick={() => setCommandOpen(true)}
+            />
+          )}
           {hasPair && (
             <SpreadMiniBar
               tickers={tickers}

@@ -206,7 +206,7 @@ func TestExecuteSteppedOpen_AllStepsComplete(t *testing.T) {
 		ID:              "pos-stepped-1",
 		Symbol:          "BTC/USDT:USDT",
 		Status:          domain.PositionStatusOpening,
-		SizeType:        domain.SizeTypeBase,
+		SizeType:        domain.SizeTypeQuantity,
 		RequestedSize:   dec("1.0"),
 		PortionSize:     dec("0.5"),
 		StepsTotal:      2,
@@ -280,7 +280,7 @@ func TestExecuteSteppedOpen_StepFails_PartialFill(t *testing.T) {
 		ID:              "pos-stepped-fail",
 		Symbol:          "BTC/USDT:USDT",
 		Status:          domain.PositionStatusOpening,
-		SizeType:        domain.SizeTypeBase,
+		SizeType:        domain.SizeTypeQuantity,
 		RequestedSize:   dec("3.0"),
 		PortionSize:     dec("1.0"),
 		StepsTotal:      3,
@@ -328,7 +328,7 @@ func TestExecuteSteppedOpen_NoStepsCompleted_Fails(t *testing.T) {
 		ID:              "pos-stepped-allfail",
 		Symbol:          "BTC/USDT:USDT",
 		Status:          domain.PositionStatusOpening,
-		SizeType:        domain.SizeTypeBase,
+		SizeType:        domain.SizeTypeQuantity,
 		RequestedSize:   dec("2.0"),
 		PortionSize:     dec("1.0"),
 		StepsTotal:      2,
@@ -369,7 +369,7 @@ func TestExecuteSteppedOpen_MarginCapitalCheck(t *testing.T) {
 		ID:              "pos-stepped-margin",
 		Symbol:          "BTC/USDT:USDT",
 		Status:          domain.PositionStatusOpening,
-		SizeType:        domain.SizeTypeBase,
+		SizeType:        domain.SizeTypeQuantity,
 		RequestedSize:   dec("1.0"),
 		PortionSize:     dec("0.5"),
 		StepsTotal:      2,
@@ -415,7 +415,7 @@ func TestExecuteSteppedOpen_PriceRange_StopsExecution(t *testing.T) {
 		ID:              "pos-stepped-price",
 		Symbol:          "BTC/USDT:USDT",
 		Status:          domain.PositionStatusOpening,
-		SizeType:        domain.SizeTypeBase,
+		SizeType:        domain.SizeTypeQuantity,
 		RequestedSize:   dec("2.0"),
 		PortionSize:     dec("1.0"),
 		StepsTotal:      2,
@@ -652,7 +652,7 @@ func TestReferencePrice_NoSource(t *testing.T) {
 func TestResolvePortionAmount_Base(t *testing.T) {
 	tr := newTestTrader(newMockPositionStore())
 	p := &domain.Position{
-		SizeType:    domain.SizeTypeBase,
+		SizeType:    domain.SizeTypeQuantity,
 		PortionSize: dec("0.5"),
 	}
 	amount, err := tr.resolvePortionAmount(context.Background(), p, nil, nil)
@@ -667,7 +667,7 @@ func TestResolvePortionAmount_Base(t *testing.T) {
 func TestResolvePortionAmount_USD(t *testing.T) {
 	tr := newTestTrader(newMockPositionStore())
 	p := &domain.Position{
-		SizeType:    domain.SizeTypeUSD,
+		SizeType:    domain.SizeTypePrice,
 		PortionSize: dec("1000"),
 	}
 	longExch := &mockTradingExchange{
@@ -727,7 +727,7 @@ func TestExecuteOpen_DelegatesToStepped(t *testing.T) {
 		ID:              "pos-stepped-delegated",
 		Symbol:          "BTC/USDT:USDT",
 		Status:          domain.PositionStatusPending,
-		SizeType:        domain.SizeTypeBase,
+		SizeType:        domain.SizeTypeQuantity,
 		RequestedSize:   dec("2.0"),
 		PortionSize:     dec("1.0"),
 		StepsTotal:      2,
@@ -764,7 +764,7 @@ func TestExecuteOpen_NonSteppedStillWorks(t *testing.T) {
 		ID:              "pos-single-shot",
 		Symbol:          "BTC/USDT:USDT",
 		Status:          domain.PositionStatusPending,
-		SizeType:        domain.SizeTypeBase,
+		SizeType:        domain.SizeTypeQuantity,
 		RequestedSize:   dec("1.0"),
 		LongExchangeID:  "bybit",
 		ShortExchangeID: "okx",
@@ -804,7 +804,7 @@ func TestExecuteSteppedOpen_UsesPerPositionLeverage(t *testing.T) {
 		ID:              "pos-stepped-leverage",
 		Symbol:          "BTC/USDT:USDT",
 		Status:          domain.PositionStatusOpening,
-		SizeType:        domain.SizeTypeBase,
+		SizeType:        domain.SizeTypeQuantity,
 		RequestedSize:   dec("1.0"),
 		PortionSize:     dec("1.0"),
 		StepsTotal:      1, // isStepped requires >1, but we call directly

@@ -1,9 +1,13 @@
-// Command collector starts the data-collection pipeline for all configured exchanges.
+// Command collector-public starts the public-data collection pipeline for all
+// configured exchanges. It fetches markets, tickers, and funding rates without
+// requiring any API credentials.
 package main
 
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -58,16 +62,17 @@ func main() {
 		emitter = hook.NoopEmitter{}
 	}
 
-	// Exchange registry — register all enabled exchanges.
+	// Exchange registry — register all enabled exchanges WITHOUT credentials.
+	// Public collector never needs API keys.
 	reg := exchange.NewRegistry()
-	registerExchanges(reg, cfg, logger)
+	registerPublicExchanges(reg, cfg, logger)
 
 	if len(reg.All()) == 0 {
 		logger.Error("no exchanges enabled; check config")
 		os.Exit(1)
 	}
 
-	c := collector.New(reg, st, rc, emitter, logger, cfg.MarketFilter.ToDomain())
+	c := collector.NewPublic(reg, st, rc, emitter, logger, cfg.MarketFilter.ToDomain())
 
 	mf := cfg.MarketFilter
 	if len(mf.QuoteAssets) > 0 || len(mf.SettleAssets) > 0 || len(mf.MarketTypes) > 0 {
@@ -78,19 +83,32 @@ func main() {
 		)
 	}
 
+	// Start pprof server for memory/goroutine profiling.
+	pprofAddr := os.Getenv("PPROF_ADDR")
+	if pprofAddr == "" {
+		pprofAddr = ":6060"
+	}
+	go func() {
+		logger.Info("pprof server starting", "addr", pprofAddr)
+		if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			logger.Error("pprof server error", "error", err)
+		}
+	}()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	logger.Info("collector starting", "exchanges", reg.IDs())
+	logger.Info("public collector starting", "exchanges", reg.IDs())
 	if err := c.Run(ctx); err != nil && err != context.Canceled {
-		logger.Error("collector exited with error", "error", err)
+		logger.Error("public collector exited with error", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("collector stopped")
+	logger.Info("public collector stopped")
 }
 
-// registerExchanges registers all enabled exchanges from config into the registry.
-func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.Logger) {
+// registerPublicExchanges registers all enabled exchanges WITHOUT credentials.
+// Only poll intervals are configured — no API keys, secrets, or passphrases.
+func registerPublicExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.Logger) {
 	for _, ecfg := range cfg.Exchanges {
 		if !ecfg.Enabled {
 			continue
@@ -104,13 +122,7 @@ func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.
 			if ecfg.MarketsPollInterval > 0 {
 				opts = append(opts, bybitex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
 			}
-			// Pass credentials so the adapter can use WatchPositions (private WS).
-			if ecfg.APIKey != "" {
-				opts = append(opts, bybitex.WithAPIKey(ecfg.APIKey))
-			}
-			if ecfg.Secret != "" {
-				opts = append(opts, bybitex.WithSecret(ecfg.Secret))
-			}
+			// No credentials — public data only.
 			reg.Register(bybitex.New(logger, opts...))
 		case "okx":
 			var opts []okxex.Option
@@ -120,16 +132,7 @@ func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.
 			if ecfg.MarketsPollInterval > 0 {
 				opts = append(opts, okxex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
 			}
-			// Pass credentials so the adapter can use WatchPositions (private WS).
-			if ecfg.APIKey != "" {
-				opts = append(opts, okxex.WithAPIKey(ecfg.APIKey))
-			}
-			if ecfg.Secret != "" {
-				opts = append(opts, okxex.WithSecret(ecfg.Secret))
-			}
-			if ecfg.Passphrase != "" {
-				opts = append(opts, okxex.WithPassphrase(ecfg.Passphrase))
-			}
+			// No credentials — public data only.
 			reg.Register(okxex.New(logger, opts...))
 		case "gate":
 			var opts []gateex.Option

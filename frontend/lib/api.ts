@@ -135,7 +135,7 @@ export function fetchFundingArbitrage(): Promise<FundingArbitrage[]> {
 
 // --- Simulation ---
 
-export type SimSizeType = "usd" | "qty";
+export type SimSizeType = "price" | "quantity";
 
 export interface SimulationRequest {
   symbol: string;
@@ -188,6 +188,20 @@ export interface LoopSimulation {
   net_pnl_usd: string;
 }
 
+export interface SpreadRange24h {
+  min: string;
+  max: string;
+  mean: string;
+  current: string;
+}
+
+export interface FundingRange24h {
+  min_rate_8h: string;
+  max_rate_8h: string;
+  mean_rate_8h: string;
+  current_rate_8h: string;
+}
+
 export interface SimulationResult {
   position_size: string;
   actual_position_size: string;
@@ -199,10 +213,15 @@ export interface SimulationResult {
   funding_8h: string;
   funding_hold: string;
   hold_hours: string;
-  breakeven_days: string;
+  breakeven_hours: string;
   lcm_pnl: string;
   next_pnl: string;
   pnl_hold: string;
+  open_spread_pct: string;
+  spread_range_24h: SpreadRange24h;
+  funding_range_24h: FundingRange24h;
+  next_funding_at: string | null;
+  lcm_duration_hours: number;
   clean_loop: LoopSimulation;
   hold_simulation: LoopSimulation;
   /** @deprecated Use clean_loop.rows instead */
@@ -271,7 +290,7 @@ export type CloseReason =
   | "stop_loss"
   | "timeout";
 
-export type SizeType = "usd" | "base";
+export type SizeType = "price" | "quantity";
 
 export type StopReason =
   | ""

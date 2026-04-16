@@ -106,7 +106,7 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 	}
 
 	// Determine order amount in base currency.
-	// For now, if SizeType is USD, we need to convert using a reference price.
+	// For now, if SizeType is Price, we need to convert using a reference price.
 	// We'll use the mark price from the most recent ticker data.
 	amount, err := t.resolveAmount(ctx, p, longExch, shortExch)
 	if err != nil {
@@ -361,14 +361,14 @@ func (t *Trader) resolveLeverage(p *domain.Position) int {
 }
 
 // resolveAmount determines the order amount in base currency.
-// For SizeTypeBase, it returns the requested size directly.
-// For SizeTypeUSD, it fetches positions/tickers to determine a reference price.
+// For SizeTypeQuantity, it returns the requested size directly.
+// For SizeTypePrice, it fetches positions/tickers to determine a reference price.
 func (t *Trader) resolveAmount(ctx context.Context, p *domain.Position, longExch, shortExch exchange.TradingExchange) (float64, error) {
-	if p.SizeType == domain.SizeTypeBase {
+	if p.SizeType == domain.SizeTypeQuantity {
 		return p.RequestedSize.InexactFloat64(), nil
 	}
 
-	// SizeTypeUSD — need a reference price to convert to base.
+	// SizeTypePrice — need a reference price to convert to base.
 	// Try fetching current position/mark price from the long exchange.
 	// If not available, use short exchange.
 	var refPrice decimal.Decimal

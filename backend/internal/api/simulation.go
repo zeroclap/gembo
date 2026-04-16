@@ -18,7 +18,7 @@ type simulateRequest struct {
 	ShortExchangeID string `json:"short_exchange_id"`
 	PositionSize    string `json:"position_size"`
 	Quantity        string `json:"quantity"`
-	SizeType        string `json:"size_type"` // "usd" (default) or "qty"
+	SizeType        string `json:"size_type"` // "price" (default) or "quantity"
 	SlippagePct     string `json:"slippage_pct"`
 	HoldHours       string `json:"hold_hours"` // hold period in hours (e.g. "30"), optional
 }
@@ -40,10 +40,10 @@ func (h *Handler) handleSimulateFundingArbitrage(w http.ResponseWriter, r *http.
 
 	sizeType := domain.SizeType(req.SizeType)
 	if sizeType == "" {
-		sizeType = domain.SizeTypeUSD // default
+		sizeType = domain.SizeTypePrice // default
 	}
-	if sizeType != domain.SizeTypeUSD && sizeType != domain.SizeTypeQty {
-		writeErr(w, http.StatusBadRequest, "bad_request", "size_type must be \"usd\" or \"qty\"")
+	if sizeType != domain.SizeTypePrice && sizeType != domain.SizeTypeQuantity {
+		writeErr(w, http.StatusBadRequest, "bad_request", "size_type must be \"price\" or \"quantity\"")
 		return
 	}
 
@@ -72,10 +72,10 @@ func (h *Handler) handleSimulateFundingArbitrage(w http.ResponseWriter, r *http.
 	}
 
 	switch sizeType {
-	case domain.SizeTypeQty:
+	case domain.SizeTypeQuantity:
 		qty, qerr := decimal.NewFromString(req.Quantity)
 		if qerr != nil || !qty.IsPositive() {
-			writeErr(w, http.StatusBadRequest, "bad_request", "quantity must be a positive number when size_type is \"qty\"")
+			writeErr(w, http.StatusBadRequest, "bad_request", "quantity must be a positive number when size_type is \"quantity\"")
 			return
 		}
 		simReq.Quantity = qty

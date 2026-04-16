@@ -1,5 +1,5 @@
-.PHONY: build collector api worker trader \
-        run-collector run-api run-worker run-trader \
+.PHONY: build collector-public collector-private api worker trader \
+        run-collector-public run-collector-private run-api run-worker run-trader \
         tidy lint vet test clean \
         docker-build \
         up down
@@ -9,11 +9,15 @@ COMPOSE  := deployments/docker-compose.yml
 
 # ---- local build -------------------------------------------------------
 
-build: collector api worker trader
+build: collector-public collector-private api worker trader
 
-collector:
+collector-public:
 	@mkdir -p $(BIN_DIR)
-	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/collector ./cmd/collector
+	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/collector-public ./cmd/collector-public
+
+collector-private:
+	@mkdir -p $(BIN_DIR)
+	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/collector-private ./cmd/collector-private
 
 api:
 	@mkdir -p $(BIN_DIR)
@@ -27,8 +31,11 @@ trader:
 	@mkdir -p $(BIN_DIR)
 	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/trader ./cmd/trader
 
-run-collector: collector
-	./$(BIN_DIR)/collector
+run-collector-public: collector-public
+	./$(BIN_DIR)/collector-public
+
+run-collector-private: collector-private
+	./$(BIN_DIR)/collector-private
 
 run-api: api
 	./$(BIN_DIR)/api
@@ -59,10 +66,11 @@ clean:
 # ---- docker (production/CI) --------------------------------------------
 
 docker-build:
-	docker build -f deployments/Dockerfile --target collector -t gembo-collector:latest .
-	docker build -f deployments/Dockerfile --target api       -t gembo-api:latest .
-	docker build -f deployments/Dockerfile --target worker    -t gembo-worker:latest .
-	docker build -f deployments/Dockerfile --target trader    -t gembo-trader:latest .
+	docker build -f deployments/Dockerfile --target collector-public  -t gembo-collector-public:latest .
+	docker build -f deployments/Dockerfile --target collector-private -t gembo-collector-private:latest .
+	docker build -f deployments/Dockerfile --target api               -t gembo-api:latest .
+	docker build -f deployments/Dockerfile --target worker            -t gembo-worker:latest .
+	docker build -f deployments/Dockerfile --target trader            -t gembo-trader:latest .
 
 # ---- dev: full stack (infra + services) --------------------------------
 

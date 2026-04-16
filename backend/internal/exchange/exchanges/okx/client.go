@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	ccxt "github.com/ccxt/ccxt/go/v4"
@@ -47,6 +48,7 @@ func New(logger *slog.Logger, opts ...Option) *Client {
 
 	apiCfg := map[string]interface{}{
 		"options": map[string]any{
+			"defaultType": "swap",
 			"fetchMarkets": map[string]any{
 				"types": []string{"swap"},
 				// "types": []string{"spot", "swap"},
@@ -107,7 +109,9 @@ func (c *Client) Markets(ctx context.Context) ([]domain.Market, error) {
 	return markets, nil
 }
 
-// Tickers starts a WebSocket subscription and returns a channel of domain.Ticker.
+// Tickers starts WebSocket subscriptions and returns a channel of domain.Ticker.
+// Each symbol is subscribed individually to avoid the goroutine leak in CCXT's
+// FutureRace mechanism. All subscriptions share the same WebSocket connection.
 func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.Ticker, error) {
 	if len(symbols) == 0 {
 		return nil, fmt.Errorf("okx: no symbols provided for ticker subscription")
@@ -119,77 +123,67 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 
 	go func() {
 		defer close(ch)
-		backoff := ccxtutil.InitialBackoff
-
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-
-			type result struct {
-				tickers ccxt.Tickers
-				err     error
-			}
-			resCh := make(chan result, 1)
-
+		var wg sync.WaitGroup
+		for _, sym := range symbols {
+			wg.Add(1)
 			go func() {
-				t, e := c.api.WatchTickers(ccxt.WithWatchTickersSymbols(symbols))
-				resCh <- result{tickers: t, err: e}
+				defer wg.Done()
+				c.watchTickerSymbol(ctx, sym, ch)
 			}()
-
-			var tickers ccxt.Tickers
-			var err error
-
-			select {
-			case <-ctx.Done():
-				c.logger.Info("ticker subscription cancelled", "exchange", "okx")
-				return
-			case res := <-resCh:
-				tickers = res.tickers
-				err = res.err
-			}
-
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				if ccxtutil.IsRetryable(err) {
-					c.logger.Warn("watch tickers error, retrying",
-						"error", err,
-						"backoff", backoff,
-					)
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(backoff):
-					}
-					backoff = ccxtutil.NextBackoff(backoff, maxBackoff)
-					continue
-				}
-				c.logger.Error("watch tickers fatal error", "error", err)
-				return
-			}
-
-			backoff = ccxtutil.InitialBackoff
-			now := time.Now().UTC()
-
-			// c.logger.Info("received tickers update", "count", len(tickers.Tickers))
-
-			for _, t := range tickers.Tickers {
-				dt := mapTicker(t, now)
-				if dt.Symbol == "" {
-					continue
-				}
-				select {
-				case ch <- dt:
-				case <-ctx.Done():
-					return
-				}
-			}
 		}
+		wg.Wait()
 	}()
 
 	return ch, nil
+}
+
+func (c *Client) watchTickerSymbol(ctx context.Context, symbol string, ch chan<- domain.Ticker) {
+	backoff := ccxtutil.InitialBackoff
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		tickers, err := ccxtutil.WatchWithContext(ctx, func() (ccxt.Tickers, error) {
+			return c.api.WatchTickers(ccxt.WithWatchTickersSymbols([]string{symbol}))
+		})
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if ccxtutil.IsRetryable(err) {
+				c.logger.Warn("watch tickers error, retrying",
+					"error", err,
+					"backoff", backoff,
+				)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(backoff):
+				}
+				backoff = ccxtutil.NextBackoff(backoff, maxBackoff)
+				continue
+			}
+			c.logger.Error("watch tickers fatal error", "error", err)
+			return
+		}
+
+		backoff = ccxtutil.InitialBackoff
+		now := time.Now().UTC()
+
+		for _, t := range tickers.Tickers {
+			dt := mapTicker(t, now)
+			if dt.Symbol == "" {
+				continue
+			}
+			select {
+			case ch <- dt:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
 }
 
 // FundingRates periodically polls OKX for perpetual funding rates.

@@ -92,16 +92,16 @@ type SimulationRequest struct {
 	Symbol          string          `json:"symbol"`
 	LongExchangeID  string          `json:"long_exchange_id"`
 	ShortExchangeID string          `json:"short_exchange_id"`
-	PositionSize    decimal.Decimal `json:"position_size"` // notional value in USD (used when SizeType=usd)
-	Quantity        decimal.Decimal `json:"quantity"`      // contract count (used when SizeType=qty)
-	SizeType        SizeType        `json:"size_type"`     // "usd" or "qty"
+	PositionSize    decimal.Decimal `json:"position_size"` // notional value in USD (used when SizeType=price)
+	Quantity        decimal.Decimal `json:"quantity"`      // contract count (used when SizeType=quantity)
+	SizeType        SizeType        `json:"size_type"`     // "price" or "quantity"
 	SlippagePct     decimal.Decimal `json:"slippage_pct"`  // slippage percentage, e.g. 0.05
 	HoldHours       decimal.Decimal `json:"hold_hours"`    // hold period in hours for hold-based simulation (e.g. 30)
 }
 
 // SimulationResult contains the computed P&L simulation for an arbitrage opportunity.
 type SimulationResult struct {
-	PositionSize       decimal.Decimal `json:"position_size"`        // notional value in USD (may differ from input if size_type=qty)
+	PositionSize       decimal.Decimal `json:"position_size"`        // notional value in USD (may differ from input if size_type=quantity)
 	ActualPositionSize decimal.Decimal `json:"actual_position_size"` // effective notional after floor-rounding (qty * price * contract_size)
 	Quantity           decimal.Decimal `json:"quantity"`             // number of contracts
 	Capital            decimal.Decimal `json:"capital"`              // actual capital required
@@ -115,11 +115,22 @@ type SimulationResult struct {
 
 	HoldHours decimal.Decimal `json:"hold_hours"` // effective hold period in hours
 
-	BreakevenDays decimal.Decimal `json:"breakeven_days"` // days to recoup entry+exit cost from funding
+	BreakevenHours decimal.Decimal `json:"breakeven_hours"` // hours to recoup entry+exit cost from funding
 
 	LcmPnL  decimal.Decimal `json:"lcm_pnl"`  // $ P&L for one full LCM loop (funding only)
 	NextPnL decimal.Decimal `json:"next_pnl"` // $ P&L for the next funding cycle
 	PnlHold decimal.Decimal `json:"pnl_hold"` // $ P&L for the hold period of funding
+
+	// Spread context — always present regardless of strategy.
+	OpenSpreadPct decimal.Decimal `json:"open_spread_pct"` // current spread % at entry
+
+	// 24h market context (mocked until historical data source is available).
+	SpreadRange24h  SpreadRange24h  `json:"spread_range_24h"`  // spread volatility over 24h
+	FundingRange24h FundingRange24h `json:"funding_range_24h"` // funding rate volatility over 24h
+
+	// Timing for countdowns.
+	NextFundingAt    *time.Time `json:"next_funding_at,omitempty"` // when the next funding payment occurs
+	LcmDurationHours int        `json:"lcm_duration_hours"`        // LCM loop duration in hours
 
 	// Both modes are always returned; the frontend switches display.
 	CleanLoop      LoopSimulation `json:"clean_loop"`      // theoretical LCM-based loop with open/close fee rows
@@ -127,6 +138,22 @@ type SimulationResult struct {
 
 	// Deprecated: kept for backward compatibility. Use CleanLoop.Rows instead.
 	LoopPayments []SimulationLoopPayment `json:"loop_payments"`
+}
+
+// SpreadRange24h captures spread % volatility over the last 24 hours.
+type SpreadRange24h struct {
+	Min     decimal.Decimal `json:"min"`     // minimum spread % in 24h
+	Max     decimal.Decimal `json:"max"`     // maximum spread % in 24h
+	Mean    decimal.Decimal `json:"mean"`    // average spread % in 24h
+	Current decimal.Decimal `json:"current"` // current spread %
+}
+
+// FundingRange24h captures net funding rate volatility over the last 24 hours.
+type FundingRange24h struct {
+	MinRate8h     decimal.Decimal `json:"min_rate_8h"`     // worst 8h net rate in 24h
+	MaxRate8h     decimal.Decimal `json:"max_rate_8h"`     // best 8h net rate in 24h
+	MeanRate8h    decimal.Decimal `json:"mean_rate_8h"`    // average 8h net rate in 24h
+	CurrentRate8h decimal.Decimal `json:"current_rate_8h"` // current 8h net rate
 }
 
 // LoopSimulation represents a complete funding schedule with open/close fee bookends.

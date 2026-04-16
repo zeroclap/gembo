@@ -83,7 +83,104 @@ services:
 
   # ---- backend services --------------------------------------------------
 
-  collector:
+  # Public collectors: one per exchange for isolation and independent restarts.
+  # Each instance uses the EXCHANGES env var to limit to a single exchange.
+  collector-public-bybit:
+    image: golang:1.25-alpine
+    networks: [gembo]
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    env_file:
+      - ../.env
+    environment:
+      EXCHANGES: bybit
+      REDIS_ADDR: redis:6379
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
+    command: go run ./cmd/collector-public
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  collector-public-okx:
+    image: golang:1.25-alpine
+    networks: [gembo]
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    env_file:
+      - ../.env
+    environment:
+      EXCHANGES: okx
+      REDIS_ADDR: redis:6379
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
+    command: go run ./cmd/collector-public
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  collector-public-binance:
+    image: golang:1.25-alpine
+    networks: [gembo]
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    env_file:
+      - ../.env
+    environment:
+      EXCHANGES: binance
+      REDIS_ADDR: redis:6379
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
+    command: go run ./cmd/collector-public
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  collector-public-gate:
+    image: golang:1.25-alpine
+    networks: [gembo]
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    env_file:
+      - ../.env
+    environment:
+      EXCHANGES: gate
+      REDIS_ADDR: redis:6379
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
+    command: go run ./cmd/collector-public
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "6060:6060" # pprof
+
+  # Private collector: positions via WebSocket. Requires API credentials.
+  collector-private:
     image: golang:1.25-alpine
     networks: [gembo]
     working_dir: /src
@@ -97,7 +194,7 @@ services:
       REDIS_ADDR: redis:6379
       GOMODCACHE: /root/go/pkg/mod
       GOCACHE: /root/.cache/go-build
-    command: go run ./cmd/collector
+    command: go run ./cmd/collector-private
     depends_on:
       deps:
         condition: service_completed_successfully

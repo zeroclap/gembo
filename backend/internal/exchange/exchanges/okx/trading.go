@@ -123,29 +123,9 @@ func (c *Client) Positions(ctx context.Context) (<-chan []exchange.ExchangePosit
 				return
 			}
 
-			type result struct {
-				positions []ccxt.Position
-				err       error
-			}
-			resCh := make(chan result, 1)
-
-			go func() {
-				p, e := c.api.WatchPositions()
-				resCh <- result{positions: p, err: e}
-			}()
-
-			var positions []ccxt.Position
-			var err error
-
-			select {
-			case <-ctx.Done():
-				c.logger.Info("position subscription cancelled")
-				return
-			case res := <-resCh:
-				positions = res.positions
-				err = res.err
-			}
-
+			positions, err := ccxtutil.WatchWithContext(ctx, func() ([]ccxt.Position, error) {
+				return c.api.WatchPositions()
+			})
 			if err != nil {
 				if ctx.Err() != nil {
 					return

@@ -25,10 +25,15 @@ EOF
 RUN go build -v /tmp/warmup/main.go
 
 # ---- build each binary in its own stage so they compile in parallel ----
-FROM deps AS build-collector
+FROM deps AS build-collector-public
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags="-s -w" -o /out/collector ./cmd/collector
+    go build -trimpath -ldflags="-s -w" -o /out/collector-public ./cmd/collector-public
+
+FROM deps AS build-collector-private
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags="-s -w" -o /out/collector-private ./cmd/collector-private
 
 FROM deps AS build-api
 COPY . .
@@ -46,10 +51,15 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" -o /out/trader ./cmd/trader
 
 # ---- runtime images ----
-FROM gcr.io/distroless/static-debian12 AS collector
-COPY --from=build-collector /out/collector /collector
+FROM gcr.io/distroless/static-debian12 AS collector-public
+COPY --from=build-collector-public /out/collector-public /collector-public
 COPY configs/config.yaml /configs/config.yaml
-ENTRYPOINT ["/collector"]
+ENTRYPOINT ["/collector-public"]
+
+FROM gcr.io/distroless/static-debian12 AS collector-private
+COPY --from=build-collector-private /out/collector-private /collector-private
+COPY configs/config.yaml /configs/config.yaml
+ENTRYPOINT ["/collector-private"]
 
 FROM gcr.io/distroless/static-debian12 AS api
 COPY --from=build-api /out/api /api

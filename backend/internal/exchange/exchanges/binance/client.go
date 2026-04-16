@@ -43,6 +43,7 @@ func New(logger *slog.Logger, opts ...Option) *Client {
 
 	apiCfg := map[string]interface{}{
 		"options": map[string]any{
+			"defaultType": "swap",
 			"fetchMarkets": map[string]any{
 				"types": []string{"linear"},
 			},
@@ -96,13 +97,27 @@ func (c *Client) Markets(ctx context.Context) ([]domain.Market, error) {
 // and WatchBidsAsks for bid/ask prices) and merges them into a single stream.
 // Binance does not return bid/ask from WatchTickers, so WatchBidsAsks is required
 // to populate the Bid and Ask fields on domain.Ticker.
+//
+// We subscribe to the aggregate "all tickers" streams (!miniTicker@arr and
+// !bookTicker) rather than per-symbol streams. This is critical: CCXT's
+// WatchMultiple creates N goroutines via FutureRace (one per symbol), and only
+// the first to resolve exits cleanly — the rest leak permanently. With the
+// aggregate stream there is only 1 messageHash → 1 Future → 0 leaked goroutines
+// per call. We filter to the requested symbols on our side.
+//
 // The returned channel is closed when ctx is cancelled.
 func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.Ticker, error) {
 	if len(symbols) == 0 {
 		return nil, fmt.Errorf("binance: no symbols provided for ticker subscription")
 	}
 
-	c.logger.Info("subscribing to tickers", "symbols", len(symbols))
+	c.logger.Info("subscribing to tickers (all-tickers stream)", "filter_symbols", len(symbols))
+
+	// Build a set for O(1) filtering.
+	allowed := make(map[string]struct{}, len(symbols))
+	for _, s := range symbols {
+		allowed[s] = struct{}{}
+	}
 
 	ch := make(chan domain.Ticker, 256)
 
@@ -120,11 +135,11 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 
 		go func() {
 			defer wg.Done()
-			c.watchTickersLoop(ctx, symbols, tickerCh)
+			c.watchTickersLoop(ctx, tickerCh)
 		}()
 		go func() {
 			defer wg.Done()
-			c.watchBidsAsksLoop(ctx, symbols, bidAskCh)
+			c.watchBidsAsksLoop(ctx, bidAskCh)
 		}()
 
 		// Close internal channels once both producers are done so the
@@ -135,14 +150,16 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 			close(bidAskCh)
 		}()
 
-		c.mergeTickerStreams(ctx, tickerCh, bidAskCh, ch)
+		c.mergeTickerStreams(ctx, allowed, tickerCh, bidAskCh, ch)
 	}()
 
 	return ch, nil
 }
 
-// watchTickersLoop runs WatchTickers in a retry loop, sending results to out.
-func (c *Client) watchTickersLoop(ctx context.Context, symbols []string, out chan<- ccxt.Tickers) {
+// watchTickersLoop subscribes to the Binance all-tickers aggregate stream
+// (!miniTicker@arr) via WatchTickers with nil symbols. This creates a single
+// messageHash and avoids the FutureRace goroutine leak.
+func (c *Client) watchTickersLoop(ctx context.Context, out chan<- ccxt.Tickers) {
 	backoff := ccxtutil.InitialBackoff
 
 	for {
@@ -150,28 +167,9 @@ func (c *Client) watchTickersLoop(ctx context.Context, symbols []string, out cha
 			return
 		}
 
-		type result struct {
-			tickers ccxt.Tickers
-			err     error
-		}
-		resCh := make(chan result, 1)
-
-		go func() {
-			t, e := c.api.WatchTickers(ccxt.WithWatchTickersSymbols(symbols))
-			resCh <- result{tickers: t, err: e}
-		}()
-
-		var tickers ccxt.Tickers
-		var err error
-
-		select {
-		case <-ctx.Done():
-			return
-		case res := <-resCh:
-			tickers = res.tickers
-			err = res.err
-		}
-
+		tickers, err := ccxtutil.WatchWithContext(ctx, func() (ccxt.Tickers, error) {
+			return c.api.WatchTickers()
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -203,8 +201,10 @@ func (c *Client) watchTickersLoop(ctx context.Context, symbols []string, out cha
 	}
 }
 
-// watchBidsAsksLoop runs WatchBidsAsks in a retry loop, sending results to out.
-func (c *Client) watchBidsAsksLoop(ctx context.Context, symbols []string, out chan<- ccxt.Tickers) {
+// watchBidsAsksLoop subscribes to the Binance all-book-tickers aggregate stream
+// (!bookTicker) via WatchBidsAsks with nil symbols. This creates a single
+// messageHash and avoids the FutureRace goroutine leak.
+func (c *Client) watchBidsAsksLoop(ctx context.Context, out chan<- ccxt.Tickers) {
 	backoff := ccxtutil.InitialBackoff
 
 	for {
@@ -212,28 +212,9 @@ func (c *Client) watchBidsAsksLoop(ctx context.Context, symbols []string, out ch
 			return
 		}
 
-		type result struct {
-			tickers ccxt.Tickers
-			err     error
-		}
-		resCh := make(chan result, 1)
-
-		go func() {
-			t, e := c.api.WatchBidsAsks(ccxt.WithWatchBidsAsksSymbols(symbols))
-			resCh <- result{tickers: t, err: e}
-		}()
-
-		var tickers ccxt.Tickers
-		var err error
-
-		select {
-		case <-ctx.Done():
-			return
-		case res := <-resCh:
-			tickers = res.tickers
-			err = res.err
-		}
-
+		tickers, err := ccxtutil.WatchWithContext(ctx, func() (ccxt.Tickers, error) {
+			return c.api.WatchBidsAsks()
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -267,9 +248,10 @@ func (c *Client) watchBidsAsksLoop(ctx context.Context, symbols []string, out ch
 
 // mergeTickerStreams reads from the ticker and bid/ask channels, maintains
 // in-memory state per symbol, and emits a fully-populated domain.Ticker on
-// every update from either source.
+// every update from either source. Only symbols present in allowed are emitted.
 func (c *Client) mergeTickerStreams(
 	ctx context.Context,
+	allowed map[string]struct{},
 	tickerCh <-chan ccxt.Tickers,
 	bidAskCh <-chan ccxt.Tickers,
 	out chan<- domain.Ticker,
@@ -292,6 +274,9 @@ func (c *Client) mergeTickerStreams(
 				if dt.Symbol == "" {
 					continue
 				}
+				if _, ok := allowed[dt.Symbol]; !ok {
+					continue
+				}
 				merged := applyTickerUpdate(state, dt)
 				select {
 				case out <- *merged:
@@ -309,6 +294,9 @@ func (c *Client) mergeTickerStreams(
 			for _, t := range tickers.Tickers {
 				dt := mapBidAsk(t, now)
 				if dt.Symbol == "" {
+					continue
+				}
+				if _, ok := allowed[dt.Symbol]; !ok {
 					continue
 				}
 				merged := applyBidAskUpdate(state, dt)

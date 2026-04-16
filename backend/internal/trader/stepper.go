@@ -85,7 +85,7 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 		// For the last step, the portion might be smaller than portion_size
 		// to avoid exceeding the total requested_size.
 		stepAmount := portionAmount
-		if p.SizeType == domain.SizeTypeBase {
+		if p.SizeType == domain.SizeTypeQuantity {
 			remaining := p.RequestedSize.Sub(longTotalQty)
 			portionDec := decimal.NewFromFloat(portionAmount)
 			if remaining.LessThan(portionDec) && remaining.GreaterThan(decimal.Zero) {
@@ -262,11 +262,11 @@ func (t *Trader) resolvePortionAmount(
 	p *domain.Position,
 	longExch, shortExch exchange.TradingExchange,
 ) (float64, error) {
-	if p.SizeType == domain.SizeTypeBase {
+	if p.SizeType == domain.SizeTypeQuantity {
 		return p.PortionSize.InexactFloat64(), nil
 	}
 
-	// SizeTypeUSD — need a reference price to convert.
+	// SizeTypePrice — need a reference price to convert.
 	refPrice, err := t.referencePrice(ctx, p.Symbol, longExch, shortExch)
 	if err != nil {
 		return 0, err

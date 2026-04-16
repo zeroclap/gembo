@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   createPosition,
+  simulateArbitrage,
   type CreatePositionRequest,
   type SizeType,
+  type SimulationResult,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { SectionHeader } from "@/components/arbitrage/shared";
 import { SimulationPanelView } from "@/components/arbitrage/simulation-dialog";
+import { formatUsd, formatUsdPlain, formatPct, formatRate, formatCountdown } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Loader2, FlaskConical, ArrowLeft } from "lucide-react";
 
@@ -53,11 +56,11 @@ export function OpenPositionPanel({
   const queryClient = useQueryClient();
 
   // --- Size ---
-  // sizeType "usd" → position_size (denominated in quote, e.g. USDT)
-  // sizeType "base" → quantity (number of contracts)
-  const [sizeType, setSizeType] = useState<SizeType>("usd");
+  // sizeType "price" → position_size (denominated in quote, e.g. USDT)
+  // sizeType "quantity" → quantity (number of contracts)
+  const [sizeType, setSizeType] = useState<SizeType>("quantity");
   const [size, setSize] = useState("1000");
-  const [quantity, setQuantity] = useState("1");
+  const [quantity, setQuantity] = useState("1000");
 
   // --- Stepped execution ---
   const [portionSize, setPortionSize] = useState("");
@@ -69,7 +72,7 @@ export function OpenPositionPanel({
   const [shortLeverage, setShortLeverage] = useState(1);
 
   // --- Strategy ---
-  const [strategy, setStrategy] = useState<Strategy>("price_spread");
+  const [strategy, setStrategy] = useState<Strategy>("funding_rate");
 
   // Price-spread strategy fields
   const [targetSpreadPct, setTargetSpreadPct] = useState("");
@@ -83,7 +86,7 @@ export function OpenPositionPanel({
   const isStepped =
     portionSize.trim() !== "" && parseFloat(portionSize) > 0;
 
-  const activeSize = sizeType === "usd" ? size : quantity;
+  const activeSize = sizeType === "price" ? size : quantity;
 
   const estimatedSteps = useMemo(() => {
     if (!isStepped) return null;
@@ -94,6 +97,57 @@ export function OpenPositionPanel({
   }, [isStepped, activeSize, portionSize]);
 
   const sizeValid = parseFloat(activeSize) > 0;
+
+  // --- Inline simulation (auto-run with debounce) ---
+  const [simResult, setSimResult] = useState<SimulationResult | null>(null);
+  const [simLoading, setSimLoading] = useState(false);
+  const simTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const simSizeType = sizeType;
+  const simSize = sizeType === "price" ? size : quantity;
+  const simSlippage = slippageEnabled ? slippagePct : "";
+
+  useEffect(() => {
+    clearTimeout(simTimerRef.current);
+    const val = parseFloat(simSize);
+    if (!val || val <= 0 || !symbol || !longExchange || !shortExchange) {
+      setSimResult(null);
+      return;
+    }
+    simTimerRef.current = setTimeout(async () => {
+      setSimLoading(true);
+      try {
+        const result = await simulateArbitrage({
+          symbol,
+          long_exchange_id: longExchange,
+          short_exchange_id: shortExchange,
+          size_type: simSizeType,
+          ...(simSizeType === "price"
+            ? { position_size: simSize }
+            : { quantity: simSize }),
+          slippage_pct: simSlippage || "0",
+          hold_hours: "24",
+        });
+        setSimResult(result);
+      } catch {
+        setSimResult(null);
+      } finally {
+        setSimLoading(false);
+      }
+    }, 600);
+    return () => clearTimeout(simTimerRef.current);
+  }, [symbol, longExchange, shortExchange, simSizeType, simSize, simSlippage]);
+
+  // Converted size hint from simulation result (qty↔price).
+  const convertedSize = useMemo(() => {
+    if (!simResult) return null;
+    if (sizeType === "price") {
+      const qty = parseFloat(simResult.quantity);
+      return qty > 0 ? `≈ ${Math.floor(qty)} contracts` : null;
+    }
+    const usd = parseFloat(simResult.actual_position_size || simResult.position_size);
+    return usd > 0 ? `≈ $${usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : null;
+  }, [sizeType, simResult]);
 
   // Apply portion as percentage of total size
   function applyPortionPct(pct: number) {
@@ -116,7 +170,7 @@ export function OpenPositionPanel({
       long_exchange_id: longExchange,
       short_exchange_id: shortExchange,
       size_type: sizeType,
-      requested_size: sizeType === "usd" ? size : quantity,
+      requested_size: sizeType === "price" ? size : quantity,
     };
 
     if (portionSize.trim()) req.portion_size = portionSize;
@@ -158,8 +212,8 @@ export function OpenPositionPanel({
     symbol,
     longExchange,
     shortExchange,
-    sizeType: sizeType === "usd" ? ("usd" as const) : ("qty" as const),
-    size: sizeType === "usd" ? size : quantity,
+    sizeType: sizeType,
+    size: sizeType === "price" ? size : quantity,
     slippagePct: slippageEnabled ? slippagePct : "",
     autoRun: true as const,
   };
@@ -212,10 +266,10 @@ export function OpenPositionPanel({
             {/* USD / QTY toggle */}
             <div className="flex items-center justify-between mb-1.5">
               <Label className="text-xs text-muted-foreground">
-                {sizeType === "usd" ? "Price (USDT)" : "Contracts (QTY)"}
+                {sizeType === "quantity" ? "Quantity (Contracts)" : "Price (USDT)"}
               </Label>
               <div className="flex h-6 items-center rounded-md border bg-muted/40 p-0.5">
-                {(["usd", "base"] as const).map((t) => (
+                {(["quantity", "price"] as const).map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -227,23 +281,30 @@ export function OpenPositionPanel({
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
-                    {t === "usd" ? "Price" : "QTY"}
+                    {t === "quantity" ? "Quantity" : "Price"}
                   </button>
                 ))}
               </div>
             </div>
-            <Input
-              type="text"
-              inputMode="decimal"
-              value={sizeType === "usd" ? size : quantity}
-              onChange={(e) =>
-                sizeType === "usd"
-                  ? setSize(e.target.value)
-                  : setQuantity(e.target.value)
-              }
-              placeholder={sizeType === "usd" ? "1000" : "1"}
-              className="font-mono tabular-nums text-xs h-7"
-            />
+            <div className="relative">
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={sizeType === "price" ? size : quantity}
+                onChange={(e) =>
+                  sizeType === "price"
+                    ? setSize(e.target.value)
+                    : setQuantity(e.target.value)
+                }
+                placeholder="1000"
+                className="font-mono tabular-nums text-xs h-7 pr-[var(--hint-width,4rem)]"
+              />
+              {convertedSize && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[0.625rem] text-muted-foreground/60 font-mono tabular-nums pointer-events-none select-none">
+                  {convertedSize}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* ── Slippage ── */}
@@ -296,7 +357,7 @@ export function OpenPositionPanel({
           <div>
             <Label className="text-xs text-muted-foreground">Strategy</Label>
             <div className="flex h-7 items-center rounded-md border bg-muted/40 p-0.5 gap-0.5 mt-1">
-              {(["price_spread", "funding_rate"] as const).map((s) => (
+              {(["funding_rate", "price_spread"] as const).map((s) => (
                 <button
                   key={s}
                   type="button"
@@ -467,9 +528,20 @@ export function OpenPositionPanel({
             </SectionHeader>
             <div className="space-y-2">
               <div>
-                <Label className="text-xs text-muted-foreground">
-                  Portion Size
-                </Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">
+                    Portion Size
+                  </Label>
+                  {portionSize && (
+                    <button
+                      type="button"
+                      onClick={() => setPortionSize("")}
+                      className="flex items-center gap-0.5 text-[0.625rem] text-muted-foreground/60 hover:text-foreground transition-colors"
+                    >
+                      <span>×</span> Clear
+                    </button>
+                  )}
+                </div>
                 <Input
                   type="text"
                   inputMode="decimal"
@@ -496,32 +568,6 @@ export function OpenPositionPanel({
             </div>
           </div>
 
-          {/* Execution preview */}
-          {isStepped && estimatedSteps && (
-            <>
-              <Separator />
-              <div className="rounded-md border bg-muted/30 px-2.5 py-2">
-                <SectionHeader className="mb-1">Preview</SectionHeader>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
-                  <span className="text-muted-foreground">Total</span>
-                  <span className="font-mono tabular-nums text-right">
-                    {sizeType === "usd" ? "$" : ""}
-                    {activeSize}
-                  </span>
-                  <span className="text-muted-foreground">Portion</span>
-                  <span className="font-mono tabular-nums text-right">
-                    {sizeType === "usd" ? "$" : ""}
-                    {portionSize}
-                  </span>
-                  <span className="text-muted-foreground">Steps</span>
-                  <span className="font-mono tabular-nums text-right">
-                    {estimatedSteps}
-                  </span>
-                </div>
-              </div>
-            </>
-          )}
-
           {/* Error / Success */}
           {createMutation.error && (
             <div className="rounded-md bg-destructive/10 border border-destructive/20 px-2.5 py-1.5 text-[0.625rem] text-destructive">
@@ -535,6 +581,17 @@ export function OpenPositionPanel({
           )}
 
           <Separator />
+
+          {/* ── Simulation Summary ── */}
+          {simLoading && !simResult && (
+            <div className="flex items-center gap-1.5 text-[0.625rem] text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Estimating...
+            </div>
+          )}
+          {simResult && (
+            <SimSummary result={simResult} />
+          )}
 
           {/* ── Actions: Open Position (wide) + Simulate icon (narrow) ── */}
           <div className="flex gap-1.5">
@@ -563,5 +620,119 @@ export function OpenPositionPanel({
           </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SimSummary — fees, spread context, funding P&L with countdowns
+// ---------------------------------------------------------------------------
+
+function SimSummary({ result }: { result: SimulationResult }) {
+  // Live countdown ticker (re-renders every second).
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const breakevenHours = parseFloat(result.breakeven_hours);
+  const spreadPct = parseFloat(result.open_spread_pct);
+  const lcmH = result.lcm_duration_hours;
+
+  return (
+    <div className="rounded-md border bg-muted/30 px-2.5 py-2 space-y-2">
+      {/* Fees */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
+        <span className="text-muted-foreground">Entry fees</span>
+        <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
+          {formatUsdPlain(result.entry_cost)}
+        </span>
+        <span className="text-muted-foreground">Exit fees</span>
+        <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
+          {formatUsdPlain(result.exit_cost)}
+        </span>
+        <span className="text-muted-foreground font-medium">Total fees</span>
+        <span className="font-mono tabular-nums text-right font-medium text-red-600 dark:text-red-400">
+          {formatUsdPlain(result.total_cost)}
+        </span>
+      </div>
+
+      <Separator />
+
+      {/* Spread context */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
+        <span className="text-muted-foreground">Current spread</span>
+        <span className={cn(
+          "font-mono tabular-nums text-right",
+          spreadPct >= 0
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-red-600 dark:text-red-400"
+        )}>
+          {formatPct(result.open_spread_pct)}
+        </span>
+        <span className="text-muted-foreground">24h range</span>
+        <span className="font-mono tabular-nums text-right text-muted-foreground">
+          {formatPct(result.spread_range_24h.min)} – {formatPct(result.spread_range_24h.max)}
+        </span>
+      </div>
+
+      <Separator />
+
+      {/* Funding P&L */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
+        <span className="text-muted-foreground">Funding / 8h</span>
+        <SimPnl value={result.funding_8h} />
+        <span className="text-muted-foreground">24h rate range</span>
+        <span className="font-mono tabular-nums text-right text-muted-foreground">
+          {formatRate(result.funding_range_24h.min_rate_8h)} – {formatRate(result.funding_range_24h.max_rate_8h)}
+        </span>
+        <span className="text-muted-foreground">Breakeven</span>
+        <span className="font-mono tabular-nums text-right">
+          {breakevenHours < 0 ? "never" : `${breakevenHours.toFixed(1)}h`}
+        </span>
+
+        <span className="col-span-2 border-t border-border/30 my-0.5" />
+
+        <span className="text-muted-foreground">
+          Next funding P&L
+          {result.next_funding_at && (
+            <span className="ml-1 text-muted-foreground/60">
+              {formatCountdown(result.next_funding_at)}
+            </span>
+          )}
+        </span>
+        <SimPnl value={result.next_pnl} bold />
+        <span className="text-muted-foreground">
+          LCM funding P&L
+          {lcmH > 0 && (
+            <span className="ml-1 text-muted-foreground/60">/ {lcmH}h</span>
+          )}
+        </span>
+        <SimPnl value={result.lcm_pnl} bold />
+        <span className="text-muted-foreground">24h P&L</span>
+        <SimPnl value={result.pnl_hold} bold />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SimPnl — inline P&L value with color
+// ---------------------------------------------------------------------------
+
+function SimPnl({ value, bold }: { value: string; bold?: boolean }) {
+  const num = parseFloat(value);
+  return (
+    <span
+      className={cn(
+        "font-mono tabular-nums text-right",
+        bold && "font-medium",
+        num >= 0
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-red-600 dark:text-red-400"
+      )}
+    >
+      {formatUsd(value)}
+    </span>
   );
 }

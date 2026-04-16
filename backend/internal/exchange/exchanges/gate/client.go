@@ -43,6 +43,7 @@ func New(logger *slog.Logger, opts ...Option) *Client {
 
 	apiCfg := map[string]interface{}{
 		"options": map[string]any{
+			"defaultType": "swap",
 			"fetchMarkets": map[string]any{
 				"types": []string{"swap"},
 			},
@@ -96,6 +97,13 @@ func (c *Client) Markets(ctx context.Context) ([]domain.Market, error) {
 // and WatchBidsAsks for bid/ask prices) and merges them into a single stream.
 // Gate.io does not return bid/ask from WatchTickers, so WatchBidsAsks is required
 // to populate the Bid and Ask fields on domain.Ticker.
+//
+// Each symbol is subscribed individually to avoid the goroutine leak inherent
+// in CCXT's FutureRace mechanism: WatchMultiple with N symbols creates N
+// goroutines, only 1 exits per call, the rest leak. With 1 symbol per call,
+// FutureRace creates 1 goroutine that resolves immediately — zero leak.
+// All subscriptions share the same WebSocket connection regardless of batch size.
+//
 // The returned channel is closed when ctx is cancelled.
 func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.Ticker, error) {
 	if len(symbols) == 0 {
@@ -113,8 +121,6 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 	go func() {
 		defer close(ch)
 
-		// Start the two producer goroutines plus the merge loop.
-		// When ctx is cancelled all three exit and ch is closed.
 		var wg sync.WaitGroup
 		wg.Add(2)
 
@@ -127,8 +133,6 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 			c.watchBidsAsksLoop(ctx, symbols, bidAskCh)
 		}()
 
-		// Close internal channels once both producers are done so the
-		// merge loop below can drain remaining messages and exit.
 		go func() {
 			wg.Wait()
 			close(tickerCh)
@@ -141,8 +145,22 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) (<-chan domain.T
 	return ch, nil
 }
 
-// watchTickersLoop runs WatchTickers in a retry loop, sending results to out.
+// watchTickersLoop subscribes to tickers one symbol at a time. Each symbol
+// runs its own WatchTickers retry loop concurrently. All share the same
+// underlying WebSocket connection.
 func (c *Client) watchTickersLoop(ctx context.Context, symbols []string, out chan<- ccxt.Tickers) {
+	var wg sync.WaitGroup
+	for _, sym := range symbols {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.watchTickerSymbol(ctx, sym, out)
+		}()
+	}
+	wg.Wait()
+}
+
+func (c *Client) watchTickerSymbol(ctx context.Context, symbol string, out chan<- ccxt.Tickers) {
 	backoff := ccxtutil.InitialBackoff
 
 	for {
@@ -150,28 +168,9 @@ func (c *Client) watchTickersLoop(ctx context.Context, symbols []string, out cha
 			return
 		}
 
-		type result struct {
-			tickers ccxt.Tickers
-			err     error
-		}
-		resCh := make(chan result, 1)
-
-		go func() {
-			t, e := c.api.WatchTickers(ccxt.WithWatchTickersSymbols(symbols))
-			resCh <- result{tickers: t, err: e}
-		}()
-
-		var tickers ccxt.Tickers
-		var err error
-
-		select {
-		case <-ctx.Done():
-			return
-		case res := <-resCh:
-			tickers = res.tickers
-			err = res.err
-		}
-
+		tickers, err := ccxtutil.WatchWithContext(ctx, func() (ccxt.Tickers, error) {
+			return c.api.WatchTickers(ccxt.WithWatchTickersSymbols([]string{symbol}))
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -203,8 +202,21 @@ func (c *Client) watchTickersLoop(ctx context.Context, symbols []string, out cha
 	}
 }
 
-// watchBidsAsksLoop runs WatchBidsAsks in a retry loop, sending results to out.
+// watchBidsAsksLoop subscribes to bid/ask data one symbol at a time. Each
+// symbol runs its own WatchBidsAsks retry loop concurrently.
 func (c *Client) watchBidsAsksLoop(ctx context.Context, symbols []string, out chan<- ccxt.Tickers) {
+	var wg sync.WaitGroup
+	for _, sym := range symbols {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.watchBidAskSymbol(ctx, sym, out)
+		}()
+	}
+	wg.Wait()
+}
+
+func (c *Client) watchBidAskSymbol(ctx context.Context, symbol string, out chan<- ccxt.Tickers) {
 	backoff := ccxtutil.InitialBackoff
 
 	for {
@@ -212,28 +224,9 @@ func (c *Client) watchBidsAsksLoop(ctx context.Context, symbols []string, out ch
 			return
 		}
 
-		type result struct {
-			tickers ccxt.Tickers
-			err     error
-		}
-		resCh := make(chan result, 1)
-
-		go func() {
-			t, e := c.api.WatchBidsAsks(ccxt.WithWatchBidsAsksSymbols(symbols))
-			resCh <- result{tickers: t, err: e}
-		}()
-
-		var tickers ccxt.Tickers
-		var err error
-
-		select {
-		case <-ctx.Done():
-			return
-		case res := <-resCh:
-			tickers = res.tickers
-			err = res.err
-		}
-
+		tickers, err := ccxtutil.WatchWithContext(ctx, func() (ccxt.Tickers, error) {
+			return c.api.WatchBidsAsks(ccxt.WithWatchBidsAsksSymbols([]string{symbol}))
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return

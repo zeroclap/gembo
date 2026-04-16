@@ -28,7 +28,7 @@ type createPositionRequest struct {
 	Symbol          string `json:"symbol"`
 	LongExchangeID  string `json:"long_exchange_id"`
 	ShortExchangeID string `json:"short_exchange_id"`
-	SizeType        string `json:"size_type"`      // "usd" or "base"
+	SizeType        string `json:"size_type"`      // "price" or "quantity"
 	RequestedSize   string `json:"requested_size"` // total position size
 	PortionSize     string `json:"portion_size"`   // size per step (optional; 0 or empty = single-shot)
 	PriceMin        string `json:"price_min"`      // min acceptable price (optional)
@@ -61,8 +61,8 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "missing_field", "symbol, long_exchange_id, and short_exchange_id are required")
 		return
 	}
-	if req.SizeType != string(domain.SizeTypeUSD) && req.SizeType != string(domain.SizeTypeBase) {
-		writeErr(w, http.StatusBadRequest, "invalid_size_type", "size_type must be 'usd' or 'base'")
+	if req.SizeType != string(domain.SizeTypePrice) && req.SizeType != string(domain.SizeTypeQuantity) {
+		writeErr(w, http.StatusBadRequest, "invalid_size_type", "size_type must be 'price' or 'quantity'")
 		return
 	}
 	size, err := decimal.NewFromString(req.RequestedSize)

@@ -223,7 +223,7 @@ func TestCreatePosition_ValidRequest(t *testing.T) {
 		"symbol":"BTC/USDT:USDT",
 		"long_exchange_id":"bybit",
 		"short_exchange_id":"okx",
-		"size_type":"usd",
+		"size_type":"price",
 		"requested_size":"1000"
 	}`
 	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
@@ -266,7 +266,7 @@ func TestCreatePosition_MissingSymbol(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	body := `{"long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"usd","requested_size":"1000"}`
+	body := `{"long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"price","requested_size":"1000"}`
 	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -300,7 +300,7 @@ func TestCreatePosition_SameExchange(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"bybit","size_type":"usd","requested_size":"1000"}`
+	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"bybit","size_type":"price","requested_size":"1000"}`
 	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -317,7 +317,7 @@ func TestCreatePosition_NegativeSize(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"usd","requested_size":"-100"}`
+	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"price","requested_size":"-100"}`
 	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -334,7 +334,7 @@ func TestCreatePosition_ZeroSize(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"base","requested_size":"0"}`
+	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"quantity","requested_size":"0"}`
 	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
