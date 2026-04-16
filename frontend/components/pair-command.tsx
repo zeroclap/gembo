@@ -19,6 +19,7 @@ import {
   Search,
   Check,
   Filter,
+  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +61,7 @@ interface DirectionalPair {
   shortPrice: string;
   lcmSpread: number;
   nextSpread: number;
+  recommended: boolean;
 }
 
 function buildDirectionalPairs(
@@ -89,6 +91,7 @@ function buildDirectionalPairs(
       shortPrice: arb.short.price,
       lcmSpread: lcm,
       nextSpread: next,
+      recommended: arb.recommended,
     });
 
     // Direction B: swapped (long = arb.short, short = arb.long)
@@ -108,6 +111,7 @@ function buildDirectionalPairs(
       shortPrice: arb.long.price,
       lcmSpread: -lcm,
       nextSpread: -next,
+      recommended: false,
     });
   }
 
@@ -479,6 +483,9 @@ function DataRowPair({
             {isActive && (
               <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />
             )}
+            {pair.recommended && (
+              <Star className="h-3 w-3 fill-amber-400 text-amber-400 shrink-0" />
+            )}
             {pair.symbol}
           </div>
           <LegLine
@@ -526,6 +533,9 @@ function DataRowPair({
         <div className="px-3 py-2 flex items-center gap-1 whitespace-nowrap font-medium text-xs">
           {isActive && (
             <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />
+          )}
+          {pair.recommended && (
+            <Star className="h-3 w-3 fill-amber-400 text-amber-400 shrink-0" />
           )}
           {pair.symbol}
         </div>

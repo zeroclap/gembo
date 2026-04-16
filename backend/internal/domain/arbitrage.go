@@ -28,6 +28,9 @@ type FundingArbitrage struct {
 	NextPayment NextPaymentInfo `json:"next_payment"`
 	FullLoop    FullLoopInfo    `json:"full_loop"`
 
+	// Recommendation flag — set by the recommendation engine at query time.
+	Recommended bool `json:"recommended"`
+
 	UpdatedAt time.Time `json:"updated_at"`
 }
 

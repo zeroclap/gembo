@@ -126,6 +126,7 @@ export interface FundingArbitrage {
   fees: ArbitrageFees;
   next_payment: NextPaymentInfo;
   full_loop: FullLoopInfo;
+  recommended: boolean;
   updated_at: string;
 }
 

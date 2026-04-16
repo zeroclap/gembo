@@ -3,6 +3,8 @@ package api
 import (
 	"net/http"
 	"sort"
+
+	"github.com/zeroclap/gembo/internal/arbitrage/recommend"
 )
 
 // handleListFundingArbitrage returns all pre-computed funding rate arbitrage
@@ -18,6 +20,9 @@ func (h *Handler) handleListFundingArbitrage(w http.ResponseWriter, r *http.Requ
 	sort.Slice(arbs, func(i, j int) bool {
 		return arbs[i].APR.GreaterThan(arbs[j].APR)
 	})
+
+	// Flag recommended opportunities.
+	recommend.Default().Annotate(arbs)
 
 	writeOK(w, arbs)
 }
