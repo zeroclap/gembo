@@ -46,6 +46,11 @@ async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     throw new Error(`API error: ${res.status} ${res.statusText}`);
   }
+
+  if (res.status === 204) {
+    return null as T;
+  }
+
   const json: ApiResponse<T> = await res.json();
   if (json.error) {
     throw new Error(json.error.message);
@@ -86,6 +91,70 @@ export function fetchTicker(
 
 export function fetchBalances(): Promise<Balance[]> {
   return fetchApi<Balance[]>("/balances");
+}
+
+export interface Account {
+  id: string;
+  email: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExchangeCredential {
+  id: string;
+  user_id: string;
+  exchange_id: string;
+  title: string;
+  api_key: string;
+  api_secret: string;
+  passphrase?: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertExchangeCredentialRequest {
+  exchange_id: string;
+  title: string;
+  api_key: string;
+  api_secret: string;
+  passphrase?: string;
+  is_default: boolean;
+}
+
+export function fetchAccount(): Promise<Account> {
+  return fetchApi<Account>("/account");
+}
+
+export function fetchExchangeCredentials(): Promise<ExchangeCredential[]> {
+  return fetchApi<ExchangeCredential[]>("/account/credentials");
+}
+
+export function createExchangeCredential(
+  req: UpsertExchangeCredentialRequest
+): Promise<ExchangeCredential> {
+  return fetchApi<ExchangeCredential>("/account/credentials", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export function updateExchangeCredential(
+  id: string,
+  req: UpsertExchangeCredentialRequest
+): Promise<ExchangeCredential> {
+  return fetchApi<ExchangeCredential>(`/account/credentials/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export async function deleteExchangeCredential(id: string): Promise<void> {
+  await fetchApi<null>(`/account/credentials/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 // --- Funding Rate ---

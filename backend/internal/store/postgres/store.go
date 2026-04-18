@@ -11,6 +11,8 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/zeroclap/gembo/internal/security"
 )
 
 //go:embed migrations/*.sql
@@ -18,7 +20,8 @@ var migrationsFS embed.FS
 
 // Store implements store.PositionStore using PostgreSQL via pgx.
 type Store struct {
-	pool *pgxpool.Pool
+	pool             *pgxpool.Pool
+	credentialCipher *security.CredentialCipher
 }
 
 // New creates a new PostgreSQL store and connects to the database.
@@ -32,6 +35,12 @@ func New(ctx context.Context, connStr string) (*Store, error) {
 		return nil, fmt.Errorf("postgres ping: %w", err)
 	}
 	return &Store{pool: pool}, nil
+}
+
+// WithCredentialCipher configures encryption for sensitive credential fields.
+func (s *Store) WithCredentialCipher(c *security.CredentialCipher) *Store {
+	s.credentialCipher = c
+	return s
 }
 
 // Close closes the connection pool.

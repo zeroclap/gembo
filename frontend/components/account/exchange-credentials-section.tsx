@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Pencil, Trash2, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,25 +26,39 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  useAccountStore,
   type ExchangeId,
   type ExchangeCredential,
   EXCHANGE_META,
   EXCHANGES,
 } from "@/lib/account-store";
+import {
+  createExchangeCredential,
+  deleteExchangeCredential,
+  fetchExchangeCredentials,
+  updateExchangeCredential,
+} from "@/lib/api";
 import { CredentialDialog } from "@/components/account/credential-dialog";
 import { cn } from "@/lib/utils";
 
 interface ExchangeRowProps {
   exchangeId: ExchangeId;
   credentials: ExchangeCredential[];
-  defaultId: string | null;
+  isPending: boolean;
+  onCreate: (data: Omit<ExchangeCredential, "id">) => void;
+  onUpdate: (id: string, data: Omit<ExchangeCredential, "id">) => void;
+  onDelete: (id: string) => void;
 }
 
-function ExchangeRow({ exchangeId, credentials, defaultId }: ExchangeRowProps) {
-  const { addCredential, updateCredential, removeCredential, setDefault } =
-    useAccountStore();
+function ExchangeRow({
+  exchangeId,
+  credentials,
+  isPending,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: ExchangeRowProps) {
   const meta = EXCHANGE_META[exchangeId];
+  const defaultId = credentials.find((c) => c.isDefault)?.id ?? null;
 
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ExchangeCredential | null>(null);
@@ -62,6 +77,7 @@ function ExchangeRow({ exchangeId, credentials, defaultId }: ExchangeRowProps) {
         <Button
           variant="outline"
           size="sm"
+          disabled={isPending}
           onClick={() => setAddOpen(true)}
         >
           <Plus data-icon="inline-start" />
@@ -93,7 +109,7 @@ function ExchangeRow({ exchangeId, credentials, defaultId }: ExchangeRowProps) {
                     )}
                   </div>
                   <span className="text-[0.625rem] text-muted-foreground font-mono truncate block">
-                    {cred.key.slice(0, 8)}…{cred.key.slice(-4)}
+                    {cred.apiKey.slice(0, 8)}…{cred.apiKey.slice(-4)}
                   </span>
                 </div>
 
@@ -104,8 +120,16 @@ function ExchangeRow({ exchangeId, credentials, defaultId }: ExchangeRowProps) {
                         variant="ghost"
                         size="icon-sm"
                         onClick={() =>
-                          setDefault(exchangeId, isDefault ? null : cred.id)
+                          onUpdate(cred.id, {
+                            exchangeId: cred.exchangeId,
+                            title: cred.title,
+                            apiKey: cred.apiKey,
+                            apiSecret: cred.apiSecret,
+                            passphrase: cred.passphrase,
+                            isDefault: !isDefault,
+                          })
                         }
+                        disabled={isPending}
                         className={cn(isDefault && "text-primary")}
                         aria-label={isDefault ? "Unset default" : "Set as default"}
                       >
@@ -122,6 +146,7 @@ function ExchangeRow({ exchangeId, credentials, defaultId }: ExchangeRowProps) {
                       <Button
                         variant="ghost"
                         size="icon-sm"
+                        disabled={isPending}
                         onClick={() => setEditTarget(cred)}
                         aria-label="Edit credential"
                       >
@@ -138,6 +163,7 @@ function ExchangeRow({ exchangeId, credentials, defaultId }: ExchangeRowProps) {
                           <Button
                             variant="ghost"
                             size="icon-sm"
+                            disabled={isPending}
                             className="text-destructive hover:text-destructive"
                             aria-label="Delete credential"
                           >
@@ -158,7 +184,7 @@ function ExchangeRow({ exchangeId, credentials, defaultId }: ExchangeRowProps) {
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
                           variant="destructive"
-                          onClick={() => removeCredential(cred.id)}
+                          onClick={() => onDelete(cred.id)}
                         >
                           Delete
                         </AlertDialogAction>
@@ -177,7 +203,7 @@ function ExchangeRow({ exchangeId, credentials, defaultId }: ExchangeRowProps) {
         open={addOpen}
         onOpenChange={setAddOpen}
         exchangeId={exchangeId}
-        onSave={(data) => addCredential(data)}
+        onSave={onCreate}
       />
 
       {/* Edit dialog */}
@@ -187,15 +213,81 @@ function ExchangeRow({ exchangeId, credentials, defaultId }: ExchangeRowProps) {
         exchangeId={exchangeId}
         credential={editTarget}
         onSave={(data) => {
-          if (editTarget) updateCredential(editTarget.id, data);
+          if (editTarget) onUpdate(editTarget.id, data);
         }}
       />
     </div>
   );
 }
 
+function normalizeExchangeId(value: string): ExchangeId | null {
+  if (value === "binance" || value === "bybit" || value === "gate" || value === "okx") {
+    return value;
+  }
+  return null;
+}
+
 export function ExchangeCredentialsSection() {
-  const { credentials, defaults } = useAccountStore();
+  const queryClient = useQueryClient();
+
+  const credentialsQuery = useQuery({
+    queryKey: ["account", "credentials"],
+    queryFn: fetchExchangeCredentials,
+    select: (items): ExchangeCredential[] => {
+      const result: ExchangeCredential[] = [];
+      for (const item of items) {
+        const exchangeId = normalizeExchangeId(item.exchange_id);
+        if (!exchangeId) continue;
+        result.push({
+          id: item.id,
+          exchangeId,
+          title: item.title,
+          apiKey: item.api_key,
+          apiSecret: item.api_secret,
+          passphrase: item.passphrase,
+          isDefault: item.is_default,
+        });
+      }
+      return result;
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: createExchangeCredential,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["account", "credentials"] });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Omit<ExchangeCredential, "id"> }) =>
+      updateExchangeCredential(id, {
+        exchange_id: data.exchangeId,
+        title: data.title,
+        api_key: data.apiKey,
+        api_secret: data.apiSecret,
+        passphrase: data.passphrase,
+        is_default: data.isDefault,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["account", "credentials"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteExchangeCredential,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["account", "credentials"] });
+    },
+  });
+
+  const isPending =
+    credentialsQuery.isLoading ||
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    deleteMutation.isPending;
+
+  const credentials = credentialsQuery.data ?? [];
 
   return (
     <Card>
@@ -207,12 +299,28 @@ export function ExchangeCredentialsSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
+        {credentialsQuery.isError && (
+          <p className="text-xs text-destructive">Failed to load credentials.</p>
+        )}
+
         {EXCHANGES.map((exchangeId, idx) => (
           <div key={exchangeId}>
             <ExchangeRow
               exchangeId={exchangeId}
               credentials={credentials.filter((c) => c.exchangeId === exchangeId)}
-              defaultId={defaults[exchangeId]}
+              isPending={isPending}
+              onCreate={(data) =>
+                createMutation.mutate({
+                  exchange_id: data.exchangeId,
+                  title: data.title,
+                  api_key: data.apiKey,
+                  api_secret: data.apiSecret,
+                  passphrase: data.passphrase,
+                  is_default: data.isDefault,
+                })
+              }
+              onUpdate={(id, data) => updateMutation.mutate({ id, data })}
+              onDelete={(id) => deleteMutation.mutate(id)}
             />
             {idx < EXCHANGES.length - 1 && <Separator className="mt-5" />}
           </div>

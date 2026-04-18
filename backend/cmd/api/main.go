@@ -21,6 +21,7 @@ import (
 	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
 	gateex "github.com/zeroclap/gembo/internal/exchange/exchanges/gate"
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
+	"github.com/zeroclap/gembo/internal/security"
 	pgstore "github.com/zeroclap/gembo/internal/store/postgres"
 	redistore "github.com/zeroclap/gembo/internal/store/redis"
 )
@@ -68,6 +69,17 @@ func main() {
 			logger.Error("postgres connect", "error", err)
 			os.Exit(1)
 		}
+
+		if cfg.Security.CredentialsEncryptionKeyBase64 != "" {
+			credentialCipher, err := security.NewCredentialCipherFromBase64(cfg.Security.CredentialsEncryptionKeyBase64)
+			if err != nil {
+				logger.Error("credentials encryption init", "error", err)
+				os.Exit(1)
+			}
+			ps.WithCredentialCipher(credentialCipher)
+			logger.Info("credentials encryption enabled")
+		}
+
 		defer ps.Close()
 
 		if err := ps.RunMigrations(); err != nil {

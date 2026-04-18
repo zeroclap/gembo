@@ -2,7 +2,7 @@
 // Provides offline support with a network-first strategy for API requests
 // and a cache-first strategy for static assets.
 
-const CACHE_NAME = "gembo-v1";
+const CACHE_NAME = "gembo-v2";
 const STATIC_ASSETS = [
   "/",
   "/arbitrage",
@@ -46,6 +46,12 @@ self.addEventListener("fetch", (event) => {
   // Network-first for API calls — always want fresh data
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(networkFirst(request));
+    return;
+  }
+
+  // Never cache auth/login route to avoid stale login state in PWA.
+  if (url.pathname === "/login") {
+    event.respondWith(fetch(request));
     return;
   }
 

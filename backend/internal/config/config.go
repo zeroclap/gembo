@@ -19,11 +19,19 @@ type Config struct {
 	Redis        RedisConfig        `yaml:"redis"`
 	Database     DatabaseConfig     `yaml:"database"`
 	Auth         AuthConfig         `yaml:"auth"`
+	Security     SecurityConfig     `yaml:"security"`
 	Exchanges    []ExchangeCfg      `yaml:"exchanges"`
 	MarketFilter MarketFilterConfig `yaml:"market_filter"`
 	Hooks        HooksConfig        `yaml:"hooks"`
 	Trader       TraderConfig       `yaml:"trader"`
 	Log          LogConfig          `yaml:"log"`
+}
+
+// SecurityConfig holds security-related settings.
+type SecurityConfig struct {
+	// CredentialsEncryptionKeyBase64 is a base64-encoded 32-byte key for
+	// encrypting exchange credentials at rest.
+	CredentialsEncryptionKeyBase64 string `yaml:"credentials_encryption_key_base64"`
 }
 
 // AuthConfig holds authentication settings.
@@ -268,6 +276,10 @@ func applyEnv(cfg *Config) {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.Auth.TokenTTL = d
 		}
+	}
+
+	if v := os.Getenv("CREDENTIALS_ENCRYPTION_KEY_BASE64"); v != "" {
+		cfg.Security.CredentialsEncryptionKeyBase64 = v
 	}
 
 	// Exchange credential overrides: <EXCHANGE_ID>_API_KEY, <EXCHANGE_ID>_SECRET, <EXCHANGE_ID>_PASSPHRASE.

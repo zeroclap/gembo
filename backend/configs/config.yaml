@@ -18,6 +18,12 @@ redis:
 database:
   url: ""  # postgres://gembo:gembo@localhost:5432/gembo?sslmode=disable
 
+# Security settings.
+# credentials_encryption_key_base64 must be a base64-encoded 32-byte key.
+# Env override: CREDENTIALS_ENCRYPTION_KEY_BASE64
+security:
+  credentials_encryption_key_base64: ""
+
 # Exchanges — controls which exchanges are active and their poll intervals.
 # The EXCHANGES env var is the authoritative filter: when set, only the listed
 # IDs are enabled regardless of the enabled flags below.

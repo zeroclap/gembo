@@ -8,14 +8,22 @@ const PUBLIC_PATHS = ["/login"];
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
+  const hydrated = useAuthStore((s) => s.hydrated);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
+    if (!hydrated) {
+      return;
+    }
     if (!token && !PUBLIC_PATHS.includes(pathname)) {
       router.replace("/login");
     }
-  }, [token, pathname, router]);
+  }, [hydrated, token, pathname, router]);
+
+  if (!hydrated) {
+    return null;
+  }
 
   // Render nothing while redirecting to avoid a flash of protected content.
   if (!token && !PUBLIC_PATHS.includes(pathname)) {

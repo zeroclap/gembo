@@ -29,16 +29,17 @@ function CredentialForm({ exchangeId, credential, onSave, onCancel }: Credential
   const meta = EXCHANGE_META[exchangeId];
 
   const [title, setTitle] = useState(credential?.title ?? "");
-  const [key, setKey] = useState(credential?.key ?? "");
-  const [secret, setSecret] = useState(credential?.secret ?? "");
+  const [apiKey, setApiKey] = useState(credential?.apiKey ?? "");
+  const [apiSecret, setApiSecret] = useState(credential?.apiSecret ?? "");
   const [passphrase, setPassphrase] = useState(credential?.passphrase ?? "");
+  const [isDefault, setIsDefault] = useState(credential?.isDefault ?? false);
   const [showSecret, setShowSecret] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
 
   const isValid =
     title.trim() &&
-    key.trim() &&
-    secret.trim() &&
+    apiKey.trim() &&
+    apiSecret.trim() &&
     (!meta.hasPassphrase || passphrase.trim());
 
   function handleSave() {
@@ -46,9 +47,10 @@ function CredentialForm({ exchangeId, credential, onSave, onCancel }: Credential
     onSave({
       exchangeId,
       title: title.trim(),
-      key: key.trim(),
-      secret: secret.trim(),
+      apiKey: apiKey.trim(),
+      apiSecret: apiSecret.trim(),
       ...(meta.hasPassphrase ? { passphrase: passphrase.trim() } : {}),
+      isDefault,
     });
   }
 
@@ -70,8 +72,8 @@ function CredentialForm({ exchangeId, credential, onSave, onCancel }: Credential
           <Input
             id="cred-key"
             placeholder="API key"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
             autoComplete="off"
           />
         </div>
@@ -83,8 +85,8 @@ function CredentialForm({ exchangeId, credential, onSave, onCancel }: Credential
               id="cred-secret"
               type={showSecret ? "text" : "password"}
               placeholder="Secret key"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
+              value={apiSecret}
+              onChange={(e) => setApiSecret(e.target.value)}
               autoComplete="off"
               className="pr-8"
             />
@@ -127,6 +129,16 @@ function CredentialForm({ exchangeId, credential, onSave, onCancel }: Credential
             </div>
           </div>
         )}
+
+        <div className="flex items-center gap-2">
+          <input
+            id="cred-default"
+            type="checkbox"
+            checked={isDefault}
+            onChange={(e) => setIsDefault(e.target.checked)}
+          />
+          <Label htmlFor="cred-default">Set as default for {meta.label}</Label>
+        </div>
       </div>
 
       <DialogFooter>
