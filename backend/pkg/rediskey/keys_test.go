@@ -119,3 +119,23 @@ func TestFundingRateKeys(t *testing.T) {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
 }
+
+func TestBalanceKeys(t *testing.T) {
+	got := Balance("bybit", "USDT")
+	expected := "gembo:bybit:balance:USDT"
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+
+	got = Balances("bybit")
+	expected = "gembo:bybit:balances"
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+
+	got = BalancePubSub("bybit")
+	expected = "gembo:bybit:balance:updates"
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+}

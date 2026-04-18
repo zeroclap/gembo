@@ -13,13 +13,17 @@ import (
 	"github.com/zeroclap/gembo/internal/domain"
 	"github.com/zeroclap/gembo/internal/exchange"
 	"github.com/zeroclap/gembo/internal/hook"
+	"github.com/zeroclap/gembo/internal/store"
 	"github.com/zeroclap/gembo/pkg/rediskey"
 )
+
+const balancePollInterval = 15 * time.Second
 
 // PrivateCollector drives the private-data pipeline (positions, orders,
 // balances) for a set of exchanges. Requires API credentials on each exchange.
 type PrivateCollector struct {
 	registry *exchange.Registry
+	store    store.Store
 	redis    *goredis.Client
 	emitter  hook.Emitter
 	logger   *slog.Logger
@@ -28,12 +32,14 @@ type PrivateCollector struct {
 // NewPrivate creates a PrivateCollector.
 func NewPrivate(
 	registry *exchange.Registry,
+	st store.Store,
 	rc *goredis.Client,
 	emitter hook.Emitter,
 	logger *slog.Logger,
 ) *PrivateCollector {
 	return &PrivateCollector{
 		registry: registry,
+		store:    st,
 		redis:    rc,
 		emitter:  emitter,
 		logger:   logger,
@@ -65,21 +71,73 @@ func (c *PrivateCollector) runExchange(ctx context.Context, ex exchange.Exchange
 	g.Go(func() error { return ex.Run(ctx) })
 
 	// Position loop: only for exchanges that implement PositionWatcher.
-	pw, ok := ex.(exchange.PositionWatcher)
-	if !ok {
+	if pw, ok := ex.(exchange.PositionWatcher); ok {
+		g.Go(func() error { return c.positionLoop(ctx, ex.ID(), pw) })
+	} else {
 		c.logger.Warn("exchange does not support position watching, skipping",
 			"exchange", ex.ID(),
 		)
-		// Still need to keep Run alive; wait for context cancellation.
-		<-ctx.Done()
-		return ctx.Err()
 	}
 
-	g.Go(func() error { return c.positionLoop(ctx, ex.ID(), pw) })
+	// Balance loop: only for exchanges that implement authenticated trading API.
+	if tx, ok := ex.(exchange.TradingExchange); ok {
+		g.Go(func() error { return c.balanceLoop(ctx, ex.ID(), tx) })
+	} else {
+		c.logger.Warn("exchange does not support balance fetching, skipping",
+			"exchange", ex.ID(),
+		)
+	}
 
 	err := g.Wait()
 	c.logger.Info("exchange stopped (private)", "exchange", ex.ID(), "error", err)
 	return err
+}
+
+// balanceLoop periodically fetches balances and stores snapshots in Redis.
+func (c *PrivateCollector) balanceLoop(ctx context.Context, exchangeID string, tx exchange.TradingExchange) error {
+	c.fetchAndStoreBalances(ctx, exchangeID, tx)
+
+	ticker := time.NewTicker(balancePollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			c.logger.Info("balance loop shutting down", "exchange", exchangeID)
+			return ctx.Err()
+		case <-ticker.C:
+			c.fetchAndStoreBalances(ctx, exchangeID, tx)
+		}
+	}
+}
+
+func (c *PrivateCollector) fetchAndStoreBalances(ctx context.Context, exchangeID string, tx exchange.TradingExchange) {
+	balances, err := tx.FetchBalance(ctx)
+	if err != nil {
+		c.logger.Warn("fetch balances error", "exchange", exchangeID, "error", err)
+		return
+	}
+
+	now := time.Now().UTC()
+	for _, b := range balances {
+		db := domain.Balance{
+			ExchangeID: exchangeID,
+			Currency:   b.Currency,
+			Free:       b.Free,
+			Used:       b.Used,
+			Total:      b.Total,
+			UpdatedAt:  now,
+		}
+		if err := c.store.SetBalance(ctx, db); err != nil {
+			c.logger.Warn("store balance error",
+				"exchange", exchangeID,
+				"currency", b.Currency,
+				"error", err,
+			)
+		}
+	}
+
+	c.logger.Debug("balances updated", "exchange", exchangeID, "count", len(balances))
 }
 
 // positionLoop consumes position updates from an exchange that implements

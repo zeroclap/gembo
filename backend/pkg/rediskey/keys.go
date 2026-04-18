@@ -66,6 +66,27 @@ func FundingRatePubSub(exchangeID string) string {
 	return fmt.Sprintf("%s:%s:funding:updates", prefix, exchangeID)
 }
 
+// Balance returns the key for a single balance by exchange and currency.
+//
+//	gembo:<exchange>:balance:<currency>
+func Balance(exchangeID, currency string) string {
+	return fmt.Sprintf("%s:%s:balance:%s", prefix, exchangeID, currency)
+}
+
+// Balances returns the set key that tracks all currencies with balances.
+//
+//	gembo:<exchange>:balances
+func Balances(exchangeID string) string {
+	return fmt.Sprintf("%s:%s:balances", prefix, exchangeID)
+}
+
+// BalancePubSub returns the Pub/Sub channel name for balance updates on an exchange.
+//
+//	gembo:<exchange>:balance:updates
+func BalancePubSub(exchangeID string) string {
+	return fmt.Sprintf("%s:%s:balance:updates", prefix, exchangeID)
+}
+
 // FundingArbitragePairs returns the set key that tracks all funding arbitrage pair identifiers.
 //
 //	gembo:arbitrage:funding:pairs

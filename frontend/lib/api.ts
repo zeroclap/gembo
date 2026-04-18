@@ -19,6 +19,15 @@ export interface Ticker {
   updated_at: string;
 }
 
+export interface Balance {
+  exchange_id: string;
+  currency: string;
+  free: string;
+  used: string;
+  total: string;
+  updated_at: string;
+}
+
 async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) {
@@ -38,6 +47,10 @@ export function fetchTicker(
   return fetchApi<Ticker>(
     `/exchanges/${encodeURIComponent(exchange)}/tickers/${encodeURIComponent(symbol)}`
   );
+}
+
+export function fetchBalances(): Promise<Balance[]> {
+  return fetchApi<Balance[]>("/balances");
 }
 
 // --- Funding Rate ---

@@ -164,6 +164,10 @@ func (m *mockStore) GetFundingRate(_ context.Context, _, _ string) (*domain.Fund
 func (m *mockStore) ListFundingRates(_ context.Context, _ string) ([]domain.FundingRate, error) {
 	return nil, nil
 }
+func (m *mockStore) SetBalance(_ context.Context, _ domain.Balance) error { return nil }
+func (m *mockStore) ListBalances(_ context.Context, _ string) ([]domain.Balance, error) {
+	return nil, nil
+}
 func (m *mockStore) SetFundingArbitrage(_ context.Context, _ domain.FundingArbitrage) error {
 	return nil
 }

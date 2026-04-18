@@ -23,6 +23,7 @@ import (
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
 	"github.com/zeroclap/gembo/internal/hook"
 	"github.com/zeroclap/gembo/internal/hook/bullmq"
+	redistore "github.com/zeroclap/gembo/internal/store/redis"
 )
 
 func main() {
@@ -67,7 +68,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	c := collector.NewPrivate(reg, rc, emitter, logger)
+	st := redistore.New(rc)
+	c := collector.NewPrivate(reg, st, rc, emitter, logger)
 
 	// Start pprof server for memory/goroutine profiling.
 	pprofAddr := os.Getenv("PPROF_ADDR")

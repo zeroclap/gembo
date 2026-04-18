@@ -70,6 +70,10 @@ func (m *mockMarketStore) GetFundingRate(context.Context, string, string) (*doma
 func (m *mockMarketStore) ListFundingRates(context.Context, string) ([]domain.FundingRate, error) {
 	return nil, nil
 }
+func (m *mockMarketStore) SetBalance(context.Context, domain.Balance) error { return nil }
+func (m *mockMarketStore) ListBalances(context.Context, string) ([]domain.Balance, error) {
+	return nil, nil
+}
 func (m *mockMarketStore) SetFundingArbitrage(context.Context, domain.FundingArbitrage) error {
 	return nil
 }

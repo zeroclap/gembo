@@ -54,9 +54,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /v1/health", h.handleHealth)
 	h.mux.HandleFunc("GET /v1/exchanges", h.handleExchanges)
+	h.mux.HandleFunc("GET /v1/balances", h.handleListAllBalances)
 	h.mux.HandleFunc("GET /v1/tickers", h.handleListAllTickers)
 	h.mux.HandleFunc("GET /v1/exchanges/{exchange}/markets", h.handleListMarkets)
 	h.mux.HandleFunc("GET /v1/exchanges/{exchange}/markets/{symbol}", h.handleGetMarket)
+	h.mux.HandleFunc("GET /v1/exchanges/{exchange}/balances", h.handleListBalances)
 	h.mux.HandleFunc("GET /v1/exchanges/{exchange}/tickers", h.handleListTickers)
 	h.mux.HandleFunc("GET /v1/exchanges/{exchange}/tickers/{symbol}", h.handleGetTicker)
 	h.mux.HandleFunc("GET /v1/exchanges/{exchange}/funding-rates", h.handleListFundingRates)
