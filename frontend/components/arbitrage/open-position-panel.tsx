@@ -57,7 +57,7 @@ export function OpenPositionPanel({
 
   // --- Size ---
   // sizeType "price" → position_size (denominated in quote, e.g. USDT)
-  // sizeType "quantity" → quantity (number of contracts)
+  // sizeType "quantity" → base quantity (underlying asset amount)
   const [sizeType, setSizeType] = useState<SizeType>("quantity");
   const [size, setSize] = useState("1000");
   const [quantity, setQuantity] = useState("1000");
@@ -143,7 +143,7 @@ export function OpenPositionPanel({
     if (!simResult) return null;
     if (sizeType === "price") {
       const qty = parseFloat(simResult.quantity);
-      return qty > 0 ? `≈ ${Math.floor(qty)} contracts` : null;
+      return qty > 0 ? `≈ ${Math.floor(qty)} base` : null;
     }
     const usd = parseFloat(simResult.actual_position_size || simResult.position_size);
     return usd > 0 ? `≈ $${usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : null;
@@ -266,7 +266,7 @@ export function OpenPositionPanel({
             {/* USD / QTY toggle */}
             <div className="flex items-center justify-between mb-1.5">
               <Label className="text-xs text-muted-foreground">
-                {sizeType === "quantity" ? "Quantity (Contracts)" : "Price (USDT)"}
+                {sizeType === "quantity" ? "Quantity (Base)" : "Price (USDT)"}
               </Label>
               <div className="flex h-6 items-center rounded-md border bg-muted/40 p-0.5">
                 {(["quantity", "price"] as const).map((t) => (

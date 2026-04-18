@@ -55,43 +55,60 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 		}
 	}
 
-	// Resolve per-step amount in base currency.
-	portionAmount, err := t.resolvePortionAmount(ctx, p, longExch, shortExch)
+	longContractSize, shortContractSize, err := t.resolveLegContractSizes(ctx, p)
 	if err != nil {
-		return t.failPosition(ctx, p, fmt.Errorf("resolve portion amount: %w", err))
+		return t.failPosition(ctx, p, fmt.Errorf("resolve contract sizes: %w", err))
+	}
+	p.LongContractSize = longContractSize
+	p.ShortContractSize = shortContractSize
+
+	totalBaseQty, err := t.resolveBaseQuantity(ctx, p, longExch, shortExch)
+	if err != nil {
+		return t.failPosition(ctx, p, fmt.Errorf("resolve base quantity: %w", err))
+	}
+	p.RequestedBaseQty = totalBaseQty
+
+	if err := t.store.UpdatePosition(ctx, p); err != nil {
+		return fmt.Errorf("persist sizing fields: %w", err)
+	}
+
+	// Resolve per-step amount in base currency.
+	portionBaseQty, err := t.resolvePortionBaseQty(ctx, p, longExch, shortExch)
+	if err != nil {
+		return t.failPosition(ctx, p, fmt.Errorf("resolve portion base quantity: %w", err))
 	}
 
 	t.logger.Info("starting stepped execution",
 		"position_id", p.ID,
 		"symbol", p.Symbol,
 		"steps_total", p.StepsTotal,
-		"portion_amount", portionAmount,
+		"portion_base_qty", portionBaseQty,
 	)
 
 	// Accumulate fill data across steps for VWAP calculation.
 	var (
-		longTotalQty  decimal.Decimal
-		longTotalCost decimal.Decimal
-		longTotalFees decimal.Decimal
+		longTotalQty     decimal.Decimal
+		longTotalBaseQty decimal.Decimal
+		longTotalCost    decimal.Decimal
+		longTotalFees    decimal.Decimal
 
-		shortTotalQty  decimal.Decimal
-		shortTotalCost decimal.Decimal
-		shortTotalFees decimal.Decimal
+		shortTotalQty     decimal.Decimal
+		shortTotalBaseQty decimal.Decimal
+		shortTotalCost    decimal.Decimal
+		shortTotalFees    decimal.Decimal
 	)
 
 	for step := range p.StepsTotal {
 		stepNum := step + 1
 
-		// For the last step, the portion might be smaller than portion_size
-		// to avoid exceeding the total requested_size.
-		stepAmount := portionAmount
-		if p.SizeType == domain.SizeTypeQuantity {
-			remaining := p.RequestedSize.Sub(longTotalQty)
-			portionDec := decimal.NewFromFloat(portionAmount)
-			if remaining.LessThan(portionDec) && remaining.GreaterThan(decimal.Zero) {
-				stepAmount = remaining.InexactFloat64()
-			}
+		// For the last step, clamp to remaining base quantity.
+		stepBaseQty := portionBaseQty
+		remainingBaseQty := totalBaseQty.Sub(longTotalBaseQty)
+		if remainingBaseQty.LessThan(stepBaseQty) && remainingBaseQty.GreaterThan(decimal.Zero) {
+			stepBaseQty = remainingBaseQty
 		}
+		longStepContracts := baseQtyToContracts(stepBaseQty, longContractSize)
+		shortStepContracts := baseQtyToContracts(stepBaseQty, shortContractSize)
 
 		// Check price range from live tickers.
 		if ok, reason := t.checkPriceRange(ctx, p); !ok {
@@ -156,13 +173,31 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 		var g errgroup.Group
 
 		g.Go(func() error {
-			filled, err := t.placeAndPoll(ctx, longExch, p.Symbol, domain.OrderSideBuy, stepAmount, longOrder)
+			filled, err := t.placeAndPoll(
+				ctx,
+				longExch,
+				p.Symbol,
+				domain.OrderSideBuy,
+				longStepContracts,
+				stepBaseQty,
+				longContractSize,
+				longOrder,
+			)
 			longRes = orderResult{order: filled, err: err}
 			return nil
 		})
 
 		g.Go(func() error {
-			filled, err := t.placeAndPoll(ctx, shortExch, p.Symbol, domain.OrderSideSell, stepAmount, shortOrder)
+			filled, err := t.placeAndPoll(
+				ctx,
+				shortExch,
+				p.Symbol,
+				domain.OrderSideSell,
+				shortStepContracts,
+				stepBaseQty,
+				shortContractSize,
+				shortOrder,
+			)
 			shortRes = orderResult{order: filled, err: err}
 			return nil
 		})
@@ -186,10 +221,12 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 
 		// Accumulate fill data.
 		longTotalQty = longTotalQty.Add(longFilled.FilledQty)
+		longTotalBaseQty = longTotalBaseQty.Add(contractsToBaseQty(longFilled.FilledQty, longContractSize))
 		longTotalCost = longTotalCost.Add(longFilled.Cost)
 		longTotalFees = longTotalFees.Add(longFilled.FeeCost)
 
 		shortTotalQty = shortTotalQty.Add(shortFilled.FilledQty)
+		shortTotalBaseQty = shortTotalBaseQty.Add(contractsToBaseQty(shortFilled.FilledQty, shortContractSize))
 		shortTotalCost = shortTotalCost.Add(shortFilled.Cost)
 		shortTotalFees = shortTotalFees.Add(shortFilled.FeeCost)
 
@@ -197,14 +234,16 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 
 		// Update position with running totals after each step for durability.
 		p.LongFilledQty = longTotalQty
+		p.LongFilledBaseQty = longTotalBaseQty
 		p.LongEntryCost = longTotalCost
 		p.LongEntryFees = longTotalFees
-		p.LongEntryPrice = vwapPrice(longTotalCost, longTotalQty)
+		p.LongEntryPrice = vwapPrice(longTotalCost, longTotalBaseQty)
 
 		p.ShortFilledQty = shortTotalQty
+		p.ShortFilledBaseQty = shortTotalBaseQty
 		p.ShortEntryCost = shortTotalCost
 		p.ShortEntryFees = shortTotalFees
-		p.ShortEntryPrice = vwapPrice(shortTotalCost, shortTotalQty)
+		p.ShortEntryPrice = vwapPrice(shortTotalCost, shortTotalBaseQty)
 
 		if err := t.store.UpdatePosition(ctx, p); err != nil {
 			t.logger.Error("stepped execution: persist step progress",
@@ -216,8 +255,10 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 			"position_id", p.ID,
 			"step", stepNum,
 			"steps_total", p.StepsTotal,
-			"long_qty", longTotalQty,
-			"short_qty", shortTotalQty,
+			"long_contracts", longTotalQty,
+			"short_contracts", shortTotalQty,
+			"long_base_qty", longTotalBaseQty,
+			"short_base_qty", shortTotalBaseQty,
 		)
 	}
 
@@ -248,32 +289,36 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 		"stop_reason", p.StopReason,
 		"long_price", p.LongEntryPrice,
 		"short_price", p.ShortEntryPrice,
-		"long_qty", p.LongFilledQty,
-		"short_qty", p.ShortFilledQty,
+		"long_contracts", p.LongFilledQty,
+		"short_contracts", p.ShortFilledQty,
+		"long_base_qty", p.LongFilledBaseQty,
+		"short_base_qty", p.ShortFilledBaseQty,
 	)
 
 	t.redis.Publish(ctx, rediskey.PositionUpdates(), p.ID)
 	return nil
 }
 
-// resolvePortionAmount determines the per-step order amount in base currency.
-func (t *Trader) resolvePortionAmount(
+// resolvePortionBaseQty determines the per-step order amount in base quantity.
+func (t *Trader) resolvePortionBaseQty(
 	ctx context.Context,
 	p *domain.Position,
 	longExch, shortExch exchange.TradingExchange,
-) (float64, error) {
+) (decimal.Decimal, error) {
 	if p.SizeType == domain.SizeTypeQuantity {
-		return p.PortionSize.InexactFloat64(), nil
+		return p.PortionSize, nil
 	}
 
 	// SizeTypePrice — need a reference price to convert.
 	refPrice, err := t.referencePrice(ctx, p.Symbol, longExch, shortExch)
 	if err != nil {
-		return 0, err
+		return decimal.Zero, err
+	}
+	if refPrice.LessThanOrEqual(decimal.Zero) {
+		return decimal.Zero, fmt.Errorf("reference price must be positive")
 	}
 
-	amount := p.PortionSize.Div(refPrice)
-	return amount.InexactFloat64(), nil
+	return p.PortionSize.Div(refPrice), nil
 }
 
 // referencePrice fetches a mark price from one of the exchanges for USD→base conversion.

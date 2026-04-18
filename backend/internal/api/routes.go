@@ -75,6 +75,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /v1/positions/{id}/orders", h.handleListPositionOrders)
 	h.mux.HandleFunc("GET /v1/positions/{id}/funding", h.handleListPositionFunding)
 
+	// WebSocket
+	h.mux.HandleFunc("/v1/arbitrage/ws", h.handleArbitrageWS)
+
 	// Admin
 	h.mux.HandleFunc("DELETE /v1/flush", h.handleFlushAll)
 }

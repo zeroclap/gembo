@@ -1,0 +1,216 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"github.com/zeroclap/gembo/internal/domain"
+	"github.com/zeroclap/gembo/pkg/rediskey"
+)
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins in development; tighten for production.
+	},
+}
+
+// wsMessage is the envelope for all WebSocket messages (both directions).
+type wsMessage struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
+// wsSubscribePayload is sent by the client to subscribe to a symbol pair.
+type wsSubscribePayload struct {
+	Symbol        string `json:"symbol"`
+	LongExchange  string `json:"long_exchange"`
+	ShortExchange string `json:"short_exchange"`
+}
+
+// wsArbitrageUpdate carries the matched arbitrage data.
+type wsArbitrageUpdate struct {
+	Funding interface{} `json:"funding,omitempty"`
+	Spread  interface{} `json:"spread,omitempty"`
+}
+
+// handleArbitrageWS upgrades to WebSocket and streams real-time arbitrage
+// updates for a subscribed symbol pair. On subscribe, an initial snapshot is
+// sent, then updates are pushed as soon as they arrive via Redis Pub/Sub.
+func (h *Handler) handleArbitrageWS(w http.ResponseWriter, r *http.Request) {
+	if h.redis == nil {
+		writeErr(w, http.StatusServiceUnavailable, "unavailable", "websocket requires redis")
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("websocket upgrade", "error", err)
+		return
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	// wsMu serializes writes to the WebSocket connection.
+	var wsMu sync.Mutex
+
+	// Current subscription — guarded by subMu.
+	var subMu sync.RWMutex
+	var sub wsSubscribePayload
+
+	getSub := func() wsSubscribePayload {
+		subMu.RLock()
+		defer subMu.RUnlock()
+		return sub
+	}
+
+	// subReady is closed once the first subscribe message arrives.
+	subReady := make(chan struct{})
+	subReadyOnce := sync.Once{}
+
+	// Read loop — receives subscribe messages from the client.
+	go func() {
+		defer cancel()
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var envelope wsMessage
+			if err := json.Unmarshal(msg, &envelope); err != nil {
+				continue
+			}
+			if envelope.Type == "subscribe" {
+				var payload wsSubscribePayload
+				if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+					continue
+				}
+				if payload.Symbol == "" || payload.LongExchange == "" || payload.ShortExchange == "" {
+					continue
+				}
+				subMu.Lock()
+				sub = payload
+				subMu.Unlock()
+				subReadyOnce.Do(func() { close(subReady) })
+
+				// Send snapshot for new subscription.
+				s := getSub()
+				wsMu.Lock()
+				h.sendArbitrageSnapshot(ctx, conn, s)
+				wsMu.Unlock()
+			}
+		}
+	}()
+
+	// Wait for the first subscription before starting Pub/Sub.
+	select {
+	case <-subReady:
+	case <-ctx.Done():
+		return
+	}
+
+	// Subscribe only to arbitrage Pub/Sub channels.
+	channels := []string{
+		rediskey.FundingArbitragePubSub(),
+		rediskey.SpreadArbitragePubSub(),
+	}
+
+	pubsub := h.redis.Subscribe(ctx, channels...)
+	defer pubsub.Close()
+
+	ch := pubsub.Channel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			s := getSub()
+			h.handlePubSubMessage(conn, &wsMu, s, msg.Channel, msg.Payload)
+		}
+	}
+}
+
+// handlePubSubMessage filters and forwards a Redis Pub/Sub message to the
+// WebSocket client if it matches the current subscription.
+func (h *Handler) handlePubSubMessage(conn *websocket.Conn, wsMu *sync.Mutex, sub wsSubscribePayload, channel, payload string) {
+	switch channel {
+	case rediskey.FundingArbitragePubSub():
+		var a domain.FundingArbitrage
+		if err := json.Unmarshal([]byte(payload), &a); err != nil {
+			return
+		}
+		if a.Symbol != sub.Symbol {
+			return
+		}
+		if !matchesExchangePair(a.Long.ExchangeID, a.Short.ExchangeID, sub.LongExchange, sub.ShortExchange) {
+			return
+		}
+		wsMu.Lock()
+		writeWSMessage(conn, "arbitrage", wsArbitrageUpdate{Funding: &a})
+		wsMu.Unlock()
+
+	case rediskey.SpreadArbitragePubSub():
+		var a domain.SpreadArbitrage
+		if err := json.Unmarshal([]byte(payload), &a); err != nil {
+			return
+		}
+		if a.Symbol != sub.Symbol {
+			return
+		}
+		if !matchesExchangePair(a.BuyExchangeID, a.SellExchangeID, sub.LongExchange, sub.ShortExchange) {
+			return
+		}
+		wsMu.Lock()
+		writeWSMessage(conn, "arbitrage", wsArbitrageUpdate{Spread: &a})
+		wsMu.Unlock()
+	}
+}
+
+// matchesExchangePair returns true if the two exchange IDs match the subscription
+// pair in either direction.
+func matchesExchangePair(exA, exB, subLong, subShort string) bool {
+	return (exA == subLong && exB == subShort) || (exA == subShort && exB == subLong)
+}
+
+// sendArbitrageSnapshot reads current data from the store and pushes a full
+// snapshot to the WebSocket client. Called on initial subscribe and re-subscribe.
+// Caller must hold wsMu.
+func (h *Handler) sendArbitrageSnapshot(ctx context.Context, conn *websocket.Conn, sub wsSubscribePayload) {
+	funding, _ := h.store.GetFundingArbitrage(ctx, sub.Symbol, sub.LongExchange, sub.ShortExchange)
+	spread, _ := h.store.GetSpreadArbitrage(ctx, sub.Symbol, sub.LongExchange, sub.ShortExchange)
+	writeWSMessage(conn, "arbitrage", wsArbitrageUpdate{
+		Funding: funding,
+		Spread:  spread,
+	})
+}
+
+// writeWSMessage marshals and sends a typed WebSocket message.
+func writeWSMessage(conn *websocket.Conn, msgType string, data interface{}) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	msg := wsMessage{Type: msgType, Data: raw}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
+		slog.Debug("websocket write", "error", err)
+	}
+}

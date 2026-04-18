@@ -1,0 +1,9 @@
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS requested_base_qty DECIMAL;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS long_contract_size DECIMAL;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS short_contract_size DECIMAL;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS long_filled_base_qty DECIMAL;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS short_filled_base_qty DECIMAL;
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS requested_base_qty DECIMAL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS contract_size DECIMAL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS filled_base_qty DECIMAL;

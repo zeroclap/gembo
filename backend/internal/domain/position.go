@@ -59,6 +59,10 @@ type Position struct {
 	Status        PositionStatus  `json:"status"`
 	SizeType      SizeType        `json:"size_type"`
 	RequestedSize decimal.Decimal `json:"requested_size"`
+	// RequestedBaseQty is the canonical requested size in base asset units.
+	// For size_type=quantity it equals requested_size. For size_type=price it is
+	// resolved at open time using a reference price.
+	RequestedBaseQty decimal.Decimal `json:"requested_base_qty"`
 
 	// Arbitrage type: "funding" (default) or "spread".
 	ArbitrageType ArbitrageType `json:"arbitrage_type"`
@@ -83,18 +87,22 @@ type Position struct {
 	StopReason     StopReason `json:"stop_reason"`     // why execution stopped early; "" = normal
 
 	// Long leg.
-	LongExchangeID string          `json:"long_exchange_id"`
-	LongEntryPrice decimal.Decimal `json:"long_entry_price"`
-	LongFilledQty  decimal.Decimal `json:"long_filled_qty"`
-	LongEntryCost  decimal.Decimal `json:"long_entry_cost"`
-	LongEntryFees  decimal.Decimal `json:"long_entry_fees"`
+	LongExchangeID    string          `json:"long_exchange_id"`
+	LongContractSize  decimal.Decimal `json:"long_contract_size"`
+	LongEntryPrice    decimal.Decimal `json:"long_entry_price"`
+	LongFilledQty     decimal.Decimal `json:"long_filled_qty"` // contracts
+	LongFilledBaseQty decimal.Decimal `json:"long_filled_base_qty"`
+	LongEntryCost     decimal.Decimal `json:"long_entry_cost"`
+	LongEntryFees     decimal.Decimal `json:"long_entry_fees"`
 
 	// Short leg.
-	ShortExchangeID string          `json:"short_exchange_id"`
-	ShortEntryPrice decimal.Decimal `json:"short_entry_price"`
-	ShortFilledQty  decimal.Decimal `json:"short_filled_qty"`
-	ShortEntryCost  decimal.Decimal `json:"short_entry_cost"`
-	ShortEntryFees  decimal.Decimal `json:"short_entry_fees"`
+	ShortExchangeID    string          `json:"short_exchange_id"`
+	ShortContractSize  decimal.Decimal `json:"short_contract_size"`
+	ShortEntryPrice    decimal.Decimal `json:"short_entry_price"`
+	ShortFilledQty     decimal.Decimal `json:"short_filled_qty"` // contracts
+	ShortFilledBaseQty decimal.Decimal `json:"short_filled_base_qty"`
+	ShortEntryCost     decimal.Decimal `json:"short_entry_cost"`
+	ShortEntryFees     decimal.Decimal `json:"short_entry_fees"`
 
 	// Close details (populated when position is closed).
 	LongExitPrice  decimal.Decimal `json:"long_exit_price"`
@@ -139,23 +147,26 @@ type Position struct {
 // ExchangeOrder represents an individual order placed on an exchange
 // as part of opening or closing a position leg.
 type ExchangeOrder struct {
-	ID              string          `json:"id"`
-	PositionID      string          `json:"position_id"`
-	ExchangeID      string          `json:"exchange_id"`
-	ExchangeOrderID string          `json:"exchange_order_id"`
-	Symbol          string          `json:"symbol"`
-	Side            OrderSide       `json:"side"`   // Buy or Sell
-	Leg             string          `json:"leg"`    // "long" or "short"
-	Action          string          `json:"action"` // "open" or "close"
-	RequestedQty    decimal.Decimal `json:"requested_qty"`
-	FilledQty       decimal.Decimal `json:"filled_qty"`
-	AveragePrice    decimal.Decimal `json:"average_price"`
-	Cost            decimal.Decimal `json:"cost"`
-	FeeCost         decimal.Decimal `json:"fee_cost"`
-	Status          string          `json:"status"` // "pending", "submitted", "filled", "cancelled", "failed"
-	RawResponse     json.RawMessage `json:"raw_response,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	ID               string          `json:"id"`
+	PositionID       string          `json:"position_id"`
+	ExchangeID       string          `json:"exchange_id"`
+	ExchangeOrderID  string          `json:"exchange_order_id"`
+	Symbol           string          `json:"symbol"`
+	Side             OrderSide       `json:"side"`          // Buy or Sell
+	Leg              string          `json:"leg"`           // "long" or "short"
+	Action           string          `json:"action"`        // "open" or "close"
+	RequestedQty     decimal.Decimal `json:"requested_qty"` // contracts
+	RequestedBaseQty decimal.Decimal `json:"requested_base_qty"`
+	ContractSize     decimal.Decimal `json:"contract_size"`
+	FilledQty        decimal.Decimal `json:"filled_qty"` // contracts
+	FilledBaseQty    decimal.Decimal `json:"filled_base_qty"`
+	AveragePrice     decimal.Decimal `json:"average_price"`
+	Cost             decimal.Decimal `json:"cost"`
+	FeeCost          decimal.Decimal `json:"fee_cost"`
+	Status           string          `json:"status"` // "pending", "submitted", "filled", "cancelled", "failed"
+	RawResponse      json.RawMessage `json:"raw_response,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
 // FundingPayment represents a single funding fee payment received or paid
@@ -186,6 +197,8 @@ type ExchangePositionEvent struct {
 	Symbol           string          `json:"symbol"`
 	Side             PositionSide    `json:"side"` // Long, Short, or None when closed
 	Contracts        decimal.Decimal `json:"contracts"`
+	ContractSize     decimal.Decimal `json:"contract_size"`
+	BaseQty          decimal.Decimal `json:"base_qty"`
 	EntryPrice       decimal.Decimal `json:"entry_price"`
 	MarkPrice        decimal.Decimal `json:"mark_price"`
 	LiquidationPrice decimal.Decimal `json:"liquidation_price"`

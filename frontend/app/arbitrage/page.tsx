@@ -3,6 +3,7 @@
 import { useState, useCallback, Suspense } from "react";
 import { useArbitrageTickers, useArbitrageFundingRates, useArbitrageData, useArbitragePositions, type ArbitragePair } from "@/hooks/use-arbitrage-data";
 import { useArbitrageWorkspaces } from "@/hooks/use-arbitrage-workspaces";
+import { useArbitrageWebSocket } from "@/hooks/use-arbitrage-websocket";
 import { WorkspaceNav } from "@/components/arbitrage/workspace-nav";
 import { ArbitrageTopBar, type MobileTab } from "@/components/arbitrage/arbitrage-top-bar";
 import { MetricCards } from "@/components/arbitrage/metric-cards";
@@ -51,6 +52,9 @@ function ArbitrageContent() {
   const fundingRates = useArbitrageFundingRates(pair);
   const arbitrage = useArbitrageData(pair);
   const positions = useArbitragePositions(pair);
+
+  // WebSocket for high-frequency updates — pushes data into React Query cache.
+  const { status: wsStatus } = useArbitrageWebSocket(pair);
 
   const handlePairSelect = useCallback(
     (selection: PairSelection) => {

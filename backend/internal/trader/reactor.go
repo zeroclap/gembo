@@ -176,6 +176,9 @@ func (t *Trader) matchLeg(p *domain.Position, event *domain.ExchangePositionEven
 func (t *Trader) applyPositionEvent(p *domain.Position, event *domain.ExchangePositionEvent, leg string) {
 	switch leg {
 	case "long":
+		if event.ContractSize.GreaterThan(decimal.Zero) {
+			p.LongContractSize = event.ContractSize
+		}
 		p.LongMarkPrice = event.MarkPrice
 		p.LongUnrealizedPnL = event.UnrealizedPnL
 		p.LongLiquidationPrice = event.LiquidationPrice
@@ -183,6 +186,9 @@ func (t *Trader) applyPositionEvent(p *domain.Position, event *domain.ExchangePo
 		p.LongMarginMode = event.MarginMode
 		p.LongNotional = event.Notional
 	case "short":
+		if event.ContractSize.GreaterThan(decimal.Zero) {
+			p.ShortContractSize = event.ContractSize
+		}
 		p.ShortMarkPrice = event.MarkPrice
 		p.ShortUnrealizedPnL = event.UnrealizedPnL
 		p.ShortLiquidationPrice = event.LiquidationPrice
@@ -192,38 +198,50 @@ func (t *Trader) applyPositionEvent(p *domain.Position, event *domain.ExchangePo
 	}
 }
 
-// detectAction compares the event's contract count with the stored filled qty
-// to detect closures or partial closes.
+// detectAction compares event base quantity with stored base quantity to detect
+// closures or partial closes across exchanges with different contract sizes.
 func (t *Trader) detectAction(p *domain.Position, event *domain.ExchangePositionEvent, leg string) reactorAction {
-	var filledQty decimal.Decimal
+	var (
+		filledQty     decimal.Decimal
+		filledBaseQty decimal.Decimal
+	)
 	switch leg {
 	case "long":
 		filledQty = p.LongFilledQty
+		filledBaseQty = legBaseQty(p, "long")
 	case "short":
 		filledQty = p.ShortFilledQty
+		filledBaseQty = legBaseQty(p, "short")
+	}
+
+	eventBaseQty := event.BaseQty
+	if eventBaseQty.IsZero() && event.Contracts.GreaterThan(decimal.Zero) {
+		eventBaseQty = contractsToBaseQty(event.Contracts, legContractSize(p, leg))
 	}
 
 	t.logger.Debug("-- detectAction --",
 		"position_id", p.ID,
 		"leg", leg,
 		"filled_qty", filledQty,
+		"filled_base_qty", filledBaseQty,
 		"event_contracts", event.Contracts,
+		"event_base_qty", eventBaseQty,
 	)
 
-	if filledQty.IsZero() {
+	if filledBaseQty.IsZero() {
 		// No filled qty recorded yet — position may still be opening.
 		return reactorActionNone
 	}
 
 	// Full closure: contracts dropped to zero.
-	if event.Contracts.IsZero() {
+	if event.Contracts.IsZero() || eventBaseQty.IsZero() {
 		return reactorActionAutoClose
 	}
 
-	// Partial close: contracts reduced but not zero.
+	// Partial close: base quantity reduced but not zero.
 	// Use a small tolerance to avoid floating-point noise triggering rebalances.
-	threshold := filledQty.Mul(decimal.NewFromFloat(0.01)) // 1% tolerance
-	diff := filledQty.Sub(event.Contracts)
+	threshold := filledBaseQty.Mul(decimal.NewFromFloat(0.01)) // 1% tolerance
+	diff := filledBaseQty.Sub(eventBaseQty)
 	if diff.GreaterThan(threshold) {
 		return reactorActionRebalance
 	}
@@ -283,7 +301,7 @@ func (t *Trader) autoCloseRemainingLeg(ctx context.Context, p *domain.Position, 
 	logger.Info("reactor: placing auto-close order",
 		"exchange", remainExchangeID,
 		"side", remainSide,
-		"amount", amount,
+		"amount_contracts", amount,
 	)
 
 	order, err := exch.CloseMarketOrder(ctx, p.Symbol, remainSide, amount)
@@ -308,20 +326,23 @@ func (t *Trader) autoCloseRemainingLeg(ctx context.Context, p *domain.Position, 
 
 	// Record the close order.
 	orderRec := &domain.ExchangeOrder{
-		PositionID:      p.ID,
-		ExchangeID:      remainExchangeID,
-		ExchangeOrderID: order.ExchangeOrderID,
-		Symbol:          p.Symbol,
-		Side:            remainSide,
-		Leg:             otherLeg(closedLeg),
-		Action:          "close",
-		RequestedQty:    remainQty,
-		FilledQty:       order.FilledQty,
-		AveragePrice:    order.AveragePrice,
-		Cost:            order.Cost,
-		FeeCost:         order.FeeCost,
-		Status:          order.Status,
-		RawResponse:     order.RawResponse,
+		PositionID:       p.ID,
+		ExchangeID:       remainExchangeID,
+		ExchangeOrderID:  order.ExchangeOrderID,
+		Symbol:           p.Symbol,
+		Side:             remainSide,
+		Leg:              otherLeg(closedLeg),
+		Action:           "close",
+		RequestedQty:     remainQty,
+		ContractSize:     legContractSize(p, otherLeg(closedLeg)),
+		RequestedBaseQty: legBaseQty(p, otherLeg(closedLeg)),
+		FilledQty:        order.FilledQty,
+		FilledBaseQty:    contractsToBaseQty(order.FilledQty, legContractSize(p, otherLeg(closedLeg))),
+		AveragePrice:     order.AveragePrice,
+		Cost:             order.Cost,
+		FeeCost:          order.FeeCost,
+		Status:           order.Status,
+		RawResponse:      order.RawResponse,
 	}
 	if err := t.store.CreateOrder(ctx, orderRec); err != nil {
 		logger.Warn("reactor: create auto-close order record", "error", err)
@@ -377,9 +398,7 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 		return
 	}
 
-	// Calculate the reduction amount.
-	// changed leg: was filledQty, now remainingContracts
-	// reduce other leg by the same delta.
+	// Calculate base-quantity reduction amount.
 	var originalQty decimal.Decimal
 	switch changedLeg {
 	case "long":
@@ -388,31 +407,43 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 		originalQty = p.ShortFilledQty
 	}
 
-	delta := originalQty.Sub(remainingContracts)
-	if delta.LessThanOrEqual(decimal.Zero) {
-		logger.Debug("reactor: no reduction needed, delta <= 0")
-		return
-	}
-
-	// Ensure we don't try to reduce more than what's open on the other side.
-	if delta.GreaterThan(otherFilledQty) {
-		delta = otherFilledQty
-	}
-
 	exch, err := t.registry.Get(otherExchangeID)
 	if err != nil {
 		logger.Error("reactor: get other exchange for rebalance", "error", err)
 		return
 	}
 
-	amount := delta.InexactFloat64()
+	otherContractSize := legContractSize(p, otherLeg(changedLeg))
+	otherCurrentBaseQty := legBaseQty(p, otherLeg(changedLeg))
+	otherFilledBaseQty := contractsToBaseQty(otherFilledQty, otherContractSize)
+	if otherCurrentBaseQty.IsZero() {
+		otherCurrentBaseQty = otherFilledBaseQty
+	}
+
+	changedContractSize := legContractSize(p, changedLeg)
+	remainingBaseQty := contractsToBaseQty(remainingContracts, changedContractSize)
+	originalBaseQty := contractsToBaseQty(originalQty, changedContractSize)
+	baseDelta := originalBaseQty.Sub(remainingBaseQty)
+	if baseDelta.LessThanOrEqual(decimal.Zero) {
+		logger.Debug("reactor: no reduction needed, base delta <= 0")
+		return
+	}
+
+	if baseDelta.GreaterThan(otherFilledBaseQty) {
+		baseDelta = otherFilledBaseQty
+	}
+
+	otherDeltaContracts := baseQtyToContracts(baseDelta, otherContractSize)
+
 	logger.Info("reactor: placing rebalance order",
 		"exchange", otherExchangeID,
 		"side", otherSide,
-		"amount", amount,
-		"delta", delta,
+		"amount_contracts", otherDeltaContracts,
+		"delta_contracts", otherDeltaContracts,
+		"delta_base_qty", baseDelta,
 	)
 
+	amount := otherDeltaContracts.InexactFloat64()
 	order, err := exch.CloseMarketOrder(ctx, p.Symbol, otherSide, amount)
 	if err != nil {
 		// If the position is already closed on this exchange, the reduce-only
@@ -430,20 +461,23 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 
 	// Record the rebalance order.
 	orderRec := &domain.ExchangeOrder{
-		PositionID:      p.ID,
-		ExchangeID:      otherExchangeID,
-		ExchangeOrderID: order.ExchangeOrderID,
-		Symbol:          p.Symbol,
-		Side:            otherSide,
-		Leg:             otherLeg(changedLeg),
-		Action:          "close",
-		RequestedQty:    delta,
-		FilledQty:       order.FilledQty,
-		AveragePrice:    order.AveragePrice,
-		Cost:            order.Cost,
-		FeeCost:         order.FeeCost,
-		Status:          order.Status,
-		RawResponse:     order.RawResponse,
+		PositionID:       p.ID,
+		ExchangeID:       otherExchangeID,
+		ExchangeOrderID:  order.ExchangeOrderID,
+		Symbol:           p.Symbol,
+		Side:             otherSide,
+		Leg:              otherLeg(changedLeg),
+		Action:           "close",
+		RequestedQty:     otherDeltaContracts,
+		RequestedBaseQty: baseDelta,
+		ContractSize:     otherContractSize,
+		FilledQty:        order.FilledQty,
+		FilledBaseQty:    contractsToBaseQty(order.FilledQty, otherContractSize),
+		AveragePrice:     order.AveragePrice,
+		Cost:             order.Cost,
+		FeeCost:          order.FeeCost,
+		Status:           order.Status,
+		RawResponse:      order.RawResponse,
 	}
 	if err := t.store.CreateOrder(ctx, orderRec); err != nil {
 		logger.Warn("reactor: create rebalance order record", "error", err)
@@ -451,7 +485,7 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 
 	// Update filled quantities in the position.
 	// The changed leg's qty comes from the event; the other leg is reduced by
-	// delta (the intended reduction) rather than order.FilledQty.
+	// the intended base delta rather than immediate order.FilledQty.
 	//
 	// Why delta instead of order.FilledQty: CreateMarketOrder may return
 	// FilledQty=0 when the exchange acknowledges the order but hasn't confirmed
@@ -466,10 +500,14 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 	switch changedLeg {
 	case "long":
 		p.LongFilledQty = remainingContracts
-		p.ShortFilledQty = p.ShortFilledQty.Sub(delta)
+		p.LongFilledBaseQty = remainingBaseQty
+		p.ShortFilledBaseQty = otherCurrentBaseQty.Sub(baseDelta)
+		p.ShortFilledQty = baseQtyToContracts(p.ShortFilledBaseQty, p.ShortContractSize)
 	case "short":
 		p.ShortFilledQty = remainingContracts
-		p.LongFilledQty = p.LongFilledQty.Sub(delta)
+		p.ShortFilledBaseQty = remainingBaseQty
+		p.LongFilledBaseQty = otherCurrentBaseQty.Sub(baseDelta)
+		p.LongFilledQty = baseQtyToContracts(p.LongFilledBaseQty, p.LongContractSize)
 	}
 
 	p.Status = domain.PositionStatusPartiallyOpen
@@ -522,6 +560,26 @@ func otherLeg(leg string) string {
 		return "short"
 	}
 	return "long"
+}
+
+func legContractSize(p *domain.Position, leg string) decimal.Decimal {
+	if leg == "long" {
+		return normalizeContractSize(p.LongContractSize)
+	}
+	return normalizeContractSize(p.ShortContractSize)
+}
+
+func legBaseQty(p *domain.Position, leg string) decimal.Decimal {
+	if leg == "long" {
+		if p.LongFilledBaseQty.GreaterThan(decimal.Zero) {
+			return p.LongFilledBaseQty
+		}
+		return contractsToBaseQty(p.LongFilledQty, p.LongContractSize)
+	}
+	if p.ShortFilledBaseQty.GreaterThan(decimal.Zero) {
+		return p.ShortFilledBaseQty
+	}
+	return contractsToBaseQty(p.ShortFilledQty, p.ShortContractSize)
 }
 
 // isPositionAlreadyClosed checks whether a CreateMarketOrder error indicates the

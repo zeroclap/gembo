@@ -295,6 +295,7 @@ func (s *Store) SetFundingArbitrage(ctx context.Context, a domain.FundingArbitra
 	pipe := s.client.TxPipeline()
 	pipe.Set(ctx, key, data, arbitrageTTL)
 	pipe.SAdd(ctx, rediskey.FundingArbitragePairs(), member)
+	pipe.Publish(ctx, rediskey.FundingArbitragePubSub(), data)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("store funding arbitrage %s %s|%s: %w", a.Symbol, exA, exB, err)
@@ -413,6 +414,7 @@ func (s *Store) SetSpreadArbitrage(ctx context.Context, a domain.SpreadArbitrage
 	pipe := s.client.TxPipeline()
 	pipe.Set(ctx, key, data, spreadArbitrageTTL)
 	pipe.SAdd(ctx, rediskey.SpreadArbitragePairs(), member)
+	pipe.Publish(ctx, rediskey.SpreadArbitragePubSub(), data)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("store spread arbitrage %s %s|%s: %w", a.Symbol, exA, exB, err)

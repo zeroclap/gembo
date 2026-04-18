@@ -228,6 +228,28 @@ function PositionDetail({
               </tr>
               <tr className="border-t border-border/30">
                 <td className="pr-4 py-0.5 text-muted-foreground">
+                  Base qty
+                </td>
+                <td className="pr-4 py-0.5 text-right font-mono tabular-nums">
+                  {formatQty(position.long_filled_base_qty)}
+                </td>
+                <td className="py-0.5 text-right font-mono tabular-nums">
+                  {formatQty(position.short_filled_base_qty)}
+                </td>
+              </tr>
+              <tr className="border-t border-border/30">
+                <td className="pr-4 py-0.5 text-muted-foreground">
+                  Contract size
+                </td>
+                <td className="pr-4 py-0.5 text-right font-mono tabular-nums text-muted-foreground">
+                  {formatQty(position.long_contract_size)}
+                </td>
+                <td className="py-0.5 text-right font-mono tabular-nums text-muted-foreground">
+                  {formatQty(position.short_contract_size)}
+                </td>
+              </tr>
+              <tr className="border-t border-border/30">
+                <td className="pr-4 py-0.5 text-muted-foreground">
                   Unrealized
                 </td>
                 <td className="pr-4 py-0.5 text-right">
@@ -272,6 +294,10 @@ function PositionDetail({
               <span className="ml-1 text-[0.625rem] text-muted-foreground uppercase">
                 {position.size_type}
               </span>
+            </span>
+            <span className="text-muted-foreground">Requested base qty</span>
+            <span className="font-mono tabular-nums text-right">
+              {formatQty(position.requested_base_qty)}
             </span>
             <span className="text-muted-foreground">Entry fees</span>
             <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">

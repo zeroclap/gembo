@@ -13,13 +13,15 @@ func (s *Store) CreateOrder(ctx context.Context, o *domain.ExchangeOrder) error 
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO orders (
 			position_id, exchange_id, exchange_order_id, symbol,
-			side, leg, action, requested_qty, filled_qty,
+			side, leg, action, requested_qty, requested_base_qty,
+			contract_size, filled_qty, filled_base_qty,
 			average_price, cost, fee_cost, status, raw_response
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING id, created_at, updated_at`,
 		o.PositionID, o.ExchangeID, nullableString(o.ExchangeOrderID), o.Symbol,
 		o.Side, o.Leg, o.Action,
-		decimalToNullable(o.RequestedQty), decimalToNullable(o.FilledQty),
+		decimalToNullable(o.RequestedQty), decimalToNullable(o.RequestedBaseQty),
+		decimalToNullable(o.ContractSize), decimalToNullable(o.FilledQty), decimalToNullable(o.FilledBaseQty),
 		decimalToNullable(o.AveragePrice), decimalToNullable(o.Cost),
 		decimalToNullable(o.FeeCost), o.Status, nullableJSON(o.RawResponse),
 	)
@@ -34,17 +36,25 @@ func (s *Store) UpdateOrder(ctx context.Context, o *domain.ExchangeOrder) error 
 	_, err := s.pool.Exec(ctx, `
 		UPDATE orders SET
 			exchange_order_id = $2,
-			filled_qty = $3,
-			average_price = $4,
-			cost = $5,
-			fee_cost = $6,
-			status = $7,
-			raw_response = $8,
+			requested_qty = $3,
+			requested_base_qty = $4,
+			contract_size = $5,
+			filled_qty = $6,
+			filled_base_qty = $7,
+			average_price = $8,
+			cost = $9,
+			fee_cost = $10,
+			status = $11,
+			raw_response = $12,
 			updated_at = NOW()
 		WHERE id = $1`,
 		o.ID,
 		nullableString(o.ExchangeOrderID),
+		decimalToNullable(o.RequestedQty),
+		decimalToNullable(o.RequestedBaseQty),
+		decimalToNullable(o.ContractSize),
 		decimalToNullable(o.FilledQty),
+		decimalToNullable(o.FilledBaseQty),
 		decimalToNullable(o.AveragePrice),
 		decimalToNullable(o.Cost),
 		decimalToNullable(o.FeeCost),
@@ -63,7 +73,8 @@ func (s *Store) ListOrdersByPosition(ctx context.Context, positionID string) ([]
 		SELECT
 			id, position_id, exchange_id, COALESCE(exchange_order_id, ''),
 			symbol, side, leg, action,
-			COALESCE(requested_qty, 0), COALESCE(filled_qty, 0),
+			COALESCE(requested_qty, 0), COALESCE(requested_base_qty, 0), COALESCE(contract_size, 0),
+			COALESCE(filled_qty, 0), COALESCE(filled_base_qty, 0),
 			COALESCE(average_price, 0), COALESCE(cost, 0),
 			COALESCE(fee_cost, 0), status, raw_response,
 			created_at, updated_at
@@ -83,7 +94,8 @@ func (s *Store) ListOrdersByPosition(ctx context.Context, positionID string) ([]
 		if err := rows.Scan(
 			&o.ID, &o.PositionID, &o.ExchangeID, &o.ExchangeOrderID,
 			&o.Symbol, &o.Side, &o.Leg, &o.Action,
-			&o.RequestedQty, &o.FilledQty,
+			&o.RequestedQty, &o.RequestedBaseQty, &o.ContractSize,
+			&o.FilledQty, &o.FilledBaseQty,
 			&o.AveragePrice, &o.Cost,
 			&o.FeeCost, &o.Status, &rawResp,
 			&o.CreatedAt, &o.UpdatedAt,

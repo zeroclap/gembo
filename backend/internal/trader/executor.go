@@ -105,12 +105,27 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 		return t.failPosition(ctx, p, fmt.Errorf("configure short exchange: %w", err))
 	}
 
-	// Determine order amount in base currency.
-	// For now, if SizeType is Price, we need to convert using a reference price.
-	// We'll use the mark price from the most recent ticker data.
-	amount, err := t.resolveAmount(ctx, p, longExch, shortExch)
+	longContractSize, shortContractSize, err := t.resolveLegContractSizes(ctx, p)
 	if err != nil {
-		return t.failPosition(ctx, p, fmt.Errorf("resolve amount: %w", err))
+		return t.failPosition(ctx, p, fmt.Errorf("resolve contract sizes: %w", err))
+	}
+	p.LongContractSize = longContractSize
+	p.ShortContractSize = shortContractSize
+
+	baseQty, err := t.resolveBaseQuantity(ctx, p, longExch, shortExch)
+	if err != nil {
+		return t.failPosition(ctx, p, fmt.Errorf("resolve base quantity: %w", err))
+	}
+	p.RequestedBaseQty = baseQty
+
+	longContracts := baseQtyToContracts(baseQty, longContractSize)
+	shortContracts := baseQtyToContracts(baseQty, shortContractSize)
+	if longContracts.LessThanOrEqual(decimal.Zero) || shortContracts.LessThanOrEqual(decimal.Zero) {
+		return t.failPosition(ctx, p, fmt.Errorf("resolved non-positive contracts: long=%s short=%s", longContracts, shortContracts))
+	}
+
+	if err := t.store.UpdatePosition(ctx, p); err != nil {
+		return fmt.Errorf("persist sizing fields: %w", err)
 	}
 
 	// Create order records in PG before submitting to exchanges.
@@ -156,14 +171,32 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 	var g errgroup.Group
 
 	g.Go(func() error {
-		filled, err := t.placeAndPoll(ctx, longExch, p.Symbol, domain.OrderSideBuy, amount, longOrder)
+		filled, err := t.placeAndPoll(
+			ctx,
+			longExch,
+			p.Symbol,
+			domain.OrderSideBuy,
+			longContracts,
+			baseQty,
+			longContractSize,
+			longOrder,
+		)
 		longRes = orderResult{order: filled, err: err}
 		// Always return nil — we handle errors ourselves after both goroutines finish.
 		return nil
 	})
 
 	g.Go(func() error {
-		filled, err := t.placeAndPoll(ctx, shortExch, p.Symbol, domain.OrderSideSell, amount, shortOrder)
+		filled, err := t.placeAndPoll(
+			ctx,
+			shortExch,
+			p.Symbol,
+			domain.OrderSideSell,
+			shortContracts,
+			baseQty,
+			shortContractSize,
+			shortOrder,
+		)
 		shortRes = orderResult{order: filled, err: err}
 		return nil
 	})
@@ -184,10 +217,12 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 	p.OpenedAt = &now
 	p.LongEntryPrice = longResult.AveragePrice
 	p.LongFilledQty = longResult.FilledQty
+	p.LongFilledBaseQty = contractsToBaseQty(longResult.FilledQty, p.LongContractSize)
 	p.LongEntryCost = longResult.Cost
 	p.LongEntryFees = longResult.FeeCost
 	p.ShortEntryPrice = shortResult.AveragePrice
 	p.ShortFilledQty = shortResult.FilledQty
+	p.ShortFilledBaseQty = contractsToBaseQty(shortResult.FilledQty, p.ShortContractSize)
 	p.ShortEntryCost = shortResult.Cost
 	p.ShortEntryFees = shortResult.FeeCost
 
@@ -269,8 +304,20 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 	var longResult, shortResult *domain.ExchangeOrder
 
 	g.Go(func() error {
-		qty := p.LongFilledQty.InexactFloat64()
-		filled, err := t.closeAndPoll(gCtx, longExch, p.Symbol, domain.OrderSideSell, qty, longCloseOrder)
+		longBaseQty := p.LongFilledBaseQty
+		if longBaseQty.LessThanOrEqual(decimal.Zero) {
+			longBaseQty = contractsToBaseQty(p.LongFilledQty, p.LongContractSize)
+		}
+		filled, err := t.closeAndPoll(
+			gCtx,
+			longExch,
+			p.Symbol,
+			domain.OrderSideSell,
+			p.LongFilledQty,
+			longBaseQty,
+			p.LongContractSize,
+			longCloseOrder,
+		)
 		if err != nil {
 			// Position was already closed on the exchange (e.g. manually closed
 			// while the app was down). Treat as a successful no-op close.
@@ -289,8 +336,20 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 	})
 
 	g.Go(func() error {
-		qty := p.ShortFilledQty.InexactFloat64()
-		filled, err := t.closeAndPoll(gCtx, shortExch, p.Symbol, domain.OrderSideBuy, qty, shortCloseOrder)
+		shortBaseQty := p.ShortFilledBaseQty
+		if shortBaseQty.LessThanOrEqual(decimal.Zero) {
+			shortBaseQty = contractsToBaseQty(p.ShortFilledQty, p.ShortContractSize)
+		}
+		filled, err := t.closeAndPoll(
+			gCtx,
+			shortExch,
+			p.Symbol,
+			domain.OrderSideBuy,
+			p.ShortFilledQty,
+			shortBaseQty,
+			p.ShortContractSize,
+			shortCloseOrder,
+		)
 		if err != nil {
 			if isPositionAlreadyClosed(err) {
 				t.logger.Info("short leg already closed on exchange",
@@ -360,40 +419,6 @@ func (t *Trader) resolveLeverage(p *domain.Position) int {
 	return t.cfg.Leverage
 }
 
-// resolveAmount determines the order amount in base currency.
-// For SizeTypeQuantity, it returns the requested size directly.
-// For SizeTypePrice, it fetches positions/tickers to determine a reference price.
-func (t *Trader) resolveAmount(ctx context.Context, p *domain.Position, longExch, shortExch exchange.TradingExchange) (float64, error) {
-	if p.SizeType == domain.SizeTypeQuantity {
-		return p.RequestedSize.InexactFloat64(), nil
-	}
-
-	// SizeTypePrice — need a reference price to convert to base.
-	// Try fetching current position/mark price from the long exchange.
-	// If not available, use short exchange.
-	var refPrice decimal.Decimal
-
-	longPos, err := longExch.FetchPosition(ctx, p.Symbol)
-	if err == nil && longPos != nil && !longPos.MarkPrice.IsZero() {
-		refPrice = longPos.MarkPrice
-	}
-
-	if refPrice.IsZero() {
-		shortPos, err := shortExch.FetchPosition(ctx, p.Symbol)
-		if err == nil && shortPos != nil && !shortPos.MarkPrice.IsZero() {
-			refPrice = shortPos.MarkPrice
-		}
-	}
-
-	if refPrice.IsZero() {
-		return 0, fmt.Errorf("unable to determine reference price for %s", p.Symbol)
-	}
-
-	// amount = requested_usd / price
-	amount := p.RequestedSize.Div(refPrice)
-	return amount.InexactFloat64(), nil
-}
-
 // placeAndPoll places a market order and polls until it reaches a terminal state.
 // It updates the order record in PG as the order progresses.
 func (t *Trader) placeAndPoll(
@@ -401,9 +426,12 @@ func (t *Trader) placeAndPoll(
 	exch exchange.TradingExchange,
 	symbol string,
 	side domain.OrderSide,
-	amount float64,
+	contracts decimal.Decimal,
+	requestedBaseQty decimal.Decimal,
+	contractSize decimal.Decimal,
 	orderRec *domain.ExchangeOrder,
 ) (*domain.ExchangeOrder, error) {
+	amount := contracts.InexactFloat64()
 	logger := t.logger.With(
 		"exchange", exch.ID(),
 		"symbol", symbol,
@@ -419,7 +447,7 @@ func (t *Trader) placeAndPoll(
 		return nil, fmt.Errorf("create market order: %w", err)
 	}
 
-	return t.pollOrder(ctx, exch, symbol, result, orderRec, logger, amount)
+	return t.pollOrder(ctx, exch, symbol, result, orderRec, logger, contracts, requestedBaseQty, contractSize)
 }
 
 // closeAndPoll places a reduce-only market order and polls until it reaches a
@@ -429,9 +457,12 @@ func (t *Trader) closeAndPoll(
 	exch exchange.TradingExchange,
 	symbol string,
 	side domain.OrderSide,
-	amount float64,
+	contracts decimal.Decimal,
+	requestedBaseQty decimal.Decimal,
+	contractSize decimal.Decimal,
 	orderRec *domain.ExchangeOrder,
 ) (*domain.ExchangeOrder, error) {
+	amount := contracts.InexactFloat64()
 	logger := t.logger.With(
 		"exchange", exch.ID(),
 		"symbol", symbol,
@@ -447,7 +478,7 @@ func (t *Trader) closeAndPoll(
 		return nil, fmt.Errorf("close market order: %w", err)
 	}
 
-	return t.pollOrder(ctx, exch, symbol, result, orderRec, logger, amount)
+	return t.pollOrder(ctx, exch, symbol, result, orderRec, logger, contracts, requestedBaseQty, contractSize)
 }
 
 // pollOrder polls an exchange order until it reaches a terminal state.
@@ -458,12 +489,16 @@ func (t *Trader) pollOrder(
 	result *domain.ExchangeOrder,
 	orderRec *domain.ExchangeOrder,
 	logger *slog.Logger,
-	amount float64,
+	contracts decimal.Decimal,
+	requestedBaseQty decimal.Decimal,
+	contractSize decimal.Decimal,
 ) (*domain.ExchangeOrder, error) {
 	// Update order record with exchange ID.
 	orderRec.ExchangeOrderID = result.ExchangeOrderID
 	orderRec.Status = "submitted"
-	orderRec.RequestedQty = decimal.NewFromFloat(amount)
+	orderRec.RequestedQty = contracts
+	orderRec.RequestedBaseQty = requestedBaseQty
+	orderRec.ContractSize = contractSize
 	_ = t.store.UpdateOrder(ctx, orderRec)
 
 	// Poll order status until terminal.
@@ -489,6 +524,7 @@ func (t *Trader) pollOrder(
 
 		// Update order record.
 		orderRec.FilledQty = fetched.FilledQty
+		orderRec.FilledBaseQty = contractsToBaseQty(fetched.FilledQty, contractSize)
 		orderRec.AveragePrice = fetched.AveragePrice
 		orderRec.Cost = fetched.Cost
 		orderRec.FeeCost = fetched.FeeCost

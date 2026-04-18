@@ -35,7 +35,7 @@ interface SimulationPanelViewProps {
   symbol: string;
   longExchange: string;
   shortExchange: string;
-  /** "price" = position_size (USDT), "quantity" = quantity (contracts) */
+  /** "price" = position_size (USDT), "quantity" = base quantity */
   sizeType: SimSizeType;
   size: string;
   slippagePct: string;

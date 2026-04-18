@@ -646,25 +646,25 @@ func TestReferencePrice_NoSource(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests: resolvePortionAmount
+// Tests: resolvePortionBaseQty
 // ---------------------------------------------------------------------------
 
-func TestResolvePortionAmount_Base(t *testing.T) {
+func TestResolvePortionBaseQty_Base(t *testing.T) {
 	tr := newTestTrader(newMockPositionStore())
 	p := &domain.Position{
 		SizeType:    domain.SizeTypeQuantity,
 		PortionSize: dec("0.5"),
 	}
-	amount, err := tr.resolvePortionAmount(context.Background(), p, nil, nil)
+	amount, err := tr.resolvePortionBaseQty(context.Background(), p, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if amount != 0.5 {
-		t.Errorf("expected 0.5, got %f", amount)
+	if !amount.Equal(dec("0.5")) {
+		t.Errorf("expected 0.5, got %s", amount)
 	}
 }
 
-func TestResolvePortionAmount_USD(t *testing.T) {
+func TestResolvePortionBaseQty_USD(t *testing.T) {
 	tr := newTestTrader(newMockPositionStore())
 	p := &domain.Position{
 		SizeType:    domain.SizeTypePrice,
@@ -678,14 +678,13 @@ func TestResolvePortionAmount_USD(t *testing.T) {
 	}
 	shortExch := &mockTradingExchange{id: "okx"}
 
-	amount, err := tr.resolvePortionAmount(context.Background(), p, longExch, shortExch)
+	amount, err := tr.resolvePortionBaseQty(context.Background(), p, longExch, shortExch)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// 1000 / 50000 = 0.02
-	expected := 0.02
-	if amount != expected {
-		t.Errorf("expected %f, got %f", expected, amount)
+	if !amount.Equal(dec("0.02")) {
+		t.Errorf("expected 0.02, got %s", amount)
 	}
 }
 

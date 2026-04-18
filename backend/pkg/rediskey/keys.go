@@ -111,6 +111,20 @@ func PositionStatePubSub(exchangeID string) string {
 	return fmt.Sprintf("%s:%s:position:updates", prefix, exchangeID)
 }
 
+// FundingArbitragePubSub returns the Pub/Sub channel for funding arbitrage updates.
+//
+//	gembo:arbitrage:funding:updates
+func FundingArbitragePubSub() string {
+	return fmt.Sprintf("%s:arbitrage:funding:updates", prefix)
+}
+
+// SpreadArbitragePubSub returns the Pub/Sub channel for spread arbitrage updates.
+//
+//	gembo:arbitrage:spread:updates
+func SpreadArbitragePubSub() string {
+	return fmt.Sprintf("%s:arbitrage:spread:updates", prefix)
+}
+
 // SpreadArbitragePairs returns the set key that tracks all spread arbitrage pair identifiers.
 //
 //	gembo:arbitrage:spread:pairs

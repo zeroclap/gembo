@@ -305,6 +305,7 @@ export interface Position {
   status: PositionStatus;
   size_type: SizeType;
   requested_size: string;
+  requested_base_qty: string;
 
   // Arbitrage type.
   arbitrage_type: ArbitrageType;
@@ -329,14 +330,18 @@ export interface Position {
   stop_reason: StopReason;
 
   long_exchange_id: string;
+  long_contract_size: string;
   long_entry_price: string;
   long_filled_qty: string;
+  long_filled_base_qty: string;
   long_entry_cost: string;
   long_entry_fees: string;
 
   short_exchange_id: string;
+  short_contract_size: string;
   short_entry_price: string;
   short_filled_qty: string;
+  short_filled_base_qty: string;
   short_entry_cost: string;
   short_entry_fees: string;
 
@@ -383,7 +388,10 @@ export interface ExchangeOrder {
   leg: string;
   action: string;
   requested_qty: string;
+  requested_base_qty: string;
+  contract_size: string;
   filled_qty: string;
+  filled_base_qty: string;
   average_price: string;
   cost: string;
   fee_cost: string;

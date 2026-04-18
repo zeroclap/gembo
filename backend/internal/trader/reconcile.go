@@ -99,6 +99,8 @@ func (t *Trader) reconcilePosition(ctx context.Context, p *domain.Position) {
 		logger.Info("reconcile: processing long leg",
 			"exchange", longEvent.ExchangeID,
 			"contracts", longEvent.Contracts,
+			"contract_size", longEvent.ContractSize,
+			"base_qty", longEvent.BaseQty,
 			"side", longEvent.Side,
 		)
 		if err := t.handlePositionEvent(ctx, longEvent); err != nil {
@@ -110,6 +112,8 @@ func (t *Trader) reconcilePosition(ctx context.Context, p *domain.Position) {
 		logger.Info("reconcile: processing short leg",
 			"exchange", shortEvent.ExchangeID,
 			"contracts", shortEvent.Contracts,
+			"contract_size", shortEvent.ContractSize,
+			"base_qty", shortEvent.BaseQty,
 			"side", shortEvent.Side,
 		)
 		if err := t.handlePositionEvent(ctx, shortEvent); err != nil {
@@ -146,13 +150,26 @@ func (t *Trader) fetchLegState(
 		Timestamp:  time.Now().UTC(),
 	}
 
+	contractSize, csErr := t.contractSizeFor(ctx, exchangeID, symbol)
+	if csErr != nil {
+		contractSize = oneContractSize
+		logger.Warn("reconcile: resolve contract size failed, using 1",
+			"exchange", exchangeID,
+			"symbol", symbol,
+			"error", csErr,
+		)
+	}
+	event.ContractSize = contractSize
+
 	if pos == nil || pos.Contracts.IsZero() {
 		// No position on exchange — treat as fully closed.
 		event.Contracts = decimal.Zero
+		event.BaseQty = decimal.Zero
 		event.Side = domain.PositionSideNone
 	} else {
 		event.Side = pos.Side
 		event.Contracts = pos.Contracts
+		event.BaseQty = contractsToBaseQty(pos.Contracts, contractSize)
 		event.EntryPrice = pos.EntryPrice
 		event.MarkPrice = pos.MarkPrice
 		event.LiquidationPrice = pos.LiquidationPrice
@@ -237,9 +254,34 @@ func (t *Trader) recoverOpeningPosition(ctx context.Context, p *domain.Position)
 	longHas := longPos != nil && longPos.Contracts.GreaterThan(decimal.Zero)
 	shortHas := shortPos != nil && shortPos.Contracts.GreaterThan(decimal.Zero)
 
+	longContractSize, lcsErr := t.contractSizeFor(ctx, p.LongExchangeID, p.Symbol)
+	if lcsErr != nil {
+		longContractSize = oneContractSize
+		logger.Warn("reconcile: resolve long contract size failed, using 1", "error", lcsErr)
+	}
+	shortContractSize, scsErr := t.contractSizeFor(ctx, p.ShortExchangeID, p.Symbol)
+	if scsErr != nil {
+		shortContractSize = oneContractSize
+		logger.Warn("reconcile: resolve short contract size failed, using 1", "error", scsErr)
+	}
+
 	switch {
 	case longHas && shortHas:
 		// Both legs filled — complete the opening.
+		longBaseQty := contractsToBaseQty(longPos.Contracts, longContractSize)
+		shortBaseQty := contractsToBaseQty(shortPos.Contracts, shortContractSize)
+		if !longBaseQty.Equal(shortBaseQty) {
+			logger.Warn("reconcile: mismatched base qty on stuck opening, normalizing short leg",
+				"long_base_qty", longBaseQty,
+				"short_base_qty", shortBaseQty,
+			)
+			t.rollbackLeg(ctx, shortExch, p.Symbol, domain.OrderSideBuy, shortPos.Contracts, logger)
+			t.shortReopenToBase(ctx, shortExch, p.Symbol, longBaseQty, shortContractSize, logger)
+			refetched, ferr := shortExch.FetchPosition(ctx, p.Symbol)
+			if ferr == nil && refetched != nil {
+				shortPos = refetched
+			}
+		}
 		logger.Info("reconcile: both legs present on exchanges, completing opening",
 			"long_contracts", longPos.Contracts,
 			"short_contracts", shortPos.Contracts,
@@ -279,7 +321,10 @@ func (t *Trader) completeStuckOpening(
 	now := time.Now().UTC()
 	p.Status = domain.PositionStatusOpen
 	p.OpenedAt = &now
+	p.LongContractSize, _ = t.contractSizeFor(ctx, p.LongExchangeID, p.Symbol)
+	p.ShortContractSize, _ = t.contractSizeFor(ctx, p.ShortExchangeID, p.Symbol)
 	p.LongFilledQty = longPos.Contracts
+	p.LongFilledBaseQty = contractsToBaseQty(longPos.Contracts, p.LongContractSize)
 	p.LongEntryPrice = longPos.EntryPrice
 	p.LongMarkPrice = longPos.MarkPrice
 	p.LongLiquidationPrice = longPos.LiquidationPrice
@@ -287,6 +332,7 @@ func (t *Trader) completeStuckOpening(
 	p.LongMarginMode = longPos.MarginMode
 	p.LongNotional = longPos.Notional
 	p.ShortFilledQty = shortPos.Contracts
+	p.ShortFilledBaseQty = contractsToBaseQty(shortPos.Contracts, p.ShortContractSize)
 	p.ShortEntryPrice = shortPos.EntryPrice
 	p.ShortMarkPrice = shortPos.MarkPrice
 	p.ShortLiquidationPrice = shortPos.LiquidationPrice
@@ -300,8 +346,10 @@ func (t *Trader) completeStuckOpening(
 	}
 
 	logger.Info("reconcile: stuck opening position completed",
-		"long_qty", p.LongFilledQty,
-		"short_qty", p.ShortFilledQty,
+		"long_contracts", p.LongFilledQty,
+		"short_contracts", p.ShortFilledQty,
+		"long_base_qty", p.LongFilledBaseQty,
+		"short_base_qty", p.ShortFilledBaseQty,
 	)
 
 	t.redis.Publish(ctx, rediskey.PositionUpdates(), p.ID)
@@ -334,6 +382,23 @@ func (t *Trader) rollbackLeg(
 			logger.Error("reconcile: rollback order failed",
 				"exchange", exch.ID(), "error", err)
 		}
+	}
+}
+
+func (t *Trader) shortReopenToBase(
+	ctx context.Context,
+	exch exchange.TradingExchange,
+	symbol string,
+	baseQty decimal.Decimal,
+	contractSize decimal.Decimal,
+	logger *slog.Logger,
+) {
+	contracts := baseQtyToContracts(baseQty, contractSize)
+	if contracts.LessThanOrEqual(decimal.Zero) {
+		return
+	}
+	if _, err := exch.CreateMarketOrder(ctx, symbol, domain.OrderSideSell, contracts.InexactFloat64()); err != nil {
+		logger.Warn("reconcile: normalize reopen short failed", "exchange", exch.ID(), "error", err)
 	}
 }
 

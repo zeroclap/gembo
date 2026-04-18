@@ -199,6 +199,16 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.store != nil {
+		if lm, lerr := h.store.GetMarket(r.Context(), p.LongExchangeID, p.Symbol); lerr == nil && lm != nil {
+			p.LongContractSize = lm.ContractSize
+		}
+		if sm, serr := h.store.GetMarket(r.Context(), p.ShortExchangeID, p.Symbol); serr == nil && sm != nil {
+			p.ShortContractSize = sm.ContractSize
+		}
+		_ = h.positionStore.UpdatePosition(r.Context(), p)
+	}
+
 	// Signal the trader via Redis Pub/Sub.
 	if h.redis != nil {
 		h.redis.Publish(r.Context(), rediskey.PositionPending(), p.ID)

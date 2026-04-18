@@ -254,6 +254,24 @@ function ExpandedDetail({ position }: { position: Position }) {
                 </td>
               </tr>
               <tr className="border-t border-border/30">
+                <td className="pr-3 py-0.5 text-muted-foreground">Base qty</td>
+                <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
+                  {formatQty(position.long_filled_base_qty)}
+                </td>
+                <td className="py-0.5 text-right font-mono tabular-nums">
+                  {formatQty(position.short_filled_base_qty)}
+                </td>
+              </tr>
+              <tr className="border-t border-border/30">
+                <td className="pr-3 py-0.5 text-muted-foreground">Contract size</td>
+                <td className="pr-3 py-0.5 text-right font-mono tabular-nums text-muted-foreground">
+                  {formatQty(position.long_contract_size)}
+                </td>
+                <td className="py-0.5 text-right font-mono tabular-nums text-muted-foreground">
+                  {formatQty(position.short_contract_size)}
+                </td>
+              </tr>
+              <tr className="border-t border-border/30">
                 <td className="pr-3 py-0.5 text-muted-foreground">Entry fees</td>
                 <td className="pr-3 py-0.5 text-right font-mono tabular-nums text-red-600 dark:text-red-400">
                   {formatUsdPlain(position.long_entry_fees)}
@@ -369,6 +387,8 @@ function OrdersPanel({ positionId }: { positionId: string }) {
               <th className="pr-2 pb-1 text-left font-medium">Leg</th>
               <th className="pr-2 pb-1 text-left font-medium">Action</th>
               <th className="pr-2 pb-1 text-right font-medium">Qty</th>
+              <th className="pr-2 pb-1 text-right font-medium">Base Qty</th>
+              <th className="pr-2 pb-1 text-right font-medium">Contract</th>
               <th className="pr-2 pb-1 text-right font-medium">Avg Price</th>
               <th className="pr-2 pb-1 text-right font-medium">Cost</th>
               <th className="pr-2 pb-1 text-right font-medium">Fee</th>
@@ -399,6 +419,12 @@ function OrdersPanel({ positionId }: { positionId: string }) {
                 </td>
                 <td className="pr-2 py-0.5 text-right font-mono tabular-nums">
                   {formatQty(o.filled_qty)} / {formatQty(o.requested_qty)}
+                </td>
+                <td className="pr-2 py-0.5 text-right font-mono tabular-nums text-muted-foreground">
+                  {formatQty(o.filled_base_qty)} / {formatQty(o.requested_base_qty)}
+                </td>
+                <td className="pr-2 py-0.5 text-right font-mono tabular-nums text-muted-foreground">
+                  {formatQty(o.contract_size)}
                 </td>
                 <td className="pr-2 py-0.5 text-right font-mono tabular-nums">
                   {formatPrice(o.average_price)}
