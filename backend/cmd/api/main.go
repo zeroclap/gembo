@@ -58,6 +58,8 @@ func main() {
 	// Handler options — PostgreSQL position store is optional.
 	var handlerOpts []api.HandlerOption
 	handlerOpts = append(handlerOpts, api.WithRedis(rc))
+	handlerOpts = append(handlerOpts, api.WithJWTSecret(cfg.Auth.JWTSecret))
+	handlerOpts = append(handlerOpts, api.WithTokenTTL(cfg.Auth.TokenTTL))
 
 	if cfg.Database.URL != "" {
 		ctx := context.Background()
@@ -74,6 +76,7 @@ func main() {
 		}
 		logger.Info("postgres connected and migrated")
 		handlerOpts = append(handlerOpts, api.WithPositionStore(ps))
+		handlerOpts = append(handlerOpts, api.WithUserStore(ps))
 	}
 
 	handler := api.NewHandler(reg, st, handlerOpts...)

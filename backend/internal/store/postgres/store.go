@@ -48,6 +48,7 @@ func (s *Store) RunMigrations() error {
 
 	// Use stdlib adapter from pgx to get a *sql.DB for the migrate driver.
 	db := stdlib.OpenDBFromPool(s.pool)
+	defer db.Close()
 
 	dbDriver, err := pgmigrate.WithInstance(db, &pgmigrate.Config{})
 	if err != nil {

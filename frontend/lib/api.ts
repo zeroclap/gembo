@@ -6,6 +6,53 @@ export interface ApiResponse<T> {
   ts: string;
 }
 
+/** Retrieve the stored JWT token (works outside React components). */
+function getToken(): string | null {
+  try {
+    const raw = localStorage.getItem("gembo-auth");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { state?: { token?: string | null } };
+    return parsed?.state?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Redirect to login, clearing the stored token. */
+function redirectToLogin(): never {
+  try {
+    localStorage.removeItem("gembo-auth");
+  } catch {
+    // ignore
+  }
+  window.location.replace("/login");
+  throw new Error("Redirecting to login");
+}
+
+async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
+
+  const headers = new Headers(init?.headers);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+
+  if (res.status === 401) {
+    redirectToLogin();
+  }
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status} ${res.statusText}`);
+  }
+  const json: ApiResponse<T> = await res.json();
+  if (json.error) {
+    throw new Error(json.error.message);
+  }
+  return json.data;
+}
+
 export interface Ticker {
   exchange_id: string;
   symbol: string;
@@ -26,18 +73,6 @@ export interface Balance {
   used: string;
   total: string;
   updated_at: string;
-}
-
-async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init);
-  if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
-  }
-  const json: ApiResponse<T> = await res.json();
-  if (json.error) {
-    throw new Error(json.error.message);
-  }
-  return json.data;
 }
 
 export function fetchTicker(

@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useState, useSyncExternalStore } from "react";
-import { Sun, Moon, RefreshCw, Activity, User, LayoutDashboard } from "lucide-react";
+import { Sun, Moon, RefreshCw, Activity, User, LayoutDashboard, LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/lib/auth-store";
 
 const emptySubscribe = () => () => {};
 const getTrue = () => true;
@@ -26,10 +27,18 @@ const mobileTabs = [
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
   const mounted = useSyncExternalStore(emptySubscribe, getTrue, getFalse);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const clearToken = useAuthStore((s) => s.clearToken);
+
+  function handleLogout() {
+    clearToken();
+    queryClient.clear();
+    router.replace("/login");
+  }
 
   return (
     <>
@@ -107,6 +116,15 @@ export function AppHeader() {
               <Link href="/account">
                 <User className="h-3.5 w-3.5" />
               </Link>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={handleLogout}
+              aria-label="Sign out"
+            >
+              <LogOut className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>

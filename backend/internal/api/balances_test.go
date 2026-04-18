@@ -111,7 +111,7 @@ func newBalanceTestHandler(st store.Store, exchangeIDs ...string) *Handler {
 	for _, id := range exchangeIDs {
 		reg.Register(&staticExchange{id: id})
 	}
-	return NewHandler(reg, st)
+	return NewHandler(reg, st, WithJWTSecret(testJWTSecret), WithTokenTTL(time.Hour))
 }
 
 func TestListAllBalances(t *testing.T) {
@@ -135,7 +135,7 @@ func TestListAllBalances(t *testing.T) {
 	})
 
 	h := newBalanceTestHandler(st, "bybit", "okx")
-	req := httptest.NewRequest(http.MethodGet, "/v1/balances", nil)
+	req := newAuthRequest(http.MethodGet, "/v1/balances", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -177,7 +177,7 @@ func TestListBalancesByExchange(t *testing.T) {
 	})
 
 	h := newBalanceTestHandler(st, "bybit", "okx")
-	req := httptest.NewRequest(http.MethodGet, "/v1/exchanges/bybit/balances", nil)
+	req := newAuthRequest(http.MethodGet, "/v1/exchanges/bybit/balances", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -203,7 +203,7 @@ func TestListBalancesByExchange(t *testing.T) {
 
 func TestListBalancesByExchange_NotFound(t *testing.T) {
 	h := newBalanceTestHandler(newMockBalanceStore(), "bybit")
-	req := httptest.NewRequest(http.MethodGet, "/v1/exchanges/okx/balances", nil)
+	req := newAuthRequest(http.MethodGet, "/v1/exchanges/okx/balances", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)

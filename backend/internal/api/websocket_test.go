@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -68,12 +69,13 @@ func TestArbitrageWS_SubscribeAndReceiveSnapshot(t *testing.T) {
 	reg.Register(&mockExchange{id: "binance"})
 	reg.Register(&mockExchange{id: "bybit"})
 
-	h := NewHandler(reg, st, WithRedis(rc))
+	h := NewHandler(reg, st, WithRedis(rc), WithJWTSecret(testJWTSecret), WithTokenTTL(time.Hour))
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/arbitrage/ws"
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	dialHdr := http.Header{"Authorization": {"Bearer " + testToken()}}
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, dialHdr)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -128,12 +130,13 @@ func TestArbitrageWS_PubSubForward(t *testing.T) {
 	reg.Register(&mockExchange{id: "binance"})
 	reg.Register(&mockExchange{id: "bybit"})
 
-	h := NewHandler(reg, st, WithRedis(rc))
+	h := NewHandler(reg, st, WithRedis(rc), WithJWTSecret(testJWTSecret), WithTokenTTL(time.Hour))
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/arbitrage/ws"
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	dialHdr2 := http.Header{"Authorization": {"Bearer " + testToken()}}
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, dialHdr2)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -202,6 +203,7 @@ func newTestHandler(ps *mockPositionStore, st *mockStore) *Handler {
 	if ps != nil {
 		opts = append(opts, WithPositionStore(ps))
 	}
+	opts = append(opts, WithJWTSecret(testJWTSecret), WithTokenTTL(time.Hour))
 	return NewHandler(reg, st, opts...)
 }
 
@@ -230,7 +232,7 @@ func TestCreatePosition_ValidRequest(t *testing.T) {
 		"size_type":"price",
 		"requested_size":"1000"
 	}`
-	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
+	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -271,7 +273,7 @@ func TestCreatePosition_MissingSymbol(t *testing.T) {
 	h := newTestHandler(ps, st)
 
 	body := `{"long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"price","requested_size":"1000"}`
-	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
+	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -288,7 +290,7 @@ func TestCreatePosition_InvalidSizeType(t *testing.T) {
 	h := newTestHandler(ps, st)
 
 	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"invalid","requested_size":"1000"}`
-	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
+	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -305,7 +307,7 @@ func TestCreatePosition_SameExchange(t *testing.T) {
 	h := newTestHandler(ps, st)
 
 	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"bybit","size_type":"price","requested_size":"1000"}`
-	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
+	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -322,7 +324,7 @@ func TestCreatePosition_NegativeSize(t *testing.T) {
 	h := newTestHandler(ps, st)
 
 	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"price","requested_size":"-100"}`
-	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
+	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -339,7 +341,7 @@ func TestCreatePosition_ZeroSize(t *testing.T) {
 	h := newTestHandler(ps, st)
 
 	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"quantity","requested_size":"0"}`
-	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString(body))
+	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -355,7 +357,7 @@ func TestListPositions_Empty(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	req := httptest.NewRequest("GET", "/v1/positions", nil)
+	req := newAuthRequest("GET", "/v1/positions", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -382,7 +384,7 @@ func TestListPositions_WithFilter(t *testing.T) {
 		Status: domain.PositionStatusClosed,
 	}
 
-	req := httptest.NewRequest("GET", "/v1/positions?status=open", nil)
+	req := newAuthRequest("GET", "/v1/positions?status=open", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -397,7 +399,7 @@ func TestGetPosition_NotFound(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	req := httptest.NewRequest("GET", "/v1/positions/nonexistent", nil)
+	req := newAuthRequest("GET", "/v1/positions/nonexistent", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -418,7 +420,7 @@ func TestGetPosition_Found(t *testing.T) {
 		Status: domain.PositionStatusOpen,
 	}
 
-	req := httptest.NewRequest("GET", "/v1/positions/p1", nil)
+	req := newAuthRequest("GET", "/v1/positions/p1", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -433,7 +435,7 @@ func TestClosePosition_NotFound(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	req := httptest.NewRequest("POST", "/v1/positions/nope/close", nil)
+	req := newAuthRequest("POST", "/v1/positions/nope/close", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -454,7 +456,7 @@ func TestClosePosition_WrongStatus(t *testing.T) {
 		Status: domain.PositionStatusPending,
 	}
 
-	req := httptest.NewRequest("POST", "/v1/positions/p1/close", nil)
+	req := newAuthRequest("POST", "/v1/positions/p1/close", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -475,7 +477,7 @@ func TestClosePosition_Success(t *testing.T) {
 		Status: domain.PositionStatusOpen,
 	}
 
-	req := httptest.NewRequest("POST", "/v1/positions/p1/close", nil)
+	req := newAuthRequest("POST", "/v1/positions/p1/close", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -498,7 +500,7 @@ func TestListPositionOrders_Empty(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	req := httptest.NewRequest("GET", "/v1/positions/p1/orders", nil)
+	req := newAuthRequest("GET", "/v1/positions/p1/orders", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -513,7 +515,7 @@ func TestListPositionFunding_Empty(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	req := httptest.NewRequest("GET", "/v1/positions/p1/funding", nil)
+	req := newAuthRequest("GET", "/v1/positions/p1/funding", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -527,7 +529,7 @@ func TestPositionRoutes_Unavailable_WithoutStore(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(nil, st) // No position store
 
-	req := httptest.NewRequest("GET", "/v1/positions", nil)
+	req := newAuthRequest("GET", "/v1/positions", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -543,7 +545,7 @@ func TestCreatePosition_InvalidJSON(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	req := httptest.NewRequest("POST", "/v1/positions", bytes.NewBufferString("{invalid"))
+	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString("{invalid"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -565,7 +567,7 @@ func TestDeletePosition_Success(t *testing.T) {
 		Status: domain.PositionStatusPending,
 	}
 
-	req := httptest.NewRequest("DELETE", "/v1/positions/p1", nil)
+	req := newAuthRequest("DELETE", "/v1/positions/p1", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -588,7 +590,7 @@ func TestDeletePosition_NotFound(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	req := httptest.NewRequest("DELETE", "/v1/positions/nonexistent", nil)
+	req := newAuthRequest("DELETE", "/v1/positions/nonexistent", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -609,7 +611,7 @@ func TestDeletePosition_NotPending(t *testing.T) {
 		Status: domain.PositionStatusOpen,
 	}
 
-	req := httptest.NewRequest("DELETE", "/v1/positions/p1", nil)
+	req := newAuthRequest("DELETE", "/v1/positions/p1", nil)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Providers } from "@/components/providers";
 import { AppHeader } from "@/components/app-header";
 import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
+import { AuthGuard } from "@/components/auth-guard";
 
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -51,11 +52,13 @@ export default function RootLayout({
     >
       <body className="h-full flex flex-col">
         <Providers>
-          <AppHeader />
-          <ServiceWorkerRegistrar />
-          <div className="flex-1 min-h-0 flex flex-col pb-14 md:pb-0">
-            {children}
-          </div>
+          <AuthGuard>
+            <AppHeader />
+            <ServiceWorkerRegistrar />
+            <div className="flex-1 min-h-0 flex flex-col pb-14 md:pb-0">
+              {children}
+            </div>
+          </AuthGuard>
         </Providers>
       </body>
     </html>

@@ -18,11 +18,20 @@ type Config struct {
 	Server       ServerConfig       `yaml:"server"`
 	Redis        RedisConfig        `yaml:"redis"`
 	Database     DatabaseConfig     `yaml:"database"`
+	Auth         AuthConfig         `yaml:"auth"`
 	Exchanges    []ExchangeCfg      `yaml:"exchanges"`
 	MarketFilter MarketFilterConfig `yaml:"market_filter"`
 	Hooks        HooksConfig        `yaml:"hooks"`
 	Trader       TraderConfig       `yaml:"trader"`
 	Log          LogConfig          `yaml:"log"`
+}
+
+// AuthConfig holds authentication settings.
+type AuthConfig struct {
+	// JWTSecret is the HMAC secret used to sign and verify JWT tokens.
+	// Defaults to a static dev value; always override in production via AUTH_JWT_SECRET.
+	JWTSecret string        `yaml:"jwt_secret"`
+	TokenTTL  time.Duration `yaml:"token_ttl"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -106,6 +115,10 @@ type LogConfig struct {
 // defaults returns a Config populated with sensible defaults.
 func defaults() Config {
 	return Config{
+		Auth: AuthConfig{
+			JWTSecret: "gembo-dev-secret-change-in-production",
+			TokenTTL:  24 * time.Hour,
+		},
 		Server: ServerConfig{
 			Host:         "0.0.0.0",
 			Port:         8080,
@@ -245,6 +258,16 @@ func applyEnv(cfg *Config) {
 	// Database override.
 	if v := os.Getenv("DATABASE_URL"); v != "" {
 		cfg.Database.URL = v
+	}
+
+	// Auth overrides.
+	if v := os.Getenv("AUTH_JWT_SECRET"); v != "" {
+		cfg.Auth.JWTSecret = v
+	}
+	if v := os.Getenv("AUTH_TOKEN_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Auth.TokenTTL = d
+		}
 	}
 
 	// Exchange credential overrides: <EXCHANGE_ID>_API_KEY, <EXCHANGE_ID>_SECRET, <EXCHANGE_ID>_PASSPHRASE.
