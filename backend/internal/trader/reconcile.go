@@ -92,8 +92,16 @@ func (t *Trader) reconcilePosition(ctx context.Context, p *domain.Position) {
 	logger := t.logger.With("position_id", p.ID, "symbol", p.Symbol)
 
 	// Snapshot both legs via REST before taking any action.
-	longEvent := t.fetchLegState(ctx, p.LongExchangeID, p.Symbol, logger)
-	shortEvent := t.fetchLegState(ctx, p.ShortExchangeID, p.Symbol, logger)
+	longEvent := t.fetchLegState(ctx, p, "long", p.LongExchangeID, p.Symbol, logger)
+	shortEvent := t.fetchLegState(ctx, p, "short", p.ShortExchangeID, p.Symbol, logger)
+	if longEvent != nil {
+		longEvent.UserID = p.UserID
+		longEvent.CredentialID = p.LongCredentialID
+	}
+	if shortEvent != nil {
+		shortEvent.UserID = p.UserID
+		shortEvent.CredentialID = p.ShortCredentialID
+	}
 
 	if longEvent != nil {
 		logger.Info("reconcile: processing long leg",
@@ -127,10 +135,12 @@ func (t *Trader) reconcilePosition(ctx context.Context, p *domain.Position) {
 // fails (the WebSocket reactor will catch up once it starts).
 func (t *Trader) fetchLegState(
 	ctx context.Context,
+	p *domain.Position,
+	leg string,
 	exchangeID, symbol string,
 	logger *slog.Logger,
 ) *domain.ExchangePositionEvent {
-	exch, err := t.registry.Get(exchangeID)
+	exch, err := t.tradingExchangeForLeg(ctx, p, leg)
 	if err != nil {
 		logger.Warn("reconcile: exchange not in trading registry",
 			"exchange", exchangeID, "error", err)
@@ -231,8 +241,8 @@ func (t *Trader) recoverOpeningPosition(ctx context.Context, p *domain.Position)
 	logger := t.logger.With("position_id", p.ID, "symbol", p.Symbol)
 	logger.Warn("reconcile: recovering stuck opening position")
 
-	longExch, longErr := t.registry.Get(p.LongExchangeID)
-	shortExch, shortErr := t.registry.Get(p.ShortExchangeID)
+	longExch, longErr := t.tradingExchangeForLeg(ctx, p, "long")
+	shortExch, shortErr := t.tradingExchangeForLeg(ctx, p, "short")
 
 	if longErr != nil || shortErr != nil {
 		logger.Error("reconcile: exchange not available for recovery",
@@ -352,7 +362,7 @@ func (t *Trader) completeStuckOpening(
 		"short_base_qty", p.ShortFilledBaseQty,
 	)
 
-	t.redis.Publish(ctx, rediskey.PositionUpdates(), p.ID)
+	t.redis.Publish(ctx, rediskey.UserPositionUpdates(p.UserID), p.ID)
 }
 
 // rollbackLeg places a reduce-only close order to unwind a single leg that
@@ -428,7 +438,7 @@ func (t *Trader) recoverStuckClosing(ctx context.Context) error {
 		logger := t.logger.With("position_id", p.ID, "symbol", p.Symbol)
 		logger.Warn("reconcile: retrying stuck close")
 
-		if err := t.executeClose(ctx, p.ID); err != nil {
+		if err := t.executeClose(ctx, p.UserID, p.ID); err != nil {
 			logger.Error("reconcile: retry close failed", "error", err)
 		}
 	}

@@ -25,7 +25,7 @@ type Store interface {
 
 	// Balances
 	SetBalance(ctx context.Context, b domain.Balance) error
-	ListBalances(ctx context.Context, exchangeID string) ([]domain.Balance, error)
+	ListBalances(ctx context.Context, userID, exchangeID string) ([]domain.Balance, error)
 
 	// Funding Arbitrage
 	SetFundingArbitrage(ctx context.Context, a domain.FundingArbitrage) error

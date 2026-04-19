@@ -55,6 +55,7 @@ const (
 // rate arbitrage and cross-exchange spread arbitrage.
 type Position struct {
 	ID            string          `json:"id"`
+	UserID        string          `json:"user_id"`
 	Symbol        string          `json:"symbol"`
 	Status        PositionStatus  `json:"status"`
 	SizeType      SizeType        `json:"size_type"`
@@ -88,6 +89,7 @@ type Position struct {
 
 	// Long leg.
 	LongExchangeID    string          `json:"long_exchange_id"`
+	LongCredentialID  string          `json:"long_credential_id"`
 	LongContractSize  decimal.Decimal `json:"long_contract_size"`
 	LongEntryPrice    decimal.Decimal `json:"long_entry_price"`
 	LongFilledQty     decimal.Decimal `json:"long_filled_qty"` // contracts
@@ -97,6 +99,7 @@ type Position struct {
 
 	// Short leg.
 	ShortExchangeID    string          `json:"short_exchange_id"`
+	ShortCredentialID  string          `json:"short_credential_id"`
 	ShortContractSize  decimal.Decimal `json:"short_contract_size"`
 	ShortEntryPrice    decimal.Decimal `json:"short_entry_price"`
 	ShortFilledQty     decimal.Decimal `json:"short_filled_qty"` // contracts
@@ -148,6 +151,7 @@ type Position struct {
 // as part of opening or closing a position leg.
 type ExchangeOrder struct {
 	ID               string          `json:"id"`
+	UserID           string          `json:"user_id"`
 	PositionID       string          `json:"position_id"`
 	ExchangeID       string          `json:"exchange_id"`
 	ExchangeOrderID  string          `json:"exchange_order_id"`
@@ -173,6 +177,7 @@ type ExchangeOrder struct {
 // while a position is open.
 type FundingPayment struct {
 	ID         string          `json:"id"`
+	UserID     string          `json:"user_id"`
 	PositionID string          `json:"position_id"`
 	ExchangeID string          `json:"exchange_id"`
 	Leg        string          `json:"leg"` // "long" or "short"
@@ -185,6 +190,7 @@ type FundingPayment struct {
 
 // PositionFilter controls which positions are returned by list queries.
 type PositionFilter struct {
+	UserID string
 	Status []PositionStatus
 	Symbol string
 }
@@ -193,6 +199,8 @@ type PositionFilter struct {
 // published by the collector via Redis pubsub. The trader subscribes and
 // reacts to these events (update PG, detect closures, auto-close, rebalance).
 type ExchangePositionEvent struct {
+	UserID           string          `json:"user_id"`
+	CredentialID     string          `json:"credential_id"`
 	ExchangeID       string          `json:"exchange_id"`
 	Symbol           string          `json:"symbol"`
 	Side             PositionSide    `json:"side"` // Long, Short, or None when closed

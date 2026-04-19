@@ -71,7 +71,7 @@ func (m *mockMarketStore) ListFundingRates(context.Context, string) ([]domain.Fu
 	return nil, nil
 }
 func (m *mockMarketStore) SetBalance(context.Context, domain.Balance) error { return nil }
-func (m *mockMarketStore) ListBalances(context.Context, string) ([]domain.Balance, error) {
+func (m *mockMarketStore) ListBalances(context.Context, string, string) ([]domain.Balance, error) {
 	return nil, nil
 }
 func (m *mockMarketStore) SetFundingArbitrage(context.Context, domain.FundingArbitrage) error {
@@ -118,6 +118,7 @@ func newSpreadPosition(id string, opts ...func(*domain.Position)) *domain.Positi
 	now := time.Now().UTC()
 	p := &domain.Position{
 		ID:                id,
+		UserID:            "test-user-id",
 		Symbol:            "BTC/USDT:USDT",
 		Status:            domain.PositionStatusOpen,
 		ArbitrageType:     domain.ArbitrageTypeSpread,
@@ -288,7 +289,7 @@ func TestSpreadMonitor_Timeout(t *testing.T) {
 	})
 	ps.positions[p.ID] = p
 
-	sm.checkTimeouts(context.Background())
+	sm.checkTimeouts(context.Background(), "")
 
 	ps.mu.Lock()
 	updated := ps.positions[p.ID]
@@ -315,7 +316,7 @@ func TestSpreadMonitor_NoTimeout_WithinDuration(t *testing.T) {
 	})
 	ps.positions[p.ID] = p
 
-	sm.checkTimeouts(context.Background())
+	sm.checkTimeouts(context.Background(), "")
 
 	ps.mu.Lock()
 	updated := ps.positions[p.ID]
@@ -339,7 +340,7 @@ func TestSpreadMonitor_NoTimeout_ZeroMaxHold(t *testing.T) {
 	})
 	ps.positions[p.ID] = p
 
-	sm.checkTimeouts(context.Background())
+	sm.checkTimeouts(context.Background(), "")
 
 	ps.mu.Lock()
 	updated := ps.positions[p.ID]
@@ -359,6 +360,7 @@ func TestSpreadMonitor_Timeout_IgnoresFundingPositions(t *testing.T) {
 	openedAt := time.Now().UTC().Add(-2 * time.Hour)
 	p := &domain.Position{
 		ID:              "pos-funding-1",
+		UserID:          "test-user-id",
 		Symbol:          "BTC/USDT:USDT",
 		Status:          domain.PositionStatusOpen,
 		ArbitrageType:   domain.ArbitrageTypeFunding,
@@ -369,7 +371,7 @@ func TestSpreadMonitor_Timeout_IgnoresFundingPositions(t *testing.T) {
 	}
 	ps.positions[p.ID] = p
 
-	sm.checkTimeouts(context.Background())
+	sm.checkTimeouts(context.Background(), "")
 
 	ps.mu.Lock()
 	updated := ps.positions[p.ID]
@@ -407,7 +409,7 @@ func TestSpreadMonitor_CheckSpreadPositions_FiltersNonSpread(t *testing.T) {
 	ms.setTicker("binance", "BTC/USDT:USDT", dec("49990"), dec("50000"))
 	ms.setTicker("bybit", "BTC/USDT:USDT", dec("50100"), dec("50110"))
 
-	sm.checkSpreadPositions(context.Background())
+	sm.checkSpreadPositions(context.Background(), "")
 
 	ps.mu.Lock()
 	fundingUpdated := ps.positions[fundingPos.ID]

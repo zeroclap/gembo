@@ -18,9 +18,9 @@ import (
 // When a position ID arrives on the pending channel, it executes the open flow.
 // When a position ID arrives on the closing channel, it executes the close flow.
 func (t *Trader) runExecutor(ctx context.Context) error {
-	pubsub := t.redis.Subscribe(ctx,
-		rediskey.PositionPending(),
-		rediskey.PositionClosing(),
+	pubsub := t.redis.PSubscribe(ctx,
+		rediskey.UserPositionPendingPattern(),
+		rediskey.UserPositionClosingPattern(),
 	)
 	defer pubsub.Close()
 
@@ -37,17 +37,22 @@ func (t *Trader) runExecutor(ctx context.Context) error {
 			}
 
 			positionID := msg.Payload
+			userID := rediskey.UserIDFromChannel(msg.Channel)
+			if userID == "" {
+				t.logger.Warn("received position signal with invalid channel", "channel", msg.Channel)
+				continue
+			}
 
 			switch msg.Channel {
-			case rediskey.PositionPending():
+			case rediskey.UserPositionPending(userID):
 				t.logger.Info("received open signal", "position_id", positionID)
-				if err := t.executeOpen(ctx, positionID); err != nil {
+				if err := t.executeOpen(ctx, userID, positionID); err != nil {
 					t.logger.Error("execute open failed", "position_id", positionID, "error", err)
 				}
 
-			case rediskey.PositionClosing():
+			case rediskey.UserPositionClosing(userID):
 				t.logger.Info("received close signal", "position_id", positionID)
-				if err := t.executeClose(ctx, positionID); err != nil {
+				if err := t.executeClose(ctx, userID, positionID); err != nil {
 					t.logger.Error("execute close failed", "position_id", positionID, "error", err)
 				}
 			}
@@ -61,8 +66,8 @@ func (t *Trader) runExecutor(ctx context.Context) error {
 //  3. Place market orders on both legs concurrently
 //  4. Poll orders until filled
 //  5. Update position with fill details and transition to "open"
-func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
-	p, err := t.store.GetPosition(ctx, positionID)
+func (t *Trader) executeOpen(ctx context.Context, userID, positionID string) error {
+	p, err := t.store.GetPosition(ctx, userID, positionID)
 	if err != nil {
 		return fmt.Errorf("get position: %w", err)
 	}
@@ -86,11 +91,11 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 		return t.executeSteppedOpen(ctx, p)
 	}
 
-	longExch, err := t.registry.Get(p.LongExchangeID)
+	longExch, err := t.tradingExchangeForLeg(ctx, p, "long")
 	if err != nil {
 		return t.failPosition(ctx, p, fmt.Errorf("long exchange: %w", err))
 	}
-	shortExch, err := t.registry.Get(p.ShortExchangeID)
+	shortExch, err := t.tradingExchangeForLeg(ctx, p, "short")
 	if err != nil {
 		return t.failPosition(ctx, p, fmt.Errorf("short exchange: %w", err))
 	}
@@ -130,6 +135,7 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 
 	// Create order records in PG before submitting to exchanges.
 	longOrder := &domain.ExchangeOrder{
+		UserID:     p.UserID,
 		PositionID: p.ID,
 		ExchangeID: p.LongExchangeID,
 		Symbol:     p.Symbol,
@@ -139,6 +145,7 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 		Status:     "pending",
 	}
 	shortOrder := &domain.ExchangeOrder{
+		UserID:     p.UserID,
 		PositionID: p.ID,
 		ExchangeID: p.ShortExchangeID,
 		Symbol:     p.Symbol,
@@ -240,7 +247,7 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 	)
 
 	// Notify position update via Redis Pub/Sub.
-	t.redis.Publish(ctx, rediskey.PositionUpdates(), p.ID)
+	t.redis.Publish(ctx, rediskey.UserPositionUpdates(p.UserID), p.ID)
 
 	return nil
 }
@@ -249,8 +256,8 @@ func (t *Trader) executeOpen(ctx context.Context, positionID string) error {
 //  1. Fetch position and validate status
 //  2. Place close orders on both legs concurrently
 //  3. Update position with exit details and transition to "closed"
-func (t *Trader) executeClose(ctx context.Context, positionID string) error {
-	p, err := t.store.GetPosition(ctx, positionID)
+func (t *Trader) executeClose(ctx context.Context, userID, positionID string) error {
+	p, err := t.store.GetPosition(ctx, userID, positionID)
 	if err != nil {
 		return fmt.Errorf("get position: %w", err)
 	}
@@ -263,17 +270,18 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 		return nil
 	}
 
-	longExch, err := t.registry.Get(p.LongExchangeID)
+	longExch, err := t.tradingExchangeForLeg(ctx, p, "long")
 	if err != nil {
 		return t.failPosition(ctx, p, fmt.Errorf("long exchange: %w", err))
 	}
-	shortExch, err := t.registry.Get(p.ShortExchangeID)
+	shortExch, err := t.tradingExchangeForLeg(ctx, p, "short")
 	if err != nil {
 		return t.failPosition(ctx, p, fmt.Errorf("short exchange: %w", err))
 	}
 
 	// Create close order records.
 	longCloseOrder := &domain.ExchangeOrder{
+		UserID:     p.UserID,
 		PositionID: p.ID,
 		ExchangeID: p.LongExchangeID,
 		Symbol:     p.Symbol,
@@ -283,6 +291,7 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 		Status:     "pending",
 	}
 	shortCloseOrder := &domain.ExchangeOrder{
+		UserID:     p.UserID,
 		PositionID: p.ID,
 		ExchangeID: p.ShortExchangeID,
 		Symbol:     p.Symbol,
@@ -380,7 +389,7 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 	p.ShortCloseFees = shortResult.FeeCost
 
 	// Compute final funding P&L.
-	fundingPnL, err := t.store.SumFundingPnL(ctx, p.ID)
+	fundingPnL, err := t.store.SumFundingPnL(ctx, p.UserID, p.ID)
 	if err != nil {
 		t.logger.Warn("sum funding pnl on close", "error", err)
 	} else {
@@ -399,7 +408,7 @@ func (t *Trader) executeClose(ctx context.Context, positionID string) error {
 		"total_funding_pnl", p.TotalFundingPnL,
 	)
 
-	t.redis.Publish(ctx, rediskey.PositionUpdates(), p.ID)
+	t.redis.Publish(ctx, rediskey.UserPositionUpdates(p.UserID), p.ID)
 
 	return nil
 }
@@ -674,6 +683,6 @@ func (t *Trader) failPosition(ctx context.Context, p *domain.Position, cause err
 		t.logger.Error("failed to update position to failed state",
 			"position_id", p.ID, "error", err)
 	}
-	t.redis.Publish(ctx, rediskey.PositionUpdates(), p.ID)
+	t.redis.Publish(ctx, rediskey.UserPositionUpdates(p.UserID), p.ID)
 	return cause
 }

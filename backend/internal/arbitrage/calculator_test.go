@@ -112,7 +112,7 @@ func (m *mockStore) GetFundingRate(context.Context, string, string) (*domain.Fun
 	panic("not implemented")
 }
 func (m *mockStore) SetBalance(context.Context, domain.Balance) error { panic("not implemented") }
-func (m *mockStore) ListBalances(context.Context, string) ([]domain.Balance, error) {
+func (m *mockStore) ListBalances(context.Context, string, string) ([]domain.Balance, error) {
 	panic("not implemented")
 }
 func (m *mockStore) SetSpreadArbitrage(context.Context, domain.SpreadArbitrage) error {

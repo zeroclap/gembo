@@ -25,17 +25,19 @@ func (h *Handler) requirePositionStore(w http.ResponseWriter) bool {
 
 // createPositionRequest is the JSON body for POST /v1/positions.
 type createPositionRequest struct {
-	Symbol          string `json:"symbol"`
-	LongExchangeID  string `json:"long_exchange_id"`
-	ShortExchangeID string `json:"short_exchange_id"`
-	SizeType        string `json:"size_type"`      // "price" or "quantity"
-	RequestedSize   string `json:"requested_size"` // total position size
-	PortionSize     string `json:"portion_size"`   // size per step (optional; 0 or empty = single-shot)
-	PriceMin        string `json:"price_min"`      // min acceptable price (optional)
-	PriceMax        string `json:"price_max"`      // max acceptable price (optional)
-	SlippagePct     string `json:"slippage_pct"`   // max slippage % per portion (optional)
-	Leverage        int    `json:"leverage"`       // per-position leverage (1, 2, 3, etc.)
-	MarginCapital   string `json:"margin_capital"` // declared available collateral in USD (optional)
+	Symbol            string `json:"symbol"`
+	LongExchangeID    string `json:"long_exchange_id"`
+	LongCredentialID  string `json:"long_credential_id"`
+	ShortExchangeID   string `json:"short_exchange_id"`
+	ShortCredentialID string `json:"short_credential_id"`
+	SizeType          string `json:"size_type"`      // "price" or "quantity"
+	RequestedSize     string `json:"requested_size"` // total position size
+	PortionSize       string `json:"portion_size"`   // size per step (optional; 0 or empty = single-shot)
+	PriceMin          string `json:"price_min"`      // min acceptable price (optional)
+	PriceMax          string `json:"price_max"`      // max acceptable price (optional)
+	SlippagePct       string `json:"slippage_pct"`   // max slippage % per portion (optional)
+	Leverage          int    `json:"leverage"`       // per-position leverage (1, 2, 3, etc.)
+	MarginCapital     string `json:"margin_capital"` // declared available collateral in USD (optional)
 
 	// Spread arbitrage parameters (optional; only used when arbitrage_type == "spread").
 	ArbitrageType     string `json:"arbitrage_type"`       // "funding" (default) or "spread"
@@ -49,6 +51,14 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 	if !h.requirePositionStore(w) {
 		return
 	}
+	if !h.requireUserStore(w) {
+		return
+	}
+
+	au, ok := h.currentAuthUser(w, r)
+	if !ok {
+		return
+	}
 
 	var req createPositionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -57,8 +67,8 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate required fields.
-	if req.Symbol == "" || req.LongExchangeID == "" || req.ShortExchangeID == "" {
-		writeErr(w, http.StatusBadRequest, "missing_field", "symbol, long_exchange_id, and short_exchange_id are required")
+	if req.Symbol == "" || req.LongExchangeID == "" || req.ShortExchangeID == "" || req.LongCredentialID == "" || req.ShortCredentialID == "" {
+		writeErr(w, http.StatusBadRequest, "missing_field", "symbol, long_exchange_id, short_exchange_id, long_credential_id, and short_credential_id are required")
 		return
 	}
 	if req.SizeType != string(domain.SizeTypePrice) && req.SizeType != string(domain.SizeTypeQuantity) {
@@ -72,6 +82,38 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.LongExchangeID == req.ShortExchangeID {
 		writeErr(w, http.StatusBadRequest, "same_exchange", "long and short exchanges must differ")
+		return
+	}
+	if req.LongCredentialID == req.ShortCredentialID {
+		writeErr(w, http.StatusBadRequest, "same_credential", "long and short credentials must differ")
+		return
+	}
+
+	longCredential, err := h.userStore.GetExchangeCredentialByID(r.Context(), au.ID, req.LongCredentialID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", "failed to resolve long credential")
+		return
+	}
+	if longCredential == nil {
+		writeErr(w, http.StatusBadRequest, "invalid_credential", "long_credential_id was not found for this user")
+		return
+	}
+	if longCredential.ExchangeID != req.LongExchangeID {
+		writeErr(w, http.StatusBadRequest, "invalid_credential_exchange", "long_credential_id exchange does not match long_exchange_id")
+		return
+	}
+
+	shortCredential, err := h.userStore.GetExchangeCredentialByID(r.Context(), au.ID, req.ShortCredentialID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", "failed to resolve short credential")
+		return
+	}
+	if shortCredential == nil {
+		writeErr(w, http.StatusBadRequest, "invalid_credential", "short_credential_id was not found for this user")
+		return
+	}
+	if shortCredential.ExchangeID != req.ShortExchangeID {
+		writeErr(w, http.StatusBadRequest, "invalid_credential_exchange", "short_credential_id exchange does not match short_exchange_id")
 		return
 	}
 
@@ -146,21 +188,24 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := &domain.Position{
-		Symbol:          req.Symbol,
-		Status:          domain.PositionStatusPending,
-		SizeType:        domain.SizeType(req.SizeType),
-		RequestedSize:   size,
-		ArbitrageType:   domain.ArbitrageTypeFunding,
-		PortionSize:     portionSize,
-		PriceMin:        priceMin,
-		PriceMax:        priceMax,
-		SlippagePct:     slippagePct,
-		Leverage:        req.Leverage,
-		MarginCapital:   marginCapital,
-		StepsTotal:      stepsTotal,
-		LongExchangeID:  req.LongExchangeID,
-		ShortExchangeID: req.ShortExchangeID,
-		Snapshot:        snapshot,
+		UserID:            au.ID,
+		Symbol:            req.Symbol,
+		Status:            domain.PositionStatusPending,
+		SizeType:          domain.SizeType(req.SizeType),
+		RequestedSize:     size,
+		ArbitrageType:     domain.ArbitrageTypeFunding,
+		PortionSize:       portionSize,
+		PriceMin:          priceMin,
+		PriceMax:          priceMax,
+		SlippagePct:       slippagePct,
+		Leverage:          req.Leverage,
+		MarginCapital:     marginCapital,
+		StepsTotal:        stepsTotal,
+		LongExchangeID:    req.LongExchangeID,
+		LongCredentialID:  req.LongCredentialID,
+		ShortExchangeID:   req.ShortExchangeID,
+		ShortCredentialID: req.ShortCredentialID,
+		Snapshot:          snapshot,
 	}
 
 	// Handle spread arbitrage type.
@@ -211,7 +256,7 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 
 	// Signal the trader via Redis Pub/Sub.
 	if h.redis != nil {
-		h.redis.Publish(r.Context(), rediskey.PositionPending(), p.ID)
+		h.redis.Publish(r.Context(), rediskey.UserPositionPending(au.ID), p.ID)
 	}
 
 	writeJSON(w, http.StatusCreated, response{
@@ -227,7 +272,13 @@ func (h *Handler) handleListPositions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	au, ok := h.currentAuthUser(w, r)
+	if !ok {
+		return
+	}
+
 	f := domain.PositionFilter{
+		UserID: au.ID,
 		Symbol: r.URL.Query().Get("symbol"),
 	}
 	if statusParam := r.URL.Query().Get("status"); statusParam != "" {
@@ -260,7 +311,12 @@ func (h *Handler) handleGetPosition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.positionStore.GetPosition(r.Context(), id)
+	au, ok := h.currentAuthUser(w, r)
+	if !ok {
+		return
+	}
+
+	p, err := h.positionStore.GetPosition(r.Context(), au.ID, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -285,7 +341,12 @@ func (h *Handler) handleClosePosition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.positionStore.GetPosition(r.Context(), id)
+	au, ok := h.currentAuthUser(w, r)
+	if !ok {
+		return
+	}
+
+	p, err := h.positionStore.GetPosition(r.Context(), au.ID, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -310,7 +371,7 @@ func (h *Handler) handleClosePosition(w http.ResponseWriter, r *http.Request) {
 
 	// Signal the trader via Redis Pub/Sub.
 	if h.redis != nil {
-		h.redis.Publish(r.Context(), rediskey.PositionClosing(), p.ID)
+		h.redis.Publish(r.Context(), rediskey.UserPositionClosing(au.ID), p.ID)
 	}
 
 	writeOK(w, p)
@@ -328,7 +389,12 @@ func (h *Handler) handleDeletePosition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.positionStore.GetPosition(r.Context(), id)
+	au, ok := h.currentAuthUser(w, r)
+	if !ok {
+		return
+	}
+
+	p, err := h.positionStore.GetPosition(r.Context(), au.ID, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -344,7 +410,7 @@ func (h *Handler) handleDeletePosition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.positionStore.DeletePosition(r.Context(), id); err != nil {
+	if err := h.positionStore.DeletePosition(r.Context(), au.ID, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "delete_failed", err.Error())
 		return
 	}
@@ -364,7 +430,12 @@ func (h *Handler) handleListPositionOrders(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	orders, err := h.positionStore.ListOrdersByPosition(r.Context(), id)
+	au, ok := h.currentAuthUser(w, r)
+	if !ok {
+		return
+	}
+
+	orders, err := h.positionStore.ListOrdersByPosition(r.Context(), au.ID, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -385,7 +456,12 @@ func (h *Handler) handleListPositionFunding(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	payments, err := h.positionStore.ListFundingPayments(r.Context(), id)
+	au, ok := h.currentAuthUser(w, r)
+	if !ok {
+		return
+	}
+
+	payments, err := h.positionStore.ListFundingPayments(r.Context(), au.ID, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return

@@ -49,13 +49,14 @@ func (m *mockBalanceStore) ListFundingRates(context.Context, string) ([]domain.F
 func (m *mockBalanceStore) SetBalance(_ context.Context, b domain.Balance) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.balances[b.ExchangeID] = append(m.balances[b.ExchangeID], b)
+	key := b.UserID + ":" + b.ExchangeID
+	m.balances[key] = append(m.balances[key], b)
 	return nil
 }
-func (m *mockBalanceStore) ListBalances(_ context.Context, exchangeID string) ([]domain.Balance, error) {
+func (m *mockBalanceStore) ListBalances(_ context.Context, userID, exchangeID string) ([]domain.Balance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	b := m.balances[exchangeID]
+	b := m.balances[userID+":"+exchangeID]
 	out := make([]domain.Balance, len(b))
 	copy(out, b)
 	return out, nil
@@ -118,6 +119,7 @@ func TestListAllBalances(t *testing.T) {
 	st := newMockBalanceStore()
 	now := time.Now().UTC()
 	_ = st.SetBalance(context.Background(), domain.Balance{
+		UserID:     "test-user-id",
 		ExchangeID: "bybit",
 		Currency:   "USDT",
 		Free:       decimal.RequireFromString("10"),
@@ -126,6 +128,7 @@ func TestListAllBalances(t *testing.T) {
 		UpdatedAt:  now,
 	})
 	_ = st.SetBalance(context.Background(), domain.Balance{
+		UserID:     "test-user-id",
 		ExchangeID: "okx",
 		Currency:   "USDC",
 		Free:       decimal.RequireFromString("20"),
@@ -160,6 +163,7 @@ func TestListBalancesByExchange(t *testing.T) {
 	st := newMockBalanceStore()
 	now := time.Now().UTC()
 	_ = st.SetBalance(context.Background(), domain.Balance{
+		UserID:     "test-user-id",
 		ExchangeID: "bybit",
 		Currency:   "USDT",
 		Free:       decimal.RequireFromString("7"),
@@ -168,6 +172,7 @@ func TestListBalancesByExchange(t *testing.T) {
 		UpdatedAt:  now,
 	})
 	_ = st.SetBalance(context.Background(), domain.Balance{
+		UserID:     "test-user-id",
 		ExchangeID: "okx",
 		Currency:   "USDT",
 		Free:       decimal.RequireFromString("100"),

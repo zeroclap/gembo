@@ -192,6 +192,7 @@ services:
       - ../.env
     environment:
       REDIS_ADDR: redis:6379
+      DATABASE_URL: postgres://gembo:gembo@postgres:5432/gembo?sslmode=disable
       GOMODCACHE: /root/go/pkg/mod
       GOCACHE: /root/.cache/go-build
     command: go run ./cmd/collector-private
@@ -199,6 +200,8 @@ services:
       deps:
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 

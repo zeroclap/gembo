@@ -17,6 +17,10 @@ type UserStore interface {
 	CreateUser(ctx context.Context, u *domain.User) error
 	// ListExchangeCredentialsByUserID returns all credentials for the user.
 	ListExchangeCredentialsByUserID(ctx context.Context, userID string) ([]domain.ExchangeCredential, error)
+	// ListExchangeCredentials returns all credentials across users.
+	ListExchangeCredentials(ctx context.Context) ([]domain.ExchangeCredential, error)
+	// GetExchangeCredentialByID returns a credential by id scoped to user.
+	GetExchangeCredentialByID(ctx context.Context, userID, credentialID string) (*domain.ExchangeCredential, error)
 	// CreateExchangeCredential inserts a new exchange credential.
 	CreateExchangeCredential(ctx context.Context, c *domain.ExchangeCredential) error
 	// UpdateExchangeCredential updates an existing credential and returns true when found.

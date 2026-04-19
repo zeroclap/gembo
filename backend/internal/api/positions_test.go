@@ -40,15 +40,21 @@ func (m *mockPositionStore) CreatePosition(_ context.Context, p *domain.Position
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p.ID = "pos-" + p.Symbol
+	if p.UserID == "" {
+		p.UserID = "test-user-id"
+	}
 	m.positions[p.ID] = p
 	return nil
 }
 
-func (m *mockPositionStore) GetPosition(_ context.Context, id string) (*domain.Position, error) {
+func (m *mockPositionStore) GetPosition(_ context.Context, userID, id string) (*domain.Position, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p, ok := m.positions[id]
 	if !ok {
+		return nil, nil
+	}
+	if p.UserID != "" && p.UserID != userID {
 		return nil, nil
 	}
 	return p, nil
@@ -59,6 +65,9 @@ func (m *mockPositionStore) ListPositions(_ context.Context, f domain.PositionFi
 	defer m.mu.Unlock()
 	var out []domain.Position
 	for _, p := range m.positions {
+		if f.UserID != "" && p.UserID != f.UserID {
+			continue
+		}
 		if f.Symbol != "" && p.Symbol != f.Symbol {
 			continue
 		}
@@ -86,9 +95,13 @@ func (m *mockPositionStore) UpdatePosition(_ context.Context, p *domain.Position
 	return nil
 }
 
-func (m *mockPositionStore) DeletePosition(_ context.Context, id string) error {
+func (m *mockPositionStore) DeletePosition(_ context.Context, userID, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	p, ok := m.positions[id]
+	if ok && p.UserID != "" && p.UserID != userID {
+		return nil
+	}
 	delete(m.positions, id)
 	delete(m.orders, id)
 	delete(m.funding, id)
@@ -98,6 +111,9 @@ func (m *mockPositionStore) DeletePosition(_ context.Context, id string) error {
 func (m *mockPositionStore) CreateOrder(_ context.Context, o *domain.ExchangeOrder) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if o.UserID == "" {
+		o.UserID = "test-user-id"
+	}
 	m.orders[o.PositionID] = append(m.orders[o.PositionID], *o)
 	return nil
 }
@@ -106,30 +122,53 @@ func (m *mockPositionStore) UpdateOrder(_ context.Context, o *domain.ExchangeOrd
 	return nil
 }
 
-func (m *mockPositionStore) ListOrdersByPosition(_ context.Context, positionID string) ([]domain.ExchangeOrder, error) {
+func (m *mockPositionStore) ListOrdersByPosition(_ context.Context, userID, positionID string) ([]domain.ExchangeOrder, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.orders[positionID], nil
+	orders := m.orders[positionID]
+	if userID == "" {
+		return orders, nil
+	}
+	out := make([]domain.ExchangeOrder, 0, len(orders))
+	for _, o := range orders {
+		if o.UserID == userID {
+			out = append(out, o)
+		}
+	}
+	return out, nil
 }
 
 func (m *mockPositionStore) CreateFundingPayment(_ context.Context, fp *domain.FundingPayment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if fp.UserID == "" {
+		fp.UserID = "test-user-id"
+	}
 	m.funding[fp.PositionID] = append(m.funding[fp.PositionID], *fp)
 	return nil
 }
 
-func (m *mockPositionStore) ListFundingPayments(_ context.Context, positionID string) ([]domain.FundingPayment, error) {
+func (m *mockPositionStore) ListFundingPayments(_ context.Context, userID, positionID string) ([]domain.FundingPayment, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.funding[positionID], nil
+	payments := m.funding[positionID]
+	if userID == "" {
+		return payments, nil
+	}
+	out := make([]domain.FundingPayment, 0, len(payments))
+	for _, p := range payments {
+		if p.UserID == userID {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
-func (m *mockPositionStore) SumFundingPnL(_ context.Context, _ string) (decimal.Decimal, error) {
+func (m *mockPositionStore) SumFundingPnL(_ context.Context, _, _ string) (decimal.Decimal, error) {
 	return decimal.Zero, nil
 }
 
-func (m *mockPositionStore) LatestFundingPayment(_ context.Context, _, _ string) (*domain.FundingPayment, error) {
+func (m *mockPositionStore) LatestFundingPayment(_ context.Context, _, _, _ string) (*domain.FundingPayment, error) {
 	return nil, nil
 }
 
@@ -166,7 +205,7 @@ func (m *mockStore) ListFundingRates(_ context.Context, _ string) ([]domain.Fund
 	return nil, nil
 }
 func (m *mockStore) SetBalance(_ context.Context, _ domain.Balance) error { return nil }
-func (m *mockStore) ListBalances(_ context.Context, _ string) ([]domain.Balance, error) {
+func (m *mockStore) ListBalances(_ context.Context, _, _ string) ([]domain.Balance, error) {
 	return nil, nil
 }
 func (m *mockStore) SetFundingArbitrage(_ context.Context, _ domain.FundingArbitrage) error {
@@ -200,9 +239,16 @@ var _ store.Store = (*mockStore)(nil)
 func newTestHandler(ps *mockPositionStore, st *mockStore) *Handler {
 	reg := exchange.NewRegistry()
 	var opts []HandlerOption
+	us := newMockUserStore()
+	us.usersByID["test-user-id"] = &domain.User{ID: "test-user-id", Email: "test@example.com"}
+	us.credsByUser["test-user-id"] = []domain.ExchangeCredential{
+		{ID: "cred-long", UserID: "test-user-id", ExchangeID: "bybit", Title: "Bybit", APIKey: "k", APISecret: "s", IsDefault: true},
+		{ID: "cred-short", UserID: "test-user-id", ExchangeID: "okx", Title: "OKX", APIKey: "k", APISecret: "s", Passphrase: "p", IsDefault: true},
+	}
 	if ps != nil {
 		opts = append(opts, WithPositionStore(ps))
 	}
+	opts = append(opts, WithUserStore(us))
 	opts = append(opts, WithJWTSecret(testJWTSecret), WithTokenTTL(time.Hour))
 	return NewHandler(reg, st, opts...)
 }
@@ -228,7 +274,9 @@ func TestCreatePosition_ValidRequest(t *testing.T) {
 	body := `{
 		"symbol":"BTC/USDT:USDT",
 		"long_exchange_id":"bybit",
+		"long_credential_id":"cred-long",
 		"short_exchange_id":"okx",
+		"short_credential_id":"cred-short",
 		"size_type":"price",
 		"requested_size":"1000"
 	}`
@@ -272,7 +320,7 @@ func TestCreatePosition_MissingSymbol(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	body := `{"long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"price","requested_size":"1000"}`
+	body := `{"long_exchange_id":"bybit","long_credential_id":"cred-long","short_exchange_id":"okx","short_credential_id":"cred-short","size_type":"price","requested_size":"1000"}`
 	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -289,7 +337,7 @@ func TestCreatePosition_InvalidSizeType(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"invalid","requested_size":"1000"}`
+	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","long_credential_id":"cred-long","short_exchange_id":"okx","short_credential_id":"cred-short","size_type":"invalid","requested_size":"1000"}`
 	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -306,7 +354,7 @@ func TestCreatePosition_SameExchange(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"bybit","size_type":"price","requested_size":"1000"}`
+	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","long_credential_id":"cred-long","short_exchange_id":"bybit","short_credential_id":"cred-long","size_type":"price","requested_size":"1000"}`
 	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -323,7 +371,7 @@ func TestCreatePosition_NegativeSize(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"price","requested_size":"-100"}`
+	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","long_credential_id":"cred-long","short_exchange_id":"okx","short_credential_id":"cred-short","size_type":"price","requested_size":"-100"}`
 	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -340,7 +388,7 @@ func TestCreatePosition_ZeroSize(t *testing.T) {
 	st := &mockStore{}
 	h := newTestHandler(ps, st)
 
-	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","short_exchange_id":"okx","size_type":"quantity","requested_size":"0"}`
+	body := `{"symbol":"BTC/USDT:USDT","long_exchange_id":"bybit","long_credential_id":"cred-long","short_exchange_id":"okx","short_credential_id":"cred-short","size_type":"quantity","requested_size":"0"}`
 	req := newAuthRequest("POST", "/v1/positions", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

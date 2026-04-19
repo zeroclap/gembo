@@ -4,8 +4,10 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   createPosition,
+  fetchExchangeCredentials,
   simulateArbitrage,
   type CreatePositionRequest,
+  type ExchangeCredential,
   type SizeType,
   type SimulationResult,
 } from "@/lib/api";
@@ -55,6 +57,10 @@ export function OpenPositionPanel({
 }: OpenPositionPanelProps) {
   const queryClient = useQueryClient();
 
+  const [credentials, setCredentials] = useState<ExchangeCredential[]>([]);
+  const [credentialsLoading, setCredentialsLoading] = useState(true);
+  const [credentialsError, setCredentialsError] = useState<string | null>(null);
+
   // --- Size ---
   // sizeType "price" → position_size (denominated in quote, e.g. USDT)
   // sizeType "quantity" → base quantity (underlying asset amount)
@@ -70,6 +76,9 @@ export function OpenPositionPanel({
   // --- Leverage: per-exchange, 1–3 only ---
   const [longLeverage, setLongLeverage] = useState(1);
   const [shortLeverage, setShortLeverage] = useState(1);
+
+  const [longCredentialID, setLongCredentialID] = useState("");
+  const [shortCredentialID, setShortCredentialID] = useState("");
 
   // --- Strategy ---
   const [strategy, setStrategy] = useState<Strategy>("funding_rate");
@@ -97,6 +106,7 @@ export function OpenPositionPanel({
   }, [isStepped, activeSize, portionSize]);
 
   const sizeValid = parseFloat(activeSize) > 0;
+  const credentialsReady = longCredentialID !== "" && shortCredentialID !== "";
 
   // --- Inline simulation (auto-run with debounce) ---
   const [simResult, setSimResult] = useState<SimulationResult | null>(null);
@@ -138,6 +148,55 @@ export function OpenPositionPanel({
     return () => clearTimeout(simTimerRef.current);
   }, [symbol, longExchange, shortExchange, simSizeType, simSize, simSlippage]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    setCredentialsLoading(true);
+    setCredentialsError(null);
+
+    fetchExchangeCredentials()
+      .then((items) => {
+        if (cancelled) return;
+        setCredentials(items);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setCredentialsError(err instanceof Error ? err.message : "Failed to load credentials");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setCredentialsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const longCredentials = useMemo(
+    () => credentials.filter((c) => c.exchange_id === longExchange),
+    [credentials, longExchange]
+  );
+
+  const shortCredentials = useMemo(
+    () => credentials.filter((c) => c.exchange_id === shortExchange),
+    [credentials, shortExchange]
+  );
+
+  useEffect(() => {
+    const selectedStillValid = longCredentials.some((c) => c.id === longCredentialID);
+    if (selectedStillValid) return;
+    const preferred = longCredentials.find((c) => c.is_default) ?? longCredentials[0];
+    setLongCredentialID(preferred?.id ?? "");
+  }, [longCredentials, longCredentialID]);
+
+  useEffect(() => {
+    const selectedStillValid = shortCredentials.some((c) => c.id === shortCredentialID);
+    if (selectedStillValid) return;
+    const preferred = shortCredentials.find((c) => c.is_default) ?? shortCredentials[0];
+    setShortCredentialID(preferred?.id ?? "");
+  }, [shortCredentials, shortCredentialID]);
+
   // Converted size hint from simulation result (qty↔price).
   const convertedSize = useMemo(() => {
     if (!simResult) return null;
@@ -168,7 +227,9 @@ export function OpenPositionPanel({
     const req: CreatePositionRequest = {
       symbol,
       long_exchange_id: longExchange,
+      long_credential_id: longCredentialID,
       short_exchange_id: shortExchange,
+      short_credential_id: shortCredentialID,
       size_type: sizeType,
       requested_size: sizeType === "price" ? size : quantity,
     };
@@ -193,7 +254,9 @@ export function OpenPositionPanel({
   }, [
     symbol,
     longExchange,
+    longCredentialID,
     shortExchange,
+    shortCredentialID,
     sizeType,
     size,
     quantity,
@@ -461,6 +524,63 @@ export function OpenPositionPanel({
 
           <Separator />
 
+          {/* ── Credentials per leg ── */}
+          <div className="space-y-2">
+            <SectionHeader className="mb-1.5">Credentials</SectionHeader>
+
+            <div>
+              <Label className="text-[0.625rem] text-muted-foreground truncate block mb-1">
+                {longExchange || "Long"} credential
+              </Label>
+              <select
+                value={longCredentialID}
+                onChange={(e) => setLongCredentialID(e.target.value)}
+                className="w-full h-7 rounded-md border bg-background px-2 text-xs"
+                disabled={credentialsLoading || longCredentials.length === 0}
+              >
+                {longCredentials.length === 0 ? (
+                  <option value="">No credentials found</option>
+                ) : (
+                  longCredentials.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            <div>
+              <Label className="text-[0.625rem] text-muted-foreground truncate block mb-1">
+                {shortExchange || "Short"} credential
+              </Label>
+              <select
+                value={shortCredentialID}
+                onChange={(e) => setShortCredentialID(e.target.value)}
+                className="w-full h-7 rounded-md border bg-background px-2 text-xs"
+                disabled={credentialsLoading || shortCredentials.length === 0}
+              >
+                {shortCredentials.length === 0 ? (
+                  <option value="">No credentials found</option>
+                ) : (
+                  shortCredentials.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            {credentialsError && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 px-2.5 py-1.5 text-[0.625rem] text-destructive">
+                {credentialsError}
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
           {/* ── Leverage per exchange ── */}
           <div>
             <SectionHeader className="mb-1.5">Leverage</SectionHeader>
@@ -598,7 +718,7 @@ export function OpenPositionPanel({
             <Button
               size="sm"
               className="h-7 text-xs flex-1"
-              disabled={!sizeValid || createMutation.isPending}
+              disabled={!sizeValid || !credentialsReady || createMutation.isPending}
               onClick={handleSubmit}
             >
               {createMutation.isPending && (

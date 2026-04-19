@@ -75,6 +75,28 @@ func (m *mockUserStore) ListExchangeCredentialsByUserID(_ context.Context, userI
 	return out, nil
 }
 
+func (m *mockUserStore) ListExchangeCredentials(_ context.Context) ([]domain.ExchangeCredential, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	items := make([]domain.ExchangeCredential, 0)
+	for _, creds := range m.credsByUser {
+		items = append(items, creds...)
+	}
+	return items, nil
+}
+
+func (m *mockUserStore) GetExchangeCredentialByID(_ context.Context, userID, credentialID string) (*domain.ExchangeCredential, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, c := range m.credsByUser[userID] {
+		if c.ID == credentialID {
+			cp := c
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
+
 func (m *mockUserStore) CreateExchangeCredential(_ context.Context, c *domain.ExchangeCredential) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

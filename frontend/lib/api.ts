@@ -532,7 +532,9 @@ export interface FundingPayment {
 export interface CreatePositionRequest {
   symbol: string;
   long_exchange_id: string;
+  long_credential_id: string;
   short_exchange_id: string;
+  short_credential_id: string;
   size_type: SizeType;
   requested_size: string;
   portion_size?: string;

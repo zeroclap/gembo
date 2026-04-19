@@ -82,18 +82,19 @@ func (m *SpreadMonitor) run(ctx context.Context) error {
 				continue
 			}
 			pending = false
-			m.checkSpreadPositions(ctx)
+			m.checkSpreadPositions(ctx, "")
 
 		case <-timeoutTicker.C:
-			m.checkTimeouts(ctx)
+			m.checkTimeouts(ctx, "")
 		}
 	}
 }
 
 // checkSpreadPositions loads all open spread positions and evaluates their
 // current spread against target and stop-loss thresholds.
-func (m *SpreadMonitor) checkSpreadPositions(ctx context.Context) {
+func (m *SpreadMonitor) checkSpreadPositions(ctx context.Context, userID string) {
 	positions, err := m.trader.store.ListPositions(ctx, domain.PositionFilter{
+		UserID: userID,
 		Status: []domain.PositionStatus{
 			domain.PositionStatusOpen,
 			domain.PositionStatusPartiallyOpen,
@@ -165,8 +166,9 @@ func (m *SpreadMonitor) evaluateSpreadPosition(ctx context.Context, p *domain.Po
 }
 
 // checkTimeouts checks open spread positions for max hold duration expiry.
-func (m *SpreadMonitor) checkTimeouts(ctx context.Context) {
+func (m *SpreadMonitor) checkTimeouts(ctx context.Context, userID string) {
 	positions, err := m.trader.store.ListPositions(ctx, domain.PositionFilter{
+		UserID: userID,
 		Status: []domain.PositionStatus{
 			domain.PositionStatusOpen,
 			domain.PositionStatusPartiallyOpen,
@@ -213,7 +215,7 @@ func (m *SpreadMonitor) triggerClose(ctx context.Context, p *domain.Position, re
 	}
 
 	// Signal the executor to close the position.
-	m.trader.redis.Publish(ctx, rediskey.PositionClosing(), p.ID)
+	m.trader.redis.Publish(ctx, rediskey.UserPositionClosing(p.UserID), p.ID)
 
 	// Also publish a snapshot of the close trigger for debugging.
 	payload, _ := json.Marshal(map[string]interface{}{
@@ -221,7 +223,7 @@ func (m *SpreadMonitor) triggerClose(ctx context.Context, p *domain.Position, re
 		"close_reason": reason,
 		"symbol":       p.Symbol,
 	})
-	m.trader.redis.Publish(ctx, rediskey.PositionUpdates(), string(payload))
+	m.trader.redis.Publish(ctx, rediskey.UserPositionUpdates(p.UserID), string(payload))
 
 	m.logger.Info("spread monitor: close triggered",
 		"position_id", p.ID,
@@ -233,6 +235,7 @@ func (m *SpreadMonitor) triggerClose(ctx context.Context, p *domain.Position, re
 // Called during the trader's reconciliation phase.
 func (m *SpreadMonitor) reconcileSpreadPositions(ctx context.Context) error {
 	positions, err := m.trader.store.ListPositions(ctx, domain.PositionFilter{
+		UserID: "",
 		Status: []domain.PositionStatus{
 			domain.PositionStatusOpen,
 			domain.PositionStatusPartiallyOpen,

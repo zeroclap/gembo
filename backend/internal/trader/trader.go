@@ -7,6 +7,7 @@ package trader
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -25,11 +26,15 @@ import (
 type Trader struct {
 	registry      *exchange.TradingRegistry
 	store         store.PositionStore
+	userStore     store.UserStore
 	marketStore   store.Store // Redis store for ticker data (used by SpreadMonitor).
 	redis         *goredis.Client
 	logger        *slog.Logger
 	cfg           config.TraderConfig
 	spreadMonitor *SpreadMonitor
+
+	clientMu sync.RWMutex
+	clients  map[string]exchange.TradingExchange
 }
 
 // Option is a functional option for configuring a Trader.
@@ -38,6 +43,11 @@ type Option func(*Trader)
 // WithMarketStore sets the market data store (Redis) for the spread monitor.
 func WithMarketStore(st store.Store) Option {
 	return func(t *Trader) { t.marketStore = st }
+}
+
+// WithUserStore sets the user store used for runtime credential resolution.
+func WithUserStore(us store.UserStore) Option {
+	return func(t *Trader) { t.userStore = us }
 }
 
 // New creates a new Trader.
@@ -55,6 +65,7 @@ func New(
 		redis:    rc,
 		logger:   logger.With("component", "trader"),
 		cfg:      cfg,
+		clients:  make(map[string]exchange.TradingExchange),
 	}
 	for _, o := range opts {
 		o(t)

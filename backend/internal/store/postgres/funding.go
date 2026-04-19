@@ -14,10 +14,10 @@ import (
 func (s *Store) CreateFundingPayment(ctx context.Context, fp *domain.FundingPayment) error {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO funding_payments (
-			position_id, exchange_id, leg, symbol, rate, payment, funded_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			user_id, position_id, exchange_id, leg, symbol, rate, payment, funded_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at`,
-		fp.PositionID, fp.ExchangeID, fp.Leg, fp.Symbol,
+		fp.UserID, fp.PositionID, fp.ExchangeID, fp.Leg, fp.Symbol,
 		fp.Rate, fp.Payment, fp.FundedAt,
 	)
 	if err := row.Scan(&fp.ID, &fp.CreatedAt); err != nil {
@@ -27,14 +27,14 @@ func (s *Store) CreateFundingPayment(ctx context.Context, fp *domain.FundingPaym
 }
 
 // ListFundingPayments returns all funding payments for a position, ordered by funded_at desc.
-func (s *Store) ListFundingPayments(ctx context.Context, positionID string) ([]domain.FundingPayment, error) {
+func (s *Store) ListFundingPayments(ctx context.Context, userID, positionID string) ([]domain.FundingPayment, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT
-			id, position_id, exchange_id, leg, symbol,
+			id, user_id, position_id, exchange_id, leg, symbol,
 			rate, payment, funded_at, created_at
 		FROM funding_payments
-		WHERE position_id = $1
-		ORDER BY funded_at DESC`, positionID,
+		WHERE user_id = $1 AND position_id = $2
+		ORDER BY funded_at DESC`, userID, positionID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("postgres list funding payments: %w", err)
@@ -45,7 +45,7 @@ func (s *Store) ListFundingPayments(ctx context.Context, positionID string) ([]d
 	for rows.Next() {
 		var fp domain.FundingPayment
 		if err := rows.Scan(
-			&fp.ID, &fp.PositionID, &fp.ExchangeID, &fp.Leg, &fp.Symbol,
+			&fp.ID, &fp.UserID, &fp.PositionID, &fp.ExchangeID, &fp.Leg, &fp.Symbol,
 			&fp.Rate, &fp.Payment, &fp.FundedAt, &fp.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("postgres scan funding payment: %w", err)
@@ -60,11 +60,11 @@ func (s *Store) ListFundingPayments(ctx context.Context, positionID string) ([]d
 }
 
 // SumFundingPnL returns the total sum of all funding payments for a position.
-func (s *Store) SumFundingPnL(ctx context.Context, positionID string) (decimal.Decimal, error) {
+func (s *Store) SumFundingPnL(ctx context.Context, userID, positionID string) (decimal.Decimal, error) {
 	var sum decimal.Decimal
 	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(payment), 0) FROM funding_payments WHERE position_id = $1`,
-		positionID,
+		SELECT COALESCE(SUM(payment), 0) FROM funding_payments WHERE user_id = $1 AND position_id = $2`,
+		userID, positionID,
 	).Scan(&sum)
 	if err != nil {
 		return decimal.Zero, fmt.Errorf("postgres sum funding pnl: %w", err)
@@ -74,18 +74,18 @@ func (s *Store) SumFundingPnL(ctx context.Context, positionID string) (decimal.D
 
 // LatestFundingPayment returns the most recent funding payment for a position on a specific exchange.
 // Returns nil, nil if no payment exists.
-func (s *Store) LatestFundingPayment(ctx context.Context, positionID, exchangeID string) (*domain.FundingPayment, error) {
+func (s *Store) LatestFundingPayment(ctx context.Context, userID, positionID, exchangeID string) (*domain.FundingPayment, error) {
 	var fp domain.FundingPayment
 	err := s.pool.QueryRow(ctx, `
 		SELECT
-			id, position_id, exchange_id, leg, symbol,
+			id, user_id, position_id, exchange_id, leg, symbol,
 			rate, payment, funded_at, created_at
 		FROM funding_payments
-		WHERE position_id = $1 AND exchange_id = $2
+		WHERE user_id = $1 AND position_id = $2 AND exchange_id = $3
 		ORDER BY funded_at DESC
-		LIMIT 1`, positionID, exchangeID,
+		LIMIT 1`, userID, positionID, exchangeID,
 	).Scan(
-		&fp.ID, &fp.PositionID, &fp.ExchangeID, &fp.Leg, &fp.Symbol,
+		&fp.ID, &fp.UserID, &fp.PositionID, &fp.ExchangeID, &fp.Leg, &fp.Symbol,
 		&fp.Rate, &fp.Payment, &fp.FundedAt, &fp.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {

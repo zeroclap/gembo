@@ -18,11 +18,10 @@ import (
 
 	"github.com/zeroclap/gembo/internal/collector"
 	"github.com/zeroclap/gembo/internal/config"
-	"github.com/zeroclap/gembo/internal/exchange"
-	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
-	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
 	"github.com/zeroclap/gembo/internal/hook"
 	"github.com/zeroclap/gembo/internal/hook/bullmq"
+	"github.com/zeroclap/gembo/internal/security"
+	pgstore "github.com/zeroclap/gembo/internal/store/postgres"
 	redistore "github.com/zeroclap/gembo/internal/store/redis"
 )
 
@@ -59,17 +58,36 @@ func main() {
 		emitter = hook.NoopEmitter{}
 	}
 
-	// Exchange registry — register only exchanges that have credentials.
-	reg := exchange.NewRegistry()
-	registerPrivateExchanges(reg, cfg, logger)
-
-	if len(reg.All()) == 0 {
-		logger.Error("no exchanges with credentials enabled; check config")
+	if cfg.Database.URL == "" {
+		logger.Error("DATABASE_URL is required for the private collector")
 		os.Exit(1)
 	}
 
+	ctx := context.Background()
+	ps, err := pgstore.New(ctx, cfg.Database.URL)
+	if err != nil {
+		logger.Error("postgres connect", "error", err)
+		os.Exit(1)
+	}
+	if cfg.Security.CredentialsEncryptionKeyBase64 != "" {
+		credentialCipher, err := security.NewCredentialCipherFromBase64(cfg.Security.CredentialsEncryptionKeyBase64)
+		if err != nil {
+			logger.Error("credentials encryption init", "error", err)
+			os.Exit(1)
+		}
+		ps.WithCredentialCipher(credentialCipher)
+		logger.Info("credentials encryption enabled")
+	}
+	defer ps.Close()
+
+	if err := ps.RunMigrations(); err != nil {
+		logger.Error("postgres migrations", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("postgres connected and migrated")
+
 	st := redistore.New(rc)
-	c := collector.NewPrivate(reg, st, rc, emitter, logger)
+	c := collector.NewPrivate(ps, st, rc, emitter, logger)
 
 	// Start pprof server for memory/goroutine profiling.
 	pprofAddr := os.Getenv("PPROF_ADDR")
@@ -86,67 +104,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	logger.Info("private collector starting", "exchanges", reg.IDs())
+	logger.Info("private collector starting", "credential_mode", "db_only")
 	if err := c.Run(ctx); err != nil && err != context.Canceled {
 		logger.Error("private collector exited with error", "error", err)
 		os.Exit(1)
 	}
 	logger.Info("private collector stopped")
-}
-
-// registerPrivateExchanges registers only enabled exchanges that have API
-// credentials configured. Exchanges without credentials are skipped because
-// the private collector requires authentication for all its data streams.
-func registerPrivateExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.Logger) {
-	for _, ecfg := range cfg.Exchanges {
-		if !ecfg.Enabled {
-			continue
-		}
-		if ecfg.APIKey == "" || ecfg.Secret == "" {
-			logger.Info("skipping exchange without credentials", "exchange", ecfg.ID)
-			continue
-		}
-		switch ecfg.ID {
-		case "bybit":
-			var opts []bybitex.Option
-			opts = append(opts,
-				bybitex.WithAPIKey(ecfg.APIKey),
-				bybitex.WithSecret(ecfg.Secret),
-			)
-			if ecfg.FundingPollInterval > 0 {
-				opts = append(opts, bybitex.WithFundingPollInterval(ecfg.FundingPollInterval))
-			}
-			if ecfg.MarketsPollInterval > 0 {
-				opts = append(opts, bybitex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
-			}
-			reg.Register(bybitex.New(logger, opts...))
-		case "okx":
-			var opts []okxex.Option
-			opts = append(opts,
-				okxex.WithAPIKey(ecfg.APIKey),
-				okxex.WithSecret(ecfg.Secret),
-			)
-			if ecfg.Passphrase != "" {
-				opts = append(opts, okxex.WithPassphrase(ecfg.Passphrase))
-			}
-			if ecfg.FundingPollInterval > 0 {
-				opts = append(opts, okxex.WithFundingPollInterval(ecfg.FundingPollInterval))
-			}
-			if ecfg.MarketsPollInterval > 0 {
-				opts = append(opts, okxex.WithMarketsPollInterval(ecfg.MarketsPollInterval))
-			}
-			reg.Register(okxex.New(logger, opts...))
-		case "gate", "binance":
-			// Gate and Binance don't implement PositionWatcher yet.
-			// They will be skipped at runtime by the PrivateCollector, but
-			// we still log it here for clarity.
-			logger.Info("exchange does not support private data collection yet",
-				"exchange", ecfg.ID,
-			)
-		default:
-			logger.Warn("unknown exchange in config", "id", ecfg.ID)
-		}
-	}
 }
 
 // newLogger constructs a slog.Logger from LogConfig.

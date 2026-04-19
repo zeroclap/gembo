@@ -30,6 +30,7 @@ func (t *Trader) runFundingTracker(ctx context.Context) error {
 // new funding payments based on the funding rate schedule.
 func (t *Trader) trackFundingOnce(ctx context.Context) {
 	positions, err := t.store.ListPositions(ctx, domain.PositionFilter{
+		UserID: "",
 		Status: []domain.PositionStatus{
 			domain.PositionStatusOpen,
 			domain.PositionStatusPartiallyOpen,
@@ -73,14 +74,18 @@ func (t *Trader) checkFundingForLeg(
 	exchangeID, leg string,
 	qty decimal.Decimal,
 ) {
-	exch, err := t.registry.Get(exchangeID)
+	legSide := "short"
+	if leg == "long" {
+		legSide = "long"
+	}
+	exch, err := t.tradingExchangeForLeg(ctx, p, legSide)
 	if err != nil {
 		t.logger.Debug("funding tracker: exchange not found", "exchange", exchangeID, "error", err)
 		return
 	}
 
 	// Get the latest funding payment we've recorded for this leg.
-	latest, err := t.store.LatestFundingPayment(ctx, p.ID, exchangeID)
+	latest, err := t.store.LatestFundingPayment(ctx, p.UserID, p.ID, exchangeID)
 	if err != nil {
 		t.logger.Warn("funding tracker: latest payment lookup",
 			"position_id", p.ID, "exchange", exchangeID, "error", err)
@@ -151,6 +156,7 @@ func (t *Trader) checkFundingForLeg(
 	}
 
 	fp := &domain.FundingPayment{
+		UserID:     p.UserID,
 		PositionID: p.ID,
 		ExchangeID: exchangeID,
 		Leg:        leg,

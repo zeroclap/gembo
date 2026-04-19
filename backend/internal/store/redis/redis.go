@@ -262,9 +262,9 @@ func (s *Store) SetBalance(ctx context.Context, b domain.Balance) error {
 	}
 
 	pipe := s.client.TxPipeline()
-	pipe.Set(ctx, rediskey.Balance(b.ExchangeID, b.Currency), data, 0)
-	pipe.SAdd(ctx, rediskey.Balances(b.ExchangeID), b.Currency)
-	pipe.Publish(ctx, rediskey.BalancePubSub(b.ExchangeID), data)
+	pipe.Set(ctx, rediskey.UserBalance(b.UserID, b.ExchangeID, b.Currency), data, 0)
+	pipe.SAdd(ctx, rediskey.UserBalances(b.UserID, b.ExchangeID), b.Currency)
+	pipe.Publish(ctx, rediskey.UserBalancePubSub(b.UserID, b.ExchangeID), data)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("store balance %s/%s: %w", b.ExchangeID, b.Currency, err)
@@ -273,8 +273,8 @@ func (s *Store) SetBalance(ctx context.Context, b domain.Balance) error {
 }
 
 // ListBalances returns all balances for an exchange.
-func (s *Store) ListBalances(ctx context.Context, exchangeID string) ([]domain.Balance, error) {
-	currencies, err := s.client.SMembers(ctx, rediskey.Balances(exchangeID)).Result()
+func (s *Store) ListBalances(ctx context.Context, userID, exchangeID string) ([]domain.Balance, error) {
+	currencies, err := s.client.SMembers(ctx, rediskey.UserBalances(userID, exchangeID)).Result()
 	if err != nil {
 		return nil, fmt.Errorf("list balance currencies for %s: %w", exchangeID, err)
 	}
@@ -284,7 +284,7 @@ func (s *Store) ListBalances(ctx context.Context, exchangeID string) ([]domain.B
 
 	keys := make([]string, len(currencies))
 	for i, currency := range currencies {
-		keys[i] = rediskey.Balance(exchangeID, currency)
+		keys[i] = rediskey.UserBalance(userID, exchangeID, currency)
 	}
 
 	vals, err := s.client.MGet(ctx, keys...).Result()

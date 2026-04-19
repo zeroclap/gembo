@@ -14,7 +14,7 @@ import (
 // positionColumns is the shared SELECT column list for positions.
 // Every Get/List query must use this exact list and scan order.
 const positionColumns = `
-	id, symbol, status, size_type, requested_size,
+	id, user_id, symbol, status, size_type, requested_size,
 	COALESCE(requested_base_qty, 0),
 	COALESCE(arbitrage_type, 'funding'),
 	COALESCE(entry_spread_pct, 0), COALESCE(target_spread_pct, 0),
@@ -22,10 +22,10 @@ const positionColumns = `
 	COALESCE(portion_size, 0), COALESCE(price_min, 0), COALESCE(price_max, 0),
 	COALESCE(slippage_pct, 0), COALESCE(leverage, 1), COALESCE(margin_capital, 0),
 	COALESCE(steps_completed, 0), COALESCE(steps_total, 0), COALESCE(stop_reason, ''),
-	long_exchange_id, COALESCE(long_contract_size, 0), COALESCE(long_entry_price, 0), COALESCE(long_filled_qty, 0),
+	long_exchange_id, long_credential_id, COALESCE(long_contract_size, 0), COALESCE(long_entry_price, 0), COALESCE(long_filled_qty, 0),
 	COALESCE(long_filled_base_qty, 0),
 	COALESCE(long_entry_cost, 0), COALESCE(long_entry_fees, 0),
-	short_exchange_id, COALESCE(short_contract_size, 0), COALESCE(short_entry_price, 0), COALESCE(short_filled_qty, 0),
+	short_exchange_id, short_credential_id, COALESCE(short_contract_size, 0), COALESCE(short_entry_price, 0), COALESCE(short_filled_qty, 0),
 	COALESCE(short_filled_base_qty, 0),
 	COALESCE(short_entry_cost, 0), COALESCE(short_entry_fees, 0),
 	COALESCE(long_exit_price, 0), COALESCE(long_close_fees, 0),
@@ -47,7 +47,7 @@ func scanPosition(scanner interface{ Scan(...any) error }) (*domain.Position, er
 	var p domain.Position
 	var snapshot []byte
 	err := scanner.Scan(
-		&p.ID, &p.Symbol, &p.Status, &p.SizeType, &p.RequestedSize,
+		&p.ID, &p.UserID, &p.Symbol, &p.Status, &p.SizeType, &p.RequestedSize,
 		&p.RequestedBaseQty,
 		&p.ArbitrageType,
 		&p.EntrySpreadPct, &p.TargetSpreadPct,
@@ -55,10 +55,10 @@ func scanPosition(scanner interface{ Scan(...any) error }) (*domain.Position, er
 		&p.PortionSize, &p.PriceMin, &p.PriceMax,
 		&p.SlippagePct, &p.Leverage, &p.MarginCapital,
 		&p.StepsCompleted, &p.StepsTotal, &p.StopReason,
-		&p.LongExchangeID, &p.LongContractSize, &p.LongEntryPrice, &p.LongFilledQty,
+		&p.LongExchangeID, &p.LongCredentialID, &p.LongContractSize, &p.LongEntryPrice, &p.LongFilledQty,
 		&p.LongFilledBaseQty,
 		&p.LongEntryCost, &p.LongEntryFees,
-		&p.ShortExchangeID, &p.ShortContractSize, &p.ShortEntryPrice, &p.ShortFilledQty,
+		&p.ShortExchangeID, &p.ShortCredentialID, &p.ShortContractSize, &p.ShortEntryPrice, &p.ShortFilledQty,
 		&p.ShortFilledBaseQty,
 		&p.ShortEntryCost, &p.ShortEntryFees,
 		&p.LongExitPrice, &p.LongCloseFees,
@@ -86,24 +86,24 @@ func scanPosition(scanner interface{ Scan(...any) error }) (*domain.Position, er
 func (s *Store) CreatePosition(ctx context.Context, p *domain.Position) error {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO positions (
-			symbol, status, size_type, requested_size, requested_base_qty,
+			user_id, symbol, status, size_type, requested_size, requested_base_qty,
 			arbitrage_type, entry_spread_pct, target_spread_pct,
 			stop_loss_spread_pct, max_hold_duration,
 			portion_size, price_min, price_max, slippage_pct,
 			leverage, margin_capital, steps_total,
-			long_exchange_id, short_exchange_id,
+			long_exchange_id, long_credential_id, short_exchange_id, short_credential_id,
 			long_contract_size, short_contract_size,
 			snapshot
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		RETURNING id, created_at, updated_at`,
-		p.Symbol, p.Status, p.SizeType, p.RequestedSize, decimalToNullable(p.RequestedBaseQty),
+		p.UserID, p.Symbol, p.Status, p.SizeType, p.RequestedSize, decimalToNullable(p.RequestedBaseQty),
 		p.ArbitrageType, decimalToNullable(p.EntrySpreadPct),
 		decimalToNullable(p.TargetSpreadPct), decimalToNullable(p.StopLossSpreadPct),
 		nullableInt64(p.MaxHoldDuration),
 		decimalToNullable(p.PortionSize), decimalToNullable(p.PriceMin),
 		decimalToNullable(p.PriceMax), decimalToNullable(p.SlippagePct),
 		p.Leverage, decimalToNullable(p.MarginCapital), p.StepsTotal,
-		p.LongExchangeID, p.ShortExchangeID,
+		p.LongExchangeID, p.LongCredentialID, p.ShortExchangeID, p.ShortCredentialID,
 		decimalToNullable(p.LongContractSize), decimalToNullable(p.ShortContractSize),
 		p.Snapshot,
 	)
@@ -114,9 +114,9 @@ func (s *Store) CreatePosition(ctx context.Context, p *domain.Position) error {
 }
 
 // GetPosition retrieves a position by ID.
-func (s *Store) GetPosition(ctx context.Context, id string) (*domain.Position, error) {
+func (s *Store) GetPosition(ctx context.Context, userID, id string) (*domain.Position, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT `+positionColumns+` FROM positions WHERE id = $1`, id,
+		`SELECT `+positionColumns+` FROM positions WHERE user_id = $1 AND id = $2`, userID, id,
 	)
 	p, err := scanPosition(row)
 	if err == pgx.ErrNoRows {
@@ -138,6 +138,11 @@ func (s *Store) ListPositions(ctx context.Context, f domain.PositionFilter) ([]d
 	if len(f.Status) > 0 {
 		query += fmt.Sprintf(" AND status = ANY($%d)", argIdx)
 		args = append(args, f.Status)
+		argIdx++
+	}
+	if f.UserID != "" {
+		query += fmt.Sprintf(" AND user_id = $%d", argIdx)
+		args = append(args, f.UserID)
 		argIdx++
 	}
 	if f.Symbol != "" {
@@ -173,27 +178,28 @@ func (s *Store) ListPositions(ctx context.Context, f domain.PositionFilter) ([]d
 func (s *Store) UpdatePosition(ctx context.Context, p *domain.Position) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE positions SET
-			status = $2,
-			requested_base_qty = $3,
-			long_contract_size = $4, short_contract_size = $5,
-			long_entry_price = $6, long_filled_qty = $7, long_filled_base_qty = $8, long_entry_cost = $9, long_entry_fees = $10,
-			short_entry_price = $11, short_filled_qty = $12, short_filled_base_qty = $13, short_entry_cost = $14, short_entry_fees = $15,
-			long_exit_price = $16, long_close_fees = $17,
-			short_exit_price = $18, short_close_fees = $19,
-			long_mark_price = $20, short_mark_price = $21,
-			long_unrealized_pnl = $22, short_unrealized_pnl = $23,
-			total_funding_pnl = $24,
-			long_liquidation_price = $25, short_liquidation_price = $26,
-			long_leverage = $27, short_leverage = $28,
-			long_margin_mode = $29, short_margin_mode = $30,
-			long_notional = $31, short_notional = $32,
-			close_reason = $33,
-			error_message = $34,
-			opened_at = $35, closed_at = $36,
-			steps_completed = $37, stop_reason = $38,
+			status = $3,
+			requested_base_qty = $4,
+			long_contract_size = $5, short_contract_size = $6,
+			long_entry_price = $7, long_filled_qty = $8, long_filled_base_qty = $9, long_entry_cost = $10, long_entry_fees = $11,
+			short_entry_price = $12, short_filled_qty = $13, short_filled_base_qty = $14, short_entry_cost = $15, short_entry_fees = $16,
+			long_exit_price = $17, long_close_fees = $18,
+			short_exit_price = $19, short_close_fees = $20,
+			long_mark_price = $21, short_mark_price = $22,
+			long_unrealized_pnl = $23, short_unrealized_pnl = $24,
+			total_funding_pnl = $25,
+			long_liquidation_price = $26, short_liquidation_price = $27,
+			long_leverage = $28, short_leverage = $29,
+			long_margin_mode = $30, short_margin_mode = $31,
+			long_notional = $32, short_notional = $33,
+			close_reason = $34,
+			error_message = $35,
+			opened_at = $36, closed_at = $37,
+			steps_completed = $38, stop_reason = $39,
 			updated_at = NOW()
-		WHERE id = $1`,
-		p.ID, p.Status,
+		WHERE id = $1 AND user_id = $2`,
+		p.ID, p.UserID,
+		p.Status,
 		decimalToNullable(p.RequestedBaseQty),
 		decimalToNullable(p.LongContractSize), decimalToNullable(p.ShortContractSize),
 		decimalToNullable(p.LongEntryPrice), decimalToNullable(p.LongFilledQty), decimalToNullable(p.LongFilledBaseQty),
@@ -221,20 +227,20 @@ func (s *Store) UpdatePosition(ctx context.Context, p *domain.Position) error {
 }
 
 // DeletePosition removes a position and its related orders and funding payments.
-func (s *Store) DeletePosition(ctx context.Context, id string) error {
+func (s *Store) DeletePosition(ctx context.Context, userID, id string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("postgres delete position begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `DELETE FROM funding_payments WHERE position_id = $1`, id); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM funding_payments WHERE user_id = $1 AND position_id = $2`, userID, id); err != nil {
 		return fmt.Errorf("postgres delete position funding payments: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM orders WHERE position_id = $1`, id); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM orders WHERE user_id = $1 AND position_id = $2`, userID, id); err != nil {
 		return fmt.Errorf("postgres delete position orders: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM positions WHERE id = $1`, id); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM positions WHERE user_id = $1 AND id = $2`, userID, id); err != nil {
 		return fmt.Errorf("postgres delete position: %w", err)
 	}
 

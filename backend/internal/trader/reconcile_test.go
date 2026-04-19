@@ -758,8 +758,9 @@ func TestFetchLegState_NilPosition(t *testing.T) {
 		fetchPos:            nil,
 	}
 	tr := newTestTrader(ps, bybitMock)
+	p := &domain.Position{UserID: "test-user-id", LongExchangeID: "bybit", LongCredentialID: "cred-long", ShortExchangeID: "okx", ShortCredentialID: "cred-short"}
 
-	event := tr.fetchLegState(context.Background(), "bybit", "BTC/USDT:USDT", tr.logger)
+	event := tr.fetchLegState(context.Background(), p, "long", "bybit", "BTC/USDT:USDT", tr.logger)
 	if event == nil {
 		t.Fatal("expected event, got nil")
 	}
@@ -788,8 +789,9 @@ func TestFetchLegState_ValidPosition(t *testing.T) {
 		},
 	}
 	tr := newTestTrader(ps, bybitMock)
+	p := &domain.Position{UserID: "test-user-id", LongExchangeID: "bybit", LongCredentialID: "cred-long", ShortExchangeID: "okx", ShortCredentialID: "cred-short"}
 
-	event := tr.fetchLegState(context.Background(), "bybit", "BTC/USDT:USDT", tr.logger)
+	event := tr.fetchLegState(context.Background(), p, "long", "bybit", "BTC/USDT:USDT", tr.logger)
 	if event == nil {
 		t.Fatal("expected event, got nil")
 	}
@@ -817,8 +819,9 @@ func TestFetchLegState_FetchError(t *testing.T) {
 		fetchPosErr:         fmt.Errorf("rate limit exceeded"),
 	}
 	tr := newTestTrader(ps, bybitMock)
+	p := &domain.Position{UserID: "test-user-id", LongExchangeID: "bybit", LongCredentialID: "cred-long", ShortExchangeID: "okx", ShortCredentialID: "cred-short"}
 
-	event := tr.fetchLegState(context.Background(), "bybit", "BTC/USDT:USDT", tr.logger)
+	event := tr.fetchLegState(context.Background(), p, "long", "bybit", "BTC/USDT:USDT", tr.logger)
 	if event != nil {
 		t.Errorf("expected nil event on fetch error, got %+v", event)
 	}
@@ -827,8 +830,9 @@ func TestFetchLegState_FetchError(t *testing.T) {
 func TestFetchLegState_UnknownExchange(t *testing.T) {
 	ps := newMockPositionStore()
 	tr := newTestTrader(ps) // no exchanges registered
+	p := &domain.Position{UserID: "test-user-id", LongExchangeID: "unknown", LongCredentialID: "cred-long", ShortExchangeID: "okx", ShortCredentialID: "cred-short"}
 
-	event := tr.fetchLegState(context.Background(), "unknown", "BTC/USDT:USDT", tr.logger)
+	event := tr.fetchLegState(context.Background(), p, "long", "unknown", "BTC/USDT:USDT", tr.logger)
 	if event != nil {
 		t.Errorf("expected nil event for unknown exchange, got %+v", event)
 	}

@@ -20,19 +20,9 @@ import (
 // exchange state, and reacts to closures (auto-close remaining leg) and partial
 // closes (rebalance the other leg).
 func (t *Trader) runPositionReactor(ctx context.Context) error {
-	// Build channel list: subscribe to position events from all registered exchanges.
-	channels := make([]string, 0, len(t.registry.IDs()))
-	for _, id := range t.registry.IDs() {
-		channels = append(channels, rediskey.PositionStatePubSub(id))
-	}
+	channels := []string{rediskey.UserPositionStatePattern()}
 
-	if len(channels) == 0 {
-		t.logger.Warn("reactor: no exchanges registered, position reactor idle")
-		<-ctx.Done()
-		return ctx.Err()
-	}
-
-	pubsub := t.redis.Subscribe(ctx, channels...)
+	pubsub := t.redis.PSubscribe(ctx, channels...)
 	defer pubsub.Close()
 
 	ch := pubsub.Channel()
@@ -52,6 +42,9 @@ func (t *Trader) runPositionReactor(ctx context.Context) error {
 			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
 				t.logger.Warn("reactor: unmarshal position event", "error", err)
 				continue
+			}
+			if event.UserID == "" {
+				event.UserID = rediskey.UserIDFromChannel(msg.Channel)
 			}
 
 			if err := t.handlePositionEvent(ctx, &event); err != nil {
@@ -77,14 +70,17 @@ func (t *Trader) runPositionReactor(ctx context.Context) error {
 // Events that arrive during the reaction simply buffer in the Redis pubsub
 // channel and are drained afterward.
 func (t *Trader) handlePositionEvent(ctx context.Context, event *domain.ExchangePositionEvent) error {
+	filter := domain.PositionFilter{Symbol: event.Symbol}
+	if event.UserID != "" {
+		filter.UserID = event.UserID
+	}
+	filter.Status = []domain.PositionStatus{
+		domain.PositionStatusOpen,
+		domain.PositionStatusPartiallyOpen,
+	}
+
 	// Find open positions that match this exchange + symbol.
-	positions, err := t.store.ListPositions(ctx, domain.PositionFilter{
-		Status: []domain.PositionStatus{
-			domain.PositionStatusOpen,
-			domain.PositionStatusPartiallyOpen,
-		},
-		Symbol: event.Symbol,
-	})
+	positions, err := t.store.ListPositions(ctx, filter)
 	if err != nil {
 		return fmt.Errorf("list positions: %w", err)
 	}
@@ -163,10 +159,10 @@ const (
 // leg. This avoids issues with exchanges that report an empty Side ("") when a
 // position is fully closed, where there is no longer a direction to report.
 func (t *Trader) matchLeg(p *domain.Position, event *domain.ExchangePositionEvent) string {
-	if p.LongExchangeID == event.ExchangeID {
+	if p.LongExchangeID == event.ExchangeID && (event.CredentialID == "" || p.LongCredentialID == event.CredentialID) {
 		return "long"
 	}
-	if p.ShortExchangeID == event.ExchangeID {
+	if p.ShortExchangeID == event.ExchangeID && (event.CredentialID == "" || p.ShortCredentialID == event.CredentialID) {
 		return "short"
 	}
 	return ""
@@ -262,20 +258,17 @@ func (t *Trader) autoCloseRemainingLeg(ctx context.Context, p *domain.Position, 
 
 	// Determine the remaining leg.
 	var (
-		remainExchangeID string
-		remainSide       domain.OrderSide // Buy to close short, Sell to close long
-		remainQty        decimal.Decimal
+		remainSide domain.OrderSide // Buy to close short, Sell to close long
+		remainQty  decimal.Decimal
 	)
 
 	switch closedLeg {
 	case "long":
 		// Long was closed externally. Close the short by buying.
-		remainExchangeID = p.ShortExchangeID
 		remainSide = domain.OrderSideBuy
 		remainQty = p.ShortFilledQty
 	case "short":
 		// Short was closed externally. Close the long by selling.
-		remainExchangeID = p.LongExchangeID
 		remainSide = domain.OrderSideSell
 		remainQty = p.LongFilledQty
 	default:
@@ -289,7 +282,11 @@ func (t *Trader) autoCloseRemainingLeg(ctx context.Context, p *domain.Position, 
 		return
 	}
 
-	exch, err := t.registry.Get(remainExchangeID)
+	remainLeg := "short"
+	if closedLeg == "short" {
+		remainLeg = "long"
+	}
+	exch, err := t.tradingExchangeForLeg(ctx, p, remainLeg)
 	if err != nil {
 		logger.Error("reactor: get remaining exchange", "error", err)
 		t.closePosition(ctx, p, domain.CloseReasonAutoClose, logger)
@@ -299,7 +296,7 @@ func (t *Trader) autoCloseRemainingLeg(ctx context.Context, p *domain.Position, 
 	// Place market order to close remaining leg.
 	amount := remainQty.InexactFloat64()
 	logger.Info("reactor: placing auto-close order",
-		"exchange", remainExchangeID,
+		"exchange", exch.ID(),
 		"side", remainSide,
 		"amount_contracts", amount,
 	)
@@ -311,7 +308,7 @@ func (t *Trader) autoCloseRemainingLeg(ctx context.Context, p *domain.Position, 
 		// it happened). Log at info level and close cleanly without an error.
 		if isPositionAlreadyClosed(err) {
 			logger.Info("reactor: remaining leg already closed on exchange, nothing to reduce",
-				"exchange", remainExchangeID,
+				"exchange", exch.ID(),
 			)
 			t.closePosition(ctx, p, domain.CloseReasonAutoClose, logger)
 			return
@@ -326,8 +323,9 @@ func (t *Trader) autoCloseRemainingLeg(ctx context.Context, p *domain.Position, 
 
 	// Record the close order.
 	orderRec := &domain.ExchangeOrder{
+		UserID:           p.UserID,
 		PositionID:       p.ID,
-		ExchangeID:       remainExchangeID,
+		ExchangeID:       exch.ID(),
 		ExchangeOrderID:  order.ExchangeOrderID,
 		Symbol:           p.Symbol,
 		Side:             remainSide,
@@ -377,20 +375,17 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 
 	// Determine how much to reduce the other leg.
 	var (
-		otherExchangeID string
-		otherSide       domain.OrderSide // Buy to reduce short, Sell to reduce long
-		otherFilledQty  decimal.Decimal
+		otherSide      domain.OrderSide // Buy to reduce short, Sell to reduce long
+		otherFilledQty decimal.Decimal
 	)
 
 	switch changedLeg {
 	case "long":
 		// Long was partially reduced. Reduce short to match.
-		otherExchangeID = p.ShortExchangeID
 		otherSide = domain.OrderSideBuy
 		otherFilledQty = p.ShortFilledQty
 	case "short":
 		// Short was partially reduced. Reduce long to match.
-		otherExchangeID = p.LongExchangeID
 		otherSide = domain.OrderSideSell
 		otherFilledQty = p.LongFilledQty
 	default:
@@ -407,7 +402,7 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 		originalQty = p.ShortFilledQty
 	}
 
-	exch, err := t.registry.Get(otherExchangeID)
+	exch, err := t.tradingExchangeForLeg(ctx, p, otherLeg(changedLeg))
 	if err != nil {
 		logger.Error("reactor: get other exchange for rebalance", "error", err)
 		return
@@ -436,7 +431,7 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 	otherDeltaContracts := baseQtyToContracts(baseDelta, otherContractSize)
 
 	logger.Info("reactor: placing rebalance order",
-		"exchange", otherExchangeID,
+		"exchange", exch.ID(),
 		"side", otherSide,
 		"amount_contracts", otherDeltaContracts,
 		"delta_contracts", otherDeltaContracts,
@@ -450,7 +445,7 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 		// order is correctly rejected. Log at info and skip.
 		if isPositionAlreadyClosed(err) {
 			logger.Info("reactor: other leg already closed on exchange, skipping rebalance",
-				"exchange", otherExchangeID,
+				"exchange", exch.ID(),
 			)
 			return
 		}
@@ -461,8 +456,9 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 
 	// Record the rebalance order.
 	orderRec := &domain.ExchangeOrder{
+		UserID:           p.UserID,
 		PositionID:       p.ID,
-		ExchangeID:       otherExchangeID,
+		ExchangeID:       exch.ID(),
 		ExchangeOrderID:  order.ExchangeOrderID,
 		Symbol:           p.Symbol,
 		Side:             otherSide,
@@ -523,7 +519,7 @@ func (t *Trader) rebalanceOtherLeg(ctx context.Context, p *domain.Position, chan
 		"short_qty", p.ShortFilledQty,
 	)
 
-	t.redis.Publish(ctx, rediskey.PositionUpdates(), p.ID)
+	t.redis.Publish(ctx, rediskey.UserPositionUpdates(p.UserID), p.ID)
 }
 
 // closePosition marks a position as closed with the given reason and persists it.
@@ -534,7 +530,7 @@ func (t *Trader) closePosition(ctx context.Context, p *domain.Position, reason d
 	p.CloseReason = reason
 
 	// Compute final funding P&L.
-	fundingPnL, err := t.store.SumFundingPnL(ctx, p.ID)
+	fundingPnL, err := t.store.SumFundingPnL(ctx, p.UserID, p.ID)
 	if err != nil {
 		logger.Warn("reactor: sum funding pnl on close", "error", err)
 	} else {
@@ -551,7 +547,7 @@ func (t *Trader) closePosition(ctx context.Context, p *domain.Position, reason d
 		"total_funding_pnl", p.TotalFundingPnL,
 	)
 
-	t.redis.Publish(ctx, rediskey.PositionUpdates(), p.ID)
+	t.redis.Publish(ctx, rediskey.UserPositionUpdates(p.UserID), p.ID)
 }
 
 // otherLeg returns the opposite leg name.

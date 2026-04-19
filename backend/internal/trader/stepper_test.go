@@ -740,7 +740,7 @@ func TestExecuteOpen_DelegatesToStepped(t *testing.T) {
 	okxMock := &mockTradingExchange{id: "okx"}
 	tr := newTestTrader(ps, bybitMock, okxMock)
 
-	err := tr.executeOpen(context.Background(), p.ID)
+	err := tr.executeOpen(context.Background(), p.UserID, p.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -775,7 +775,7 @@ func TestExecuteOpen_NonSteppedStillWorks(t *testing.T) {
 	okxMock := &mockTradingExchange{id: "okx"}
 	tr := newTestTrader(ps, bybitMock, okxMock)
 
-	err := tr.executeOpen(context.Background(), p.ID)
+	err := tr.executeOpen(context.Background(), p.UserID, p.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -40,15 +40,21 @@ func newMockPositionStore() *mockPositionStore {
 func (m *mockPositionStore) CreatePosition(_ context.Context, p *domain.Position) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if p.UserID == "" {
+		p.UserID = "test-user-id"
+	}
 	m.positions[p.ID] = p
 	return nil
 }
 
-func (m *mockPositionStore) GetPosition(_ context.Context, id string) (*domain.Position, error) {
+func (m *mockPositionStore) GetPosition(_ context.Context, userID, id string) (*domain.Position, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p, ok := m.positions[id]
 	if !ok {
+		return nil, nil
+	}
+	if p.UserID != "" && p.UserID != userID {
 		return nil, nil
 	}
 	return p, nil
@@ -59,6 +65,9 @@ func (m *mockPositionStore) ListPositions(_ context.Context, f domain.PositionFi
 	defer m.mu.Unlock()
 	var out []domain.Position
 	for _, p := range m.positions {
+		if f.UserID != "" && p.UserID != f.UserID {
+			continue
+		}
 		if f.Symbol != "" && p.Symbol != f.Symbol {
 			continue
 		}
@@ -86,9 +95,13 @@ func (m *mockPositionStore) UpdatePosition(_ context.Context, p *domain.Position
 	return nil
 }
 
-func (m *mockPositionStore) DeletePosition(_ context.Context, id string) error {
+func (m *mockPositionStore) DeletePosition(_ context.Context, userID, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	p, ok := m.positions[id]
+	if ok && p.UserID != "" && p.UserID != userID {
+		return nil
+	}
 	delete(m.positions, id)
 	return nil
 }
@@ -96,6 +109,9 @@ func (m *mockPositionStore) DeletePosition(_ context.Context, id string) error {
 func (m *mockPositionStore) CreateOrder(_ context.Context, o *domain.ExchangeOrder) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if o.UserID == "" {
+		o.UserID = "test-user-id"
+	}
 	m.orders = append(m.orders, *o)
 	return nil
 }
@@ -104,32 +120,83 @@ func (m *mockPositionStore) UpdateOrder(_ context.Context, _ *domain.ExchangeOrd
 	return nil
 }
 
-func (m *mockPositionStore) ListOrdersByPosition(_ context.Context, _ string) ([]domain.ExchangeOrder, error) {
+func (m *mockPositionStore) ListOrdersByPosition(_ context.Context, _, _ string) ([]domain.ExchangeOrder, error) {
 	return nil, nil
 }
 
 func (m *mockPositionStore) CreateFundingPayment(_ context.Context, fp *domain.FundingPayment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if fp.UserID == "" {
+		fp.UserID = "test-user-id"
+	}
 	m.funding[fp.PositionID] = append(m.funding[fp.PositionID], *fp)
 	return nil
 }
 
-func (m *mockPositionStore) ListFundingPayments(_ context.Context, positionID string) ([]domain.FundingPayment, error) {
+func (m *mockPositionStore) ListFundingPayments(_ context.Context, _, positionID string) ([]domain.FundingPayment, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.funding[positionID], nil
 }
 
-func (m *mockPositionStore) SumFundingPnL(_ context.Context, _ string) (decimal.Decimal, error) {
+func (m *mockPositionStore) SumFundingPnL(_ context.Context, _, _ string) (decimal.Decimal, error) {
 	return decimal.Zero, nil
 }
 
-func (m *mockPositionStore) LatestFundingPayment(_ context.Context, _, _ string) (*domain.FundingPayment, error) {
+func (m *mockPositionStore) LatestFundingPayment(_ context.Context, _, _, _ string) (*domain.FundingPayment, error) {
 	return nil, nil
 }
 
 var _ store.PositionStore = (*mockPositionStore)(nil)
+
+// ---------------------------------------------------------------------------
+// Mock UserStore
+// ---------------------------------------------------------------------------
+
+type mockUserStore struct{}
+
+func newMockUserStore() *mockUserStore {
+	return &mockUserStore{}
+}
+
+func (m *mockUserStore) GetUserByEmail(_ context.Context, _ string) (*domain.User, error) {
+	return nil, nil
+}
+
+func (m *mockUserStore) GetUserByID(_ context.Context, _ string) (*domain.User, error) {
+	return nil, nil
+}
+
+func (m *mockUserStore) CreateUser(_ context.Context, _ *domain.User) error {
+	return nil
+}
+
+func (m *mockUserStore) ListExchangeCredentialsByUserID(_ context.Context, _ string) ([]domain.ExchangeCredential, error) {
+	return nil, nil
+}
+
+func (m *mockUserStore) ListExchangeCredentials(_ context.Context) ([]domain.ExchangeCredential, error) {
+	return nil, nil
+}
+
+func (m *mockUserStore) GetExchangeCredentialByID(_ context.Context, _, _ string) (*domain.ExchangeCredential, error) {
+	return nil, nil
+}
+
+func (m *mockUserStore) CreateExchangeCredential(_ context.Context, _ *domain.ExchangeCredential) error {
+	return nil
+}
+
+func (m *mockUserStore) UpdateExchangeCredential(_ context.Context, _ *domain.ExchangeCredential) (bool, error) {
+	return false, nil
+}
+
+func (m *mockUserStore) DeleteExchangeCredential(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+
+var _ store.UserStore = (*mockUserStore)(nil)
 
 // ---------------------------------------------------------------------------
 // Mock TradingExchange
@@ -228,11 +295,13 @@ func newTestTrader(ps store.PositionStore, exchanges ...exchange.TradingExchange
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	rc := goredis.NewClient(&goredis.Options{Addr: "localhost:0"}) // stub, won't connect
 	return &Trader{
-		registry: reg,
-		store:    ps,
-		redis:    rc,
-		logger:   logger,
-		cfg:      config.TraderConfig{},
+		registry:  reg,
+		store:     ps,
+		userStore: newMockUserStore(),
+		redis:     rc,
+		logger:    logger,
+		cfg:       config.TraderConfig{},
+		clients:   make(map[string]exchange.TradingExchange),
 	}
 }
 
@@ -243,15 +312,18 @@ func dec(v string) decimal.Decimal {
 
 func newOpenPosition() *domain.Position {
 	return &domain.Position{
-		ID:              "pos-1",
-		Symbol:          "BTC/USDT:USDT",
-		Status:          domain.PositionStatusOpen,
-		LongExchangeID:  "bybit",
-		ShortExchangeID: "okx",
-		LongFilledQty:   dec("0.1"),
-		ShortFilledQty:  dec("0.1"),
-		LongEntryPrice:  dec("50000"),
-		ShortEntryPrice: dec("50100"),
+		ID:                "pos-1",
+		UserID:            "test-user-id",
+		Symbol:            "BTC/USDT:USDT",
+		Status:            domain.PositionStatusOpen,
+		LongExchangeID:    "bybit",
+		LongCredentialID:  "cred-long",
+		ShortExchangeID:   "okx",
+		ShortCredentialID: "cred-short",
+		LongFilledQty:     dec("0.1"),
+		ShortFilledQty:    dec("0.1"),
+		LongEntryPrice:    dec("50000"),
+		ShortEntryPrice:   dec("50100"),
 	}
 }
 
@@ -1536,7 +1608,7 @@ func TestExecuteClose_BothLegsAlreadyClosed(t *testing.T) {
 	}
 	tr := newTestTrader(ps, bybitMock, okxMock)
 
-	err := tr.executeClose(context.Background(), p.ID)
+	err := tr.executeClose(context.Background(), p.UserID, p.ID)
 	if err != nil {
 		t.Fatalf("expected no error (both legs already closed), got: %v", err)
 	}
@@ -1570,7 +1642,7 @@ func TestExecuteClose_OneLegAlreadyClosed(t *testing.T) {
 	}
 	tr := newTestTrader(ps, bybitMock, okxMock)
 
-	err := tr.executeClose(context.Background(), p.ID)
+	err := tr.executeClose(context.Background(), p.UserID, p.ID)
 	if err != nil {
 		t.Fatalf("expected no error (OKX already closed, Bybit succeeded), got: %v", err)
 	}
@@ -1638,7 +1710,7 @@ func TestExecuteOpen_LongFailsShortSucceeds_RollsBackShort(t *testing.T) {
 	okxMock := &mockTradingExchange{id: "okx"}
 	tr := newTestTrader(ps, bybitMock, okxMock)
 
-	err := tr.executeOpen(context.Background(), p.ID)
+	err := tr.executeOpen(context.Background(), p.UserID, p.ID)
 	if err == nil {
 		t.Fatal("expected error from executeOpen, got nil")
 	}
@@ -1688,7 +1760,7 @@ func TestExecuteOpen_ShortFailsLongSucceeds_RollsBackLong(t *testing.T) {
 	}
 	tr := newTestTrader(ps, bybitMock, okxMock)
 
-	err := tr.executeOpen(context.Background(), p.ID)
+	err := tr.executeOpen(context.Background(), p.UserID, p.ID)
 	if err == nil {
 		t.Fatal("expected error from executeOpen, got nil")
 	}
@@ -1741,7 +1813,7 @@ func TestExecuteOpen_BothFail_NoRollback(t *testing.T) {
 	}
 	tr := newTestTrader(ps, bybitMock, okxMock)
 
-	err := tr.executeOpen(context.Background(), p.ID)
+	err := tr.executeOpen(context.Background(), p.UserID, p.ID)
 	if err == nil {
 		t.Fatal("expected error from executeOpen, got nil")
 	}
@@ -1808,7 +1880,7 @@ func TestExecuteOpen_OrphanedLegDetectedViaFetchPosition(t *testing.T) {
 	}
 	tr := newTestTrader(ps, bybitMock, okxMock)
 
-	err := tr.executeOpen(context.Background(), p.ID)
+	err := tr.executeOpen(context.Background(), p.UserID, p.ID)
 	if err == nil {
 		t.Fatal("expected error from executeOpen, got nil")
 	}

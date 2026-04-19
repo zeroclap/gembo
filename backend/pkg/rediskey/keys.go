@@ -2,7 +2,10 @@
 // All keys follow the pattern: gembo:<exchange>:<type>:<symbol>
 package rediskey
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const prefix = "gembo"
 
@@ -73,6 +76,13 @@ func Balance(exchangeID, currency string) string {
 	return fmt.Sprintf("%s:%s:balance:%s", prefix, exchangeID, currency)
 }
 
+// UserBalance returns the key for a single balance by user, exchange and currency.
+//
+//	gembo:users:<user_id>:<exchange>:balance:<currency>
+func UserBalance(userID, exchangeID, currency string) string {
+	return fmt.Sprintf("%s:users:%s:%s:balance:%s", prefix, userID, exchangeID, currency)
+}
+
 // Balances returns the set key that tracks all currencies with balances.
 //
 //	gembo:<exchange>:balances
@@ -80,11 +90,25 @@ func Balances(exchangeID string) string {
 	return fmt.Sprintf("%s:%s:balances", prefix, exchangeID)
 }
 
+// UserBalances returns the set key that tracks all currencies for a user+exchange.
+//
+//	gembo:users:<user_id>:<exchange>:balances
+func UserBalances(userID, exchangeID string) string {
+	return fmt.Sprintf("%s:users:%s:%s:balances", prefix, userID, exchangeID)
+}
+
 // BalancePubSub returns the Pub/Sub channel name for balance updates on an exchange.
 //
 //	gembo:<exchange>:balance:updates
 func BalancePubSub(exchangeID string) string {
 	return fmt.Sprintf("%s:%s:balance:updates", prefix, exchangeID)
+}
+
+// UserBalancePubSub returns the Pub/Sub channel for user-scoped balance updates.
+//
+//	gembo:users:<user_id>:<exchange>:balance:updates
+func UserBalancePubSub(userID, exchangeID string) string {
+	return fmt.Sprintf("%s:users:%s:%s:balance:updates", prefix, userID, exchangeID)
 }
 
 // FundingArbitragePairs returns the set key that tracks all funding arbitrage pair identifiers.
@@ -109,11 +133,25 @@ func PositionPending() string {
 	return fmt.Sprintf("%s:positions:pending", prefix)
 }
 
+// UserPositionPending returns user-scoped position open request channel.
+//
+//	gembo:users:<user_id>:positions:pending
+func UserPositionPending(userID string) string {
+	return fmt.Sprintf("%s:users:%s:positions:pending", prefix, userID)
+}
+
 // PositionClosing returns the Pub/Sub channel for position close requests.
 //
 //	gembo:positions:closing
 func PositionClosing() string {
 	return fmt.Sprintf("%s:positions:closing", prefix)
+}
+
+// UserPositionClosing returns user-scoped position close request channel.
+//
+//	gembo:users:<user_id>:positions:closing
+func UserPositionClosing(userID string) string {
+	return fmt.Sprintf("%s:users:%s:positions:closing", prefix, userID)
 }
 
 // PositionUpdates returns the Pub/Sub channel for position state changes.
@@ -123,6 +161,13 @@ func PositionUpdates() string {
 	return fmt.Sprintf("%s:positions:updates", prefix)
 }
 
+// UserPositionUpdates returns user-scoped position updates channel.
+//
+//	gembo:users:<user_id>:positions:updates
+func UserPositionUpdates(userID string) string {
+	return fmt.Sprintf("%s:users:%s:positions:updates", prefix, userID)
+}
+
 // PositionStatePubSub returns the Pub/Sub channel for exchange position state
 // events published by the collector. Keyed per exchange so subscribers can
 // filter by exchange.
@@ -130,6 +175,37 @@ func PositionUpdates() string {
 //	gembo:<exchange>:position:updates
 func PositionStatePubSub(exchangeID string) string {
 	return fmt.Sprintf("%s:%s:position:updates", prefix, exchangeID)
+}
+
+// UserPositionStatePubSub returns user-scoped exchange position updates channel.
+//
+//	gembo:users:<user_id>:<exchange>:position:updates
+func UserPositionStatePubSub(userID, exchangeID string) string {
+	return fmt.Sprintf("%s:users:%s:%s:position:updates", prefix, userID, exchangeID)
+}
+
+// UserPositionPendingPattern matches all user-scoped pending channels.
+func UserPositionPendingPattern() string {
+	return fmt.Sprintf("%s:users:*:positions:pending", prefix)
+}
+
+// UserPositionClosingPattern matches all user-scoped closing channels.
+func UserPositionClosingPattern() string {
+	return fmt.Sprintf("%s:users:*:positions:closing", prefix)
+}
+
+// UserPositionStatePattern matches all user-scoped position state channels.
+func UserPositionStatePattern() string {
+	return fmt.Sprintf("%s:users:*:*:position:updates", prefix)
+}
+
+// UserIDFromChannel extracts user_id from a user-scoped channel.
+func UserIDFromChannel(channel string) string {
+	parts := strings.Split(channel, ":")
+	if len(parts) < 4 || parts[0] != prefix || parts[1] != "users" {
+		return ""
+	}
+	return parts[2]
 }
 
 // FundingArbitragePubSub returns the Pub/Sub channel for funding arbitrage updates.

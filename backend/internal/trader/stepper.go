@@ -31,11 +31,11 @@ func isStepped(p *domain.Position) bool {
 //     e. Persist progress after each step
 //  5. Finalize: mark as "open" (all steps) or "partially_open" (stopped early)
 func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) error {
-	longExch, err := t.registry.Get(p.LongExchangeID)
+	longExch, err := t.tradingExchangeForLeg(ctx, p, "long")
 	if err != nil {
 		return t.failPosition(ctx, p, fmt.Errorf("long exchange: %w", err))
 	}
-	shortExch, err := t.registry.Get(p.ShortExchangeID)
+	shortExch, err := t.tradingExchangeForLeg(ctx, p, "short")
 	if err != nil {
 		return t.failPosition(ctx, p, fmt.Errorf("short exchange: %w", err))
 	}
@@ -134,6 +134,7 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 
 		// Create order records for this step.
 		longOrder := &domain.ExchangeOrder{
+			UserID:     p.UserID,
 			PositionID: p.ID,
 			ExchangeID: p.LongExchangeID,
 			Symbol:     p.Symbol,
@@ -143,6 +144,7 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 			Status:     "pending",
 		}
 		shortOrder := &domain.ExchangeOrder{
+			UserID:     p.UserID,
 			PositionID: p.ID,
 			ExchangeID: p.ShortExchangeID,
 			Symbol:     p.Symbol,
@@ -295,7 +297,7 @@ func (t *Trader) executeSteppedOpen(ctx context.Context, p *domain.Position) err
 		"short_base_qty", p.ShortFilledBaseQty,
 	)
 
-	t.redis.Publish(ctx, rediskey.PositionUpdates(), p.ID)
+	t.redis.Publish(ctx, rediskey.UserPositionUpdates(p.UserID), p.ID)
 	return nil
 }
 

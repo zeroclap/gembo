@@ -130,6 +130,106 @@ func (s *Store) ListExchangeCredentialsByUserID(ctx context.Context, userID stri
 	return creds, nil
 }
 
+// ListExchangeCredentials returns all credentials across users.
+func (s *Store) ListExchangeCredentials(ctx context.Context) ([]domain.ExchangeCredential, error) {
+	const q = `
+		SELECT id, user_id, exchange_id, title, api_key, api_secret, COALESCE(passphrase, ''), is_default, created_at, updated_at
+		FROM exchange_credentials
+		ORDER BY user_id ASC, exchange_id ASC, created_at ASC`
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list exchange credentials: %w", err)
+	}
+	defer rows.Close()
+
+	creds := make([]domain.ExchangeCredential, 0)
+	for rows.Next() {
+		var c domain.ExchangeCredential
+		if err := rows.Scan(
+			&c.ID,
+			&c.UserID,
+			&c.ExchangeID,
+			&c.Title,
+			&c.APIKey,
+			&c.APISecret,
+			&c.Passphrase,
+			&c.IsDefault,
+			&c.CreatedAt,
+			&c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan exchange credential: %w", err)
+		}
+
+		apiKey, err := s.decryptCredentialValue(c.APIKey)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt exchange credential api key: %w", err)
+		}
+		apiSecret, err := s.decryptCredentialValue(c.APISecret)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt exchange credential api secret: %w", err)
+		}
+		passphrase, err := s.decryptCredentialValue(c.Passphrase)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt exchange credential passphrase: %w", err)
+		}
+		c.APIKey = apiKey
+		c.APISecret = apiSecret
+		c.Passphrase = passphrase
+		creds = append(creds, c)
+	}
+
+	if creds == nil {
+		return []domain.ExchangeCredential{}, nil
+	}
+	return creds, nil
+}
+
+// GetExchangeCredentialByID returns a credential by id scoped to a user.
+func (s *Store) GetExchangeCredentialByID(ctx context.Context, userID, credentialID string) (*domain.ExchangeCredential, error) {
+	const q = `
+		SELECT id, user_id, exchange_id, title, api_key, api_secret, COALESCE(passphrase, ''), is_default, created_at, updated_at
+		FROM exchange_credentials
+		WHERE user_id = $1 AND id = $2`
+	row := s.pool.QueryRow(ctx, q, userID, credentialID)
+
+	var c domain.ExchangeCredential
+	if err := row.Scan(
+		&c.ID,
+		&c.UserID,
+		&c.ExchangeID,
+		&c.Title,
+		&c.APIKey,
+		&c.APISecret,
+		&c.Passphrase,
+		&c.IsDefault,
+		&c.CreatedAt,
+		&c.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get exchange credential by id: %w", err)
+	}
+
+	apiKey, err := s.decryptCredentialValue(c.APIKey)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt exchange credential api key: %w", err)
+	}
+	apiSecret, err := s.decryptCredentialValue(c.APISecret)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt exchange credential api secret: %w", err)
+	}
+	passphrase, err := s.decryptCredentialValue(c.Passphrase)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt exchange credential passphrase: %w", err)
+	}
+	c.APIKey = apiKey
+	c.APISecret = apiSecret
+	c.Passphrase = passphrase
+
+	return &c, nil
+}
+
 // CreateExchangeCredential inserts a new exchange credential.
 func (s *Store) CreateExchangeCredential(ctx context.Context, c *domain.ExchangeCredential) error {
 	tx, err := s.pool.Begin(ctx)
