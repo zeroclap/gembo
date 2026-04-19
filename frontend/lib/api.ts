@@ -323,7 +323,8 @@ export interface FundingRange24h {
 export interface SimulationResult {
   position_size: string;
   actual_position_size: string;
-  quantity: string;
+  quantity: string; // base quantity
+  contracts: string;
   capital: string;
   entry_cost: string;
   exit_cost: string;

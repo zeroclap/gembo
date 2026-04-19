@@ -97,6 +97,7 @@ func TestSimulate_BasicCalculation(t *testing.T) {
 	assertDecimalEqual(t, "PositionSize", d("1000"), result.PositionSize)
 	assertDecimalEqual(t, "Capital", d("1000"), result.Capital)
 	assertDecimalEqual(t, "Quantity", d("1000"), result.Quantity)
+	assertDecimalEqual(t, "Contracts", d("1000"), result.Contracts)
 	assertDecimalEqual(t, "ActualPositionSize", d("1000"), result.ActualPositionSize)
 
 	// Funding P&L: 0.0004 * 1000 = 0.4 per 8h.
@@ -438,6 +439,7 @@ func TestSimulate_UsdMode_FloorRounding(t *testing.T) {
 
 	// qty = floor(100 / 51) = 1
 	assertDecimalEqual(t, "Quantity", d("1"), result.Quantity)
+	assertDecimalEqual(t, "Contracts", d("1"), result.Contracts)
 	// actual_position_size = 1 * 51 = 51
 	assertDecimalEqual(t, "ActualPositionSize", d("51"), result.ActualPositionSize)
 	// Capital = actual_position_size = 51
@@ -489,14 +491,16 @@ func TestSimulate_UsdMode_CantAffordSingleContract(t *testing.T) {
 
 	// 0 contracts, 0 everything.
 	assertDecimalEqual(t, "Quantity", d("0"), result.Quantity)
+	assertDecimalEqual(t, "Contracts", d("0"), result.Contracts)
 	assertDecimalEqual(t, "ActualPositionSize", d("0"), result.ActualPositionSize)
 	assertDecimalEqual(t, "Funding8h", d("0"), result.Funding8h)
 }
 
 func TestSimulate_QtyMode(t *testing.T) {
 	now := time.Now().UTC()
-	// User provides 5 contracts, price=$200, contract_size=0.1.
-	// actual_position_size = 5 * 200 * 0.1 = $100.
+	// User provides 5 base units, price=$200, contract_size=0.1.
+	// contracts = 5 / 0.1 = 50.
+	// actual_position_size = 50 * 200 * 0.1 = $1000.
 	arb := domain.FundingArbitrage{
 		Symbol: "ETH/USDT:USDT",
 		Long: domain.ArbitrageLeg{
@@ -536,11 +540,12 @@ func TestSimulate_QtyMode(t *testing.T) {
 	result := Simulate(arb, req, now)
 
 	assertDecimalEqual(t, "Quantity", d("5"), result.Quantity)
-	// actual_position_size = 5 * 200 * 0.1 = 100
-	assertDecimalEqual(t, "ActualPositionSize", d("100"), result.ActualPositionSize)
-	assertDecimalEqual(t, "Capital", d("100"), result.Capital)
-	// Funding8h = 0.0004 * 100 = 0.04
-	assertDecimalEqual(t, "Funding8h", d("0.04"), result.Funding8h)
+	assertDecimalEqual(t, "Contracts", d("50"), result.Contracts)
+	// actual_position_size = 50 * 200 * 0.1 = 1000
+	assertDecimalEqual(t, "ActualPositionSize", d("1000"), result.ActualPositionSize)
+	assertDecimalEqual(t, "Capital", d("1000"), result.Capital)
+	// Funding8h = 0.0004 * 1000 = 0.4
+	assertDecimalEqual(t, "Funding8h", d("0.4"), result.Funding8h)
 }
 
 func TestSimulate_UsdMode_SmallContractSize(t *testing.T) {
@@ -587,7 +592,8 @@ func TestSimulate_UsdMode_SmallContractSize(t *testing.T) {
 
 	result := Simulate(arb, req, now)
 
-	assertDecimalEqual(t, "Quantity", d("20"), result.Quantity)
+	assertDecimalEqual(t, "Quantity", d("0.02"), result.Quantity)
+	assertDecimalEqual(t, "Contracts", d("20"), result.Contracts)
 	assertDecimalEqual(t, "ActualPositionSize", d("1000"), result.ActualPositionSize)
 }
 
@@ -634,6 +640,7 @@ func TestSimulate_UsdMode_PartialContract(t *testing.T) {
 
 	// floor(75/50) = 1 contract
 	assertDecimalEqual(t, "Quantity", d("1"), result.Quantity)
+	assertDecimalEqual(t, "Contracts", d("1"), result.Contracts)
 	assertDecimalEqual(t, "ActualPositionSize", d("50"), result.ActualPositionSize)
 }
 
@@ -681,7 +688,8 @@ func TestSimulate_UsdMode_DifferentContractSizes(t *testing.T) {
 
 	result := Simulate(arb, req, now)
 
-	assertDecimalEqual(t, "Quantity", d("5"), result.Quantity)
+	assertDecimalEqual(t, "Quantity", d("0.5"), result.Quantity)
+	assertDecimalEqual(t, "Contracts", d("5"), result.Contracts)
 	assertDecimalEqual(t, "ActualPositionSize", d("50"), result.ActualPositionSize)
 }
 
@@ -702,10 +710,11 @@ func TestResolvePositionSize_ZeroContractSize_DefaultsToOne(t *testing.T) {
 		PositionSize: d("25"),
 	}
 
-	qty, actual := resolvePositionSize(arb, req)
+	baseQty, contracts, actual := resolvePositionSize(arb, req)
 
 	// floor(25/10) = 2
-	assertDecimalEqual(t, "qty", d("2"), qty)
+	assertDecimalEqual(t, "base qty", d("2"), baseQty)
+	assertDecimalEqual(t, "contracts", d("2"), contracts)
 	assertDecimalEqual(t, "actual", d("20"), actual)
 }
 

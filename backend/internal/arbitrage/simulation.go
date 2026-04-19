@@ -11,15 +11,16 @@ import (
 	"github.com/zeroclap/gembo/internal/domain"
 )
 
-// resolvePositionSize computes the effective quantity and notional position
-// size from the simulation request and arbitrage opportunity.
+// resolvePositionSize computes the effective base quantity, contract quantity,
+// and notional position size from the simulation request and arbitrage
+// opportunity.
 //
 // When size_type=price: quantity = floor(position_size / (price * contract_size)).
-// When size_type=quantity: quantity is used as-is.
+// When size_type=quantity: quantity (base units) is converted to contracts.
 //
-// Returns (quantity, actual_position_size). actual_position_size is always
-// qty * price * contract_size. If contract_size is zero (unknown) it defaults to 1.
-func resolvePositionSize(arb domain.FundingArbitrage, req domain.SimulationRequest) (decimal.Decimal, decimal.Decimal) {
+// Returns (base_quantity, contracts, actual_position_size). If contract_size is
+// zero (unknown) it defaults to 1.
+func resolvePositionSize(arb domain.FundingArbitrage, req domain.SimulationRequest) (decimal.Decimal, decimal.Decimal, decimal.Decimal) {
 	// Use the average price across both legs as reference price.
 	price := arb.Long.Price.Add(arb.Short.Price).Div(dec2)
 	if price.IsZero() {
@@ -45,33 +46,36 @@ func resolvePositionSize(arb domain.FundingArbitrage, req domain.SimulationReque
 	// Value per contract in USD.
 	valuePerContract := price.Mul(contractSize)
 
-	var qty decimal.Decimal
+	var contracts decimal.Decimal
+	var baseQty decimal.Decimal
 	switch req.SizeType {
 	case domain.SizeTypeQuantity:
-		qty = req.Quantity
+		baseQty = req.Quantity
+		contracts = req.Quantity.Div(contractSize)
 	default:
 		// SizeTypePrice or legacy (empty string = price).
 		if valuePerContract.IsPositive() {
 			// Floor to whole contracts.
-			qty = req.PositionSize.Div(valuePerContract).Floor()
-			if qty.IsZero() {
+			contracts = req.PositionSize.Div(valuePerContract).Floor()
+			if contracts.IsZero() {
 				// Can't afford a single contract — clamp to 0.
-				return decimal.Zero, decimal.Zero
+				return decimal.Zero, decimal.Zero, decimal.Zero
 			}
 		} else {
-			return decimal.Zero, decimal.Zero
+			return decimal.Zero, decimal.Zero, decimal.Zero
 		}
+		baseQty = contracts.Mul(contractSize)
 	}
 
-	actualSize := qty.Mul(valuePerContract)
-	return qty, actualSize
+	actualSize := contracts.Mul(valuePerContract)
+	return baseQty, contracts, actualSize
 }
 
 // Simulate computes the P&L simulation for a given arbitrage opportunity
 // and position sizing parameters. This is a pure function — it does not
 // touch the store.
 func Simulate(arb domain.FundingArbitrage, req domain.SimulationRequest, now time.Time) domain.SimulationResult {
-	qty, actualSize := resolvePositionSize(arb, req)
+	baseQty, contracts, actualSize := resolvePositionSize(arb, req)
 
 	size := actualSize
 	slippage := req.SlippagePct
@@ -197,7 +201,8 @@ func Simulate(arb domain.FundingArbitrage, req domain.SimulationRequest, now tim
 	return domain.SimulationResult{
 		PositionSize:       req.PositionSize,
 		ActualPositionSize: actualSize,
-		Quantity:           qty,
+		Quantity:           baseQty,
+		Contracts:          contracts,
 		Capital:            capital,
 		EntryCost:          entryCost,
 		ExitCost:           exitCost,

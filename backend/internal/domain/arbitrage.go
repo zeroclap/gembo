@@ -96,7 +96,7 @@ type SimulationRequest struct {
 	LongExchangeID  string          `json:"long_exchange_id"`
 	ShortExchangeID string          `json:"short_exchange_id"`
 	PositionSize    decimal.Decimal `json:"position_size"` // notional value in USD (used when SizeType=price)
-	Quantity        decimal.Decimal `json:"quantity"`      // contract count (used when SizeType=quantity)
+	Quantity        decimal.Decimal `json:"quantity"`      // base quantity (used when SizeType=quantity)
 	SizeType        SizeType        `json:"size_type"`     // "price" or "quantity"
 	SlippagePct     decimal.Decimal `json:"slippage_pct"`  // slippage percentage, e.g. 0.05
 	HoldHours       decimal.Decimal `json:"hold_hours"`    // hold period in hours for hold-based simulation (e.g. 30)
@@ -105,8 +105,9 @@ type SimulationRequest struct {
 // SimulationResult contains the computed P&L simulation for an arbitrage opportunity.
 type SimulationResult struct {
 	PositionSize       decimal.Decimal `json:"position_size"`        // notional value in USD (may differ from input if size_type=quantity)
-	ActualPositionSize decimal.Decimal `json:"actual_position_size"` // effective notional after floor-rounding (qty * price * contract_size)
-	Quantity           decimal.Decimal `json:"quantity"`             // number of contracts
+	ActualPositionSize decimal.Decimal `json:"actual_position_size"` // effective notional after floor-rounding (contracts * price * contract_size)
+	Quantity           decimal.Decimal `json:"quantity"`             // base quantity (underlying asset amount)
+	Contracts          decimal.Decimal `json:"contracts"`            // number of contracts
 	Capital            decimal.Decimal `json:"capital"`              // actual capital required
 
 	EntryCost decimal.Decimal `json:"entry_cost"` // $ cost to open (spread loss + open fees + slippage)
