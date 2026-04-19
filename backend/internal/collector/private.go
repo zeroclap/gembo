@@ -12,6 +12,7 @@ import (
 
 	"github.com/zeroclap/gembo/internal/domain"
 	"github.com/zeroclap/gembo/internal/exchange"
+	binanceex "github.com/zeroclap/gembo/internal/exchange/exchanges/binance"
 	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
 	"github.com/zeroclap/gembo/internal/hook"
@@ -307,6 +308,11 @@ func (c *PrivateCollector) positionLoop(ctx context.Context, userID, credentialI
 
 func newPrivateExchangeFromCredential(logger *slog.Logger, cred domain.ExchangeCredential) (exchange.Exchange, error) {
 	switch cred.ExchangeID {
+	case "binance":
+		return binanceex.New(logger,
+			binanceex.WithAPIKey(cred.APIKey),
+			binanceex.WithSecret(cred.APISecret),
+		), nil
 	case "bybit":
 		return bybitex.New(logger,
 			bybitex.WithAPIKey(cred.APIKey),

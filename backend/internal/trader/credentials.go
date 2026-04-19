@@ -7,6 +7,7 @@ import (
 
 	"github.com/zeroclap/gembo/internal/domain"
 	"github.com/zeroclap/gembo/internal/exchange"
+	binanceex "github.com/zeroclap/gembo/internal/exchange/exchanges/binance"
 	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
 	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
 )
@@ -75,6 +76,11 @@ func (t *Trader) tradingExchangeForLeg(ctx context.Context, p *domain.Position, 
 
 func newTradingExchangeFromCredential(logger *slog.Logger, cred *domain.ExchangeCredential) (exchange.TradingExchange, error) {
 	switch cred.ExchangeID {
+	case "binance":
+		return binanceex.New(logger,
+			binanceex.WithAPIKey(cred.APIKey),
+			binanceex.WithSecret(cred.APISecret),
+		), nil
 	case "bybit":
 		return bybitex.New(logger,
 			bybitex.WithAPIKey(cred.APIKey),

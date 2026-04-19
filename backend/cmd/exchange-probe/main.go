@@ -126,10 +126,14 @@ func newExchangeClient(id string, logger *slog.Logger, cfg config.ExchangeCfg, w
 		}
 		return okxex.New(logger, opts...), nil
 	case "binance":
+		opts := []binanceex.Option{}
 		if withPrivate {
-			return nil, fmt.Errorf("binance private checks are not implemented in this repo")
+			opts = append(opts,
+				binanceex.WithAPIKey(cfg.APIKey),
+				binanceex.WithSecret(cfg.Secret),
+			)
 		}
-		return binanceex.New(logger), nil
+		return binanceex.New(logger, opts...), nil
 	case "gate":
 		if withPrivate {
 			return nil, fmt.Errorf("gate private checks are not implemented in this repo")
