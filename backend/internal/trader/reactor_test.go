@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
@@ -134,18 +136,63 @@ func (m *mockPositionStore) CreateFundingPayment(_ context.Context, fp *domain.F
 	return nil
 }
 
+func (m *mockPositionStore) CreateFundingPaymentIfNotExists(_ context.Context, fp *domain.FundingPayment) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, existing := range m.funding[fp.PositionID] {
+		if fp.ExternalID != "" &&
+			existing.ExternalID == fp.ExternalID &&
+			existing.UserID == fp.UserID &&
+			existing.ExchangeID == fp.ExchangeID {
+			return false, nil
+		}
+	}
+
+	if fp.UserID == "" {
+		fp.UserID = "test-user-id"
+	}
+	m.funding[fp.PositionID] = append(m.funding[fp.PositionID], *fp)
+	return true, nil
+}
+
 func (m *mockPositionStore) ListFundingPayments(_ context.Context, _, positionID string) ([]domain.FundingPayment, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.funding[positionID], nil
 }
 
-func (m *mockPositionStore) SumFundingPnL(_ context.Context, _, _ string) (decimal.Decimal, error) {
-	return decimal.Zero, nil
+func (m *mockPositionStore) SumFundingPnL(_ context.Context, userID, positionID string) (decimal.Decimal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sum := decimal.Zero
+	for _, fp := range m.funding[positionID] {
+		if userID != "" && fp.UserID != userID {
+			continue
+		}
+		sum = sum.Add(fp.Payment)
+	}
+	return sum, nil
 }
 
-func (m *mockPositionStore) LatestFundingPayment(_ context.Context, _, _, _ string) (*domain.FundingPayment, error) {
-	return nil, nil
+func (m *mockPositionStore) LatestFundingPayment(_ context.Context, _ string, positionID, exchangeID string) (*domain.FundingPayment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var latest *domain.FundingPayment
+	for i := range m.funding[positionID] {
+		fp := m.funding[positionID][i]
+		if exchangeID != "" && fp.ExchangeID != exchangeID {
+			continue
+		}
+		if latest == nil || fp.FundedAt.After(latest.FundedAt) {
+			copy := fp
+			latest = &copy
+		}
+	}
+
+	return latest, nil
 }
 
 var _ store.PositionStore = (*mockPositionStore)(nil)
@@ -206,6 +253,7 @@ type mockTradingExchange struct {
 	id              string
 	createdOrders   []mockOrderCall
 	fetchedPosition *exchange.ExchangePosition
+	fundingHistory  []exchange.FundingHistoryEntry
 	lastOrderAmount float64 // track last order amount for FetchOrder
 	mu              sync.Mutex
 }
@@ -276,12 +324,35 @@ func (m *mockTradingExchange) FetchPosition(_ context.Context, _ string) (*excha
 func (m *mockTradingExchange) FetchBalance(_ context.Context) ([]exchange.Balance, error) {
 	return nil, nil
 }
+
+func (m *mockTradingExchange) FetchFundingHistory(_ context.Context, symbol string, since time.Time, limit int64) ([]exchange.FundingHistoryEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]exchange.FundingHistoryEntry, 0, len(m.fundingHistory))
+	for _, row := range m.fundingHistory {
+		if row.Symbol != "" && row.Symbol != symbol {
+			continue
+		}
+		if row.Timestamp.Before(since) {
+			continue
+		}
+		out = append(out, row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Timestamp.Before(out[j].Timestamp)
+	})
+	if limit > 0 && int64(len(out)) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
 func (m *mockTradingExchange) SetMarginMode(_ context.Context, _, _ string, _ int) error {
 	return nil
 }
 func (m *mockTradingExchange) HasCredentials() bool { return true }
 
 var _ exchange.TradingExchange = (*mockTradingExchange)(nil)
+var _ exchange.FundingHistoryFetcher = (*mockTradingExchange)(nil)
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -957,12 +1028,16 @@ func (m *mockZeroFillExchange) FetchPosition(_ context.Context, _ string) (*exch
 func (m *mockZeroFillExchange) FetchBalance(_ context.Context) ([]exchange.Balance, error) {
 	return nil, nil
 }
+func (m *mockZeroFillExchange) FetchFundingHistory(_ context.Context, _ string, _ time.Time, _ int64) ([]exchange.FundingHistoryEntry, error) {
+	return nil, nil
+}
 func (m *mockZeroFillExchange) SetMarginMode(_ context.Context, _, _ string, _ int) error {
 	return nil
 }
 func (m *mockZeroFillExchange) HasCredentials() bool { return true }
 
 var _ exchange.TradingExchange = (*mockZeroFillExchange)(nil)
+var _ exchange.FundingHistoryFetcher = (*mockZeroFillExchange)(nil)
 
 // ---------------------------------------------------------------------------
 // Tests: synchronous reactions prevent recursive cascading
@@ -1580,12 +1655,16 @@ func (m *mockAlreadyClosedExchange) FetchPosition(_ context.Context, _ string) (
 func (m *mockAlreadyClosedExchange) FetchBalance(_ context.Context) ([]exchange.Balance, error) {
 	return nil, nil
 }
+func (m *mockAlreadyClosedExchange) FetchFundingHistory(_ context.Context, _ string, _ time.Time, _ int64) ([]exchange.FundingHistoryEntry, error) {
+	return nil, nil
+}
 func (m *mockAlreadyClosedExchange) SetMarginMode(_ context.Context, _, _ string, _ int) error {
 	return nil
 }
 func (m *mockAlreadyClosedExchange) HasCredentials() bool { return true }
 
 var _ exchange.TradingExchange = (*mockAlreadyClosedExchange)(nil)
+var _ exchange.FundingHistoryFetcher = (*mockAlreadyClosedExchange)(nil)
 
 // ---------------------------------------------------------------------------
 // Tests: executeClose with already-closed legs

@@ -21,6 +21,8 @@ import (
 )
 
 const balancePollInterval = 15 * time.Second
+const fundingHistoryPollInterval = 2 * time.Minute
+const fundingHistoryFetchLimit int64 = 200
 
 // PrivateCollector drives the private-data pipeline (positions, orders,
 // balances) for DB-stored user credentials.
@@ -154,6 +156,18 @@ func (c *PrivateCollector) runExchange(ctx context.Context, client credentialExc
 		g.Go(func() error {
 			return c.balanceLoop(ctx, client.userID, client.credentialID, client.exchangeID, client.trading)
 		})
+
+		if fetcher, ok := client.trading.(exchange.FundingHistoryFetcher); ok {
+			g.Go(func() error {
+				return c.fundingHistoryLoop(ctx, client.userID, client.credentialID, client.exchangeID, fetcher)
+			})
+		} else {
+			c.logger.Warn("exchange does not support funding history fetching, skipping",
+				"exchange", client.exchangeID,
+				"user_id", client.userID,
+				"credential_id", client.credentialID,
+			)
+		}
 	} else {
 		c.logger.Warn("exchange does not support balance fetching, skipping",
 			"exchange", client.exchangeID,
@@ -191,6 +205,97 @@ func (c *PrivateCollector) balanceLoop(ctx context.Context, userID, credentialID
 		case <-ticker.C:
 			c.fetchAndStoreBalances(ctx, userID, credentialID, exchangeID, tx)
 		}
+	}
+}
+
+func (c *PrivateCollector) fundingHistoryLoop(
+	ctx context.Context,
+	userID, credentialID, exchangeID string,
+	fetcher exchange.FundingHistoryFetcher,
+) error {
+	c.logger.Info("funding history loop started",
+		"exchange", exchangeID,
+		"user_id", userID,
+		"credential_id", credentialID,
+	)
+	c.fetchAndPublishFundingHistory(ctx, userID, credentialID, exchangeID, fetcher)
+
+	ticker := time.NewTicker(fundingHistoryPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			c.logger.Info("funding history loop shutting down",
+				"exchange", exchangeID,
+				"user_id", userID,
+				"credential_id", credentialID,
+			)
+			return ctx.Err()
+		case <-ticker.C:
+			c.fetchAndPublishFundingHistory(ctx, userID, credentialID, exchangeID, fetcher)
+		}
+	}
+}
+
+func (c *PrivateCollector) fetchAndPublishFundingHistory(
+	ctx context.Context,
+	userID, credentialID, exchangeID string,
+	fetcher exchange.FundingHistoryFetcher,
+) {
+	since := time.Now().UTC().Add(-48 * time.Hour)
+	rows, err := fetcher.FetchFundingHistory(ctx, "", since, fundingHistoryFetchLimit)
+	if err != nil {
+		c.logger.Warn("fetch funding history error",
+			"exchange", exchangeID,
+			"user_id", userID,
+			"credential_id", credentialID,
+			"error", err,
+		)
+		return
+	}
+
+	for _, row := range rows {
+		c.logger.Info("funding row", "id", row)
+		if row.Timestamp.IsZero() {
+			continue
+		}
+
+		event := domain.ExchangeFundingPaymentEvent{
+			UserID:       userID,
+			CredentialID: credentialID,
+			ExchangeID:   exchangeID,
+			PaymentID:    row.ID,
+			Symbol:       row.Symbol,
+			Amount:       row.Amount,
+			Currency:     row.Currency,
+			Timestamp:    row.Timestamp,
+		}
+		payload, err := json.Marshal(event)
+		if err != nil {
+			c.logger.Error("marshal funding payment event", "error", err)
+			continue
+		}
+
+		if err := c.redis.Publish(ctx, rediskey.UserFundingPaymentPubSub(userID, exchangeID), payload).Err(); err != nil {
+			c.logger.Warn("publish funding payment event",
+				"exchange", exchangeID,
+				"user_id", userID,
+				"credential_id", credentialID,
+				"symbol", row.Symbol,
+				"payment_id", row.ID,
+				"error", err,
+			)
+		}
+	}
+
+	if len(rows) > 0 {
+		c.logger.Debug("funding history fetched",
+			"exchange", exchangeID,
+			"user_id", userID,
+			"credential_id", credentialID,
+			"rows", len(rows),
+		)
 	}
 }
 

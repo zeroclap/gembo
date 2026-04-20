@@ -199,6 +199,18 @@ func UserPositionStatePattern() string {
 	return fmt.Sprintf("%s:users:*:*:position:updates", prefix)
 }
 
+// UserFundingPaymentPubSub returns user-scoped funding payment event channel.
+//
+//	gembo:users:<user_id>:<exchange>:funding:payments:updates
+func UserFundingPaymentPubSub(userID, exchangeID string) string {
+	return fmt.Sprintf("%s:users:%s:%s:funding:payments:updates", prefix, userID, exchangeID)
+}
+
+// UserFundingPaymentPattern matches all user-scoped funding payment channels.
+func UserFundingPaymentPattern() string {
+	return fmt.Sprintf("%s:users:*:*:funding:payments:updates", prefix)
+}
+
 // UserIDFromChannel extracts user_id from a user-scoped channel.
 func UserIDFromChannel(channel string) string {
 	parts := strings.Split(channel, ":")

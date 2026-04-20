@@ -6,6 +6,7 @@ import (
 	"time"
 
 	ccxt "github.com/ccxt/ccxt/go/v4"
+	"github.com/shopspring/decimal"
 
 	"github.com/zeroclap/gembo/internal/domain"
 	"github.com/zeroclap/gembo/internal/exchange"
@@ -78,6 +79,40 @@ func (c *Client) FetchPosition(ctx context.Context, symbol string) (*exchange.Ex
 		return nil, nil
 	}
 	return ep, nil
+}
+
+// FetchFundingHistory returns exact funding payment entries for a symbol.
+func (c *Client) FetchFundingHistory(ctx context.Context, symbol string, since time.Time, limit int64) ([]exchange.FundingHistoryEntry, error) {
+	opts := []ccxt.FetchFundingHistoryOptions{
+		ccxt.WithFetchFundingHistorySince(since.UTC().UnixMilli()),
+		ccxt.WithFetchFundingHistoryLimit(limit),
+	}
+	if symbol != "" {
+		opts = append(opts, ccxt.WithFetchFundingHistorySymbol(symbol))
+	}
+
+	rows, err := ccxtutil.WatchWithContext(ctx, func() ([]ccxt.FundingHistory, error) {
+		return c.api.FetchFundingHistory(opts...)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("bybit fetch funding history: %w", err)
+	}
+
+	out := make([]exchange.FundingHistoryEntry, 0, len(rows))
+	for _, row := range rows {
+		c.logger.Info("funding history entry", "row", fmt.Sprintf("%+v", row))
+		if row.Amount == nil || row.Timestamp == nil {
+			continue
+		}
+		out = append(out, exchange.FundingHistoryEntry{
+			ID:        ccxtutil.DerefString(row.Id),
+			Symbol:    ccxtutil.DerefString(row.Symbol),
+			Amount:    decimal.NewFromFloat(*row.Amount),
+			Currency:  ccxtutil.DerefString(row.Currency),
+			Timestamp: time.UnixMilli(*row.Timestamp).UTC(),
+		})
+	}
+	return out, nil
 }
 
 // FetchBalance returns account balances.

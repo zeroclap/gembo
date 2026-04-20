@@ -5,9 +5,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   createPosition,
   fetchExchangeCredentials,
+  preflightOpenPosition,
   simulateArbitrage,
   type CreatePositionRequest,
   type ExchangeCredential,
+  type OpenPreflight,
   type SizeType,
   type SimulationResult,
 } from "@/lib/api";
@@ -17,9 +19,9 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { SectionHeader } from "@/components/arbitrage/shared";
 import { SimulationPanelView } from "@/components/arbitrage/simulation-dialog";
-import { formatUsd, formatUsdPlain, formatPct, formatRate, formatCountdown } from "@/lib/format";
+import { formatUsd, formatUsdPlain, formatPct, formatRate, formatCountdown, formatQty, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Loader2, FlaskConical, ArrowLeft } from "lucide-react";
+import { Loader2, FlaskConical, ArrowLeft, CheckCircle2, AlertCircle } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -36,6 +38,7 @@ const DURATION_PRESETS = [
 ] as const;
 
 type Strategy = "price_spread" | "funding_rate";
+
 
 // ---------------------------------------------------------------------------
 // OpenPositionPanel — inline sidebar form
@@ -111,7 +114,10 @@ export function OpenPositionPanel({
   // --- Inline simulation (auto-run with debounce) ---
   const [simResult, setSimResult] = useState<SimulationResult | null>(null);
   const [simLoading, setSimLoading] = useState(false);
+  const [openPreflight, setOpenPreflight] = useState<OpenPreflight | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
   const simTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const preflightTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const simSizeType = sizeType;
   const simSize = sizeType === "price" ? size : quantity;
@@ -147,6 +153,37 @@ export function OpenPositionPanel({
     }, 600);
     return () => clearTimeout(simTimerRef.current);
   }, [symbol, longExchange, shortExchange, simSizeType, simSize, simSlippage]);
+
+  useEffect(() => {
+    clearTimeout(preflightTimerRef.current);
+
+    const val = parseFloat(activeSize);
+    if (!val || val <= 0 || !symbol || !longExchange || !shortExchange) {
+      setOpenPreflight(null);
+      return;
+    }
+
+    preflightTimerRef.current = setTimeout(async () => {
+      setPreflightLoading(true);
+      try {
+        const result = await preflightOpenPosition({
+          symbol,
+          long_exchange_id: longExchange,
+          short_exchange_id: shortExchange,
+          size_type: sizeType,
+          requested_size: activeSize,
+          ...(portionSize.trim() ? { portion_size: portionSize } : {}),
+        });
+        setOpenPreflight(result);
+      } catch {
+        setOpenPreflight(null);
+      } finally {
+        setPreflightLoading(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(preflightTimerRef.current);
+  }, [symbol, longExchange, shortExchange, sizeType, activeSize, portionSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,6 +244,8 @@ export function OpenPositionPanel({
     const usd = parseFloat(simResult.actual_position_size || simResult.position_size);
     return usd > 0 ? `≈ $${usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : null;
   }, [sizeType, simResult]);
+
+  const blockedByPreflight = !openPreflight || !openPreflight.can_open;
 
   // Apply portion as percentage of total size
   function applyPortionPct(pct: number) {
@@ -710,7 +749,16 @@ export function OpenPositionPanel({
             </div>
           )}
           {simResult && (
-            <SimSummary result={simResult} />
+            <>
+              <OpenPlanSummary
+                result={simResult}
+                sizeType={sizeType}
+                estimatedSteps={estimatedSteps}
+                preflight={openPreflight}
+                preflightLoading={preflightLoading}
+              />
+              <SimSummary result={simResult} />
+            </>
           )}
 
           {/* ── Actions: Open Position (wide) + Simulate icon (narrow) ── */}
@@ -718,7 +766,7 @@ export function OpenPositionPanel({
             <Button
               size="sm"
               className="h-7 text-xs flex-1"
-              disabled={!sizeValid || !credentialsReady || createMutation.isPending}
+              disabled={!sizeValid || !credentialsReady || createMutation.isPending || blockedByPreflight}
               onClick={handleSubmit}
             >
               {createMutation.isPending && (
@@ -738,7 +786,131 @@ export function OpenPositionPanel({
               <FlaskConical className="h-3.5 w-3.5" />
             </Button>
           </div>
+          {blockedByPreflight && (
+            <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 text-[0.625rem] text-amber-700 dark:text-amber-300">
+              Open is blocked by preflight rules. Increase total size or increase portion size (fewer steps).
+            </div>
+          )}
       </div>
+    </div>
+  );
+}
+
+function OpenPlanSummary({
+  result,
+  sizeType,
+  estimatedSteps,
+  preflight,
+  preflightLoading,
+}: {
+  result: SimulationResult;
+  sizeType: SizeType;
+  estimatedSteps: number | null;
+  preflight: OpenPreflight | null;
+  preflightLoading: boolean;
+}) {
+  const actualNotional = parseFloat(result.actual_position_size || result.position_size) || 0;
+  const contracts = parseFloat(result.contracts) || 0;
+  const steps = estimatedSteps && estimatedSteps > 0 ? estimatedSteps : 1;
+  const perStepNotional = actualNotional / steps;
+  const perStepContracts = contracts / steps;
+
+  return (
+    <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2.5 py-2 space-y-1.5">
+      <div className="text-[0.625rem] font-medium uppercase tracking-wider text-blue-700 dark:text-blue-300">
+        Open Plan
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
+        <span className="text-muted-foreground">Execution mode</span>
+        <span className="font-mono tabular-nums text-right">
+          {steps > 1 ? `Stepped (${steps})` : "Single-shot"}
+        </span>
+        <span className="text-muted-foreground">Effective notional</span>
+        <span className="font-mono tabular-nums text-right">
+          {formatUsdPlain(String(actualNotional))}
+        </span>
+        <span className="text-muted-foreground">Estimated contracts</span>
+        <span className="font-mono tabular-nums text-right">
+          {formatQty(String(contracts))}
+        </span>
+        {steps > 1 && (
+          <>
+            <span className="text-muted-foreground">Per-step notional</span>
+            <span className="font-mono tabular-nums text-right">
+              {formatUsdPlain(String(perStepNotional))}
+            </span>
+            <span className="text-muted-foreground">Per-step contracts</span>
+            <span className="font-mono tabular-nums text-right">
+              {formatQty(String(perStepContracts))}
+            </span>
+          </>
+        )}
+        <span className="text-muted-foreground">Input mode</span>
+        <span className="font-mono tabular-nums text-right uppercase">
+          {sizeType}
+        </span>
+      </div>
+      {preflight && (
+        <div className="space-y-1.5 pt-1 border-t border-blue-500/20">
+          <div className="text-[0.625rem] text-muted-foreground">
+            Validation uses backend market/ticker preflight.
+          </div>
+          {([preflight.long, preflight.short] as const).map((leg) => {
+            const issues = preflight.errors.filter((e) => e.exchange === leg.exchange_id);
+            const passed = issues.length === 0;
+            return (
+              <div key={leg.exchange_id} className="rounded-md border border-border/60 bg-background/70 px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2 text-[0.625rem]">
+                  <span className="font-medium uppercase tracking-wider">{leg.exchange_id || "exchange"}</span>
+                  <span className={cn(
+                    "inline-flex items-center gap-1",
+                    passed ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+                  )}>
+                    {passed ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                    {passed ? "Pass" : "Fail"}
+                  </span>
+                </div>
+                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
+                  <span className="text-muted-foreground">Price</span>
+                  <span className="font-mono tabular-nums text-right">{formatPrice(leg.price)}</span>
+                  <span className="text-muted-foreground">Min notional</span>
+                  <span className="font-mono tabular-nums text-right">{formatUsdPlain(leg.min_notional)}</span>
+                  <span className="text-muted-foreground">Min cost</span>
+                  <span className="font-mono tabular-nums text-right">{formatUsdPlain(leg.min_cost)}</span>
+                  <span className="text-muted-foreground">Min contracts</span>
+                  <span className="font-mono tabular-nums text-right">{formatQty(leg.min_contracts)}</span>
+                  <span className="text-muted-foreground">Step notional</span>
+                  <span className="font-mono tabular-nums text-right">{formatUsdPlain(leg.notional_step)}</span>
+                  <span className="text-muted-foreground">Step contracts</span>
+                  <span className="font-mono tabular-nums text-right">{formatQty(leg.contracts_step)}</span>
+                  <span className="text-muted-foreground">Required contracts</span>
+                  <span className="font-mono tabular-nums text-right">{formatQty(leg.required_contracts)}</span>
+                  <span className="text-muted-foreground">Required base qty</span>
+                  <span className="font-mono tabular-nums text-right">{formatQty(leg.required_base_qty)}</span>
+                  <span className="text-muted-foreground">Required notional</span>
+                  <span className="font-mono tabular-nums text-right">{formatUsdPlain(leg.required_notional)}</span>
+                </div>
+                {!passed && (
+                  <div className="mt-1 space-y-0.5 text-[0.625rem] text-red-600 dark:text-red-400">
+                    {issues.map((issue) => (
+                      <div key={issue.code + issue.message}>- {issue.message}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {preflightLoading && (
+            <div className="text-[0.625rem] text-muted-foreground inline-flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Revalidating...
+            </div>
+          )}
+          <div className="text-[0.625rem] text-muted-foreground">
+            Pair required base qty: <span className="font-mono tabular-nums">{formatQty(preflight.required_base_qty)}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

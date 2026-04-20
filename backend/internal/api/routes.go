@@ -98,6 +98,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("DELETE /v1/account/credentials/{id}", auth(h.handleDeleteExchangeCredential))
 
 	// Positions
+	h.mux.HandleFunc("POST /v1/positions/preflight-open", auth(h.handlePreflightOpenPosition))
 	h.mux.HandleFunc("POST /v1/positions", auth(h.handleCreatePosition))
 	h.mux.HandleFunc("GET /v1/positions", auth(h.handleListPositions))
 	h.mux.HandleFunc("GET /v1/positions/{id}", auth(h.handleGetPosition))

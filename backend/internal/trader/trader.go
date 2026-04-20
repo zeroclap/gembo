@@ -109,9 +109,9 @@ func (t *Trader) Run(ctx context.Context) error {
 		return t.runPositionReactor(ctx)
 	})
 
-	// Funding tracker loop: periodically detects new funding payments.
+	// Funding reactor: subscribes to collector funding payment events.
 	g.Go(func() error {
-		return t.runFundingTracker(ctx)
+		return t.runFundingEventReactor(ctx)
 	})
 
 	// Spread monitor: subscribes to ticker events, checks open spread

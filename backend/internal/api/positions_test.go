@@ -148,6 +148,26 @@ func (m *mockPositionStore) CreateFundingPayment(_ context.Context, fp *domain.F
 	return nil
 }
 
+func (m *mockPositionStore) CreateFundingPaymentIfNotExists(_ context.Context, fp *domain.FundingPayment) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, existing := range m.funding[fp.PositionID] {
+		if fp.ExternalID != "" &&
+			existing.ExternalID == fp.ExternalID &&
+			existing.UserID == fp.UserID &&
+			existing.ExchangeID == fp.ExchangeID {
+			return false, nil
+		}
+	}
+
+	if fp.UserID == "" {
+		fp.UserID = "test-user-id"
+	}
+	m.funding[fp.PositionID] = append(m.funding[fp.PositionID], *fp)
+	return true, nil
+}
+
 func (m *mockPositionStore) ListFundingPayments(_ context.Context, userID, positionID string) ([]domain.FundingPayment, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -181,17 +201,35 @@ var _ store.PositionStore = (*mockPositionStore)(nil)
 
 type mockStore struct {
 	arbitrages []domain.FundingArbitrage
+	markets    map[string]domain.Market
+	tickers    map[string]domain.Ticker
 }
 
+func marketKey(exchangeID, symbol string) string { return exchangeID + "|" + symbol }
+
 func (m *mockStore) SetMarket(_ context.Context, _ domain.Market) error { return nil }
-func (m *mockStore) GetMarket(_ context.Context, _, _ string) (*domain.Market, error) {
+func (m *mockStore) GetMarket(_ context.Context, exchangeID, symbol string) (*domain.Market, error) {
+	if m.markets == nil {
+		return nil, nil
+	}
+	if mk, ok := m.markets[marketKey(exchangeID, symbol)]; ok {
+		copy := mk
+		return &copy, nil
+	}
 	return nil, nil
 }
 func (m *mockStore) ListMarkets(_ context.Context, _ string) ([]domain.Market, error) {
 	return nil, nil
 }
 func (m *mockStore) SetTicker(_ context.Context, _ domain.Ticker) error { return nil }
-func (m *mockStore) GetTicker(_ context.Context, _, _ string) (*domain.Ticker, error) {
+func (m *mockStore) GetTicker(_ context.Context, exchangeID, symbol string) (*domain.Ticker, error) {
+	if m.tickers == nil {
+		return nil, nil
+	}
+	if tk, ok := m.tickers[marketKey(exchangeID, symbol)]; ok {
+		copy := tk
+		return &copy, nil
+	}
 	return nil, nil
 }
 func (m *mockStore) ListTickers(_ context.Context, _ string) ([]domain.Ticker, error) {
@@ -601,6 +639,139 @@ func TestCreatePosition_InvalidJSON(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestPreflightOpenPosition_MinNotionalFail(t *testing.T) {
+	ps := newMockPositionStore()
+	st := &mockStore{
+		markets: map[string]domain.Market{
+			marketKey("binance", "SOON/USDT:USDT"): {
+				ExchangeID:   "binance",
+				Symbol:       "SOON/USDT:USDT",
+				ContractSize: decimal.NewFromInt(1),
+				MinAmount:    decimal.NewFromInt(1),
+				MinCost:      decimal.NewFromInt(5),
+				MinNotional:  decimal.NewFromInt(5),
+			},
+			marketKey("okx", "SOON/USDT:USDT"): {
+				ExchangeID:   "okx",
+				Symbol:       "SOON/USDT:USDT",
+				ContractSize: decimal.NewFromInt(1),
+				MinAmount:    decimal.NewFromInt(1),
+				MinCost:      decimal.NewFromInt(5),
+				MinNotional:  decimal.NewFromInt(5),
+			},
+		},
+		tickers: map[string]domain.Ticker{
+			marketKey("binance", "SOON/USDT:USDT"): {
+				ExchangeID: "binance",
+				Symbol:     "SOON/USDT:USDT",
+				Price:      decimal.NewFromInt(1),
+			},
+			marketKey("okx", "SOON/USDT:USDT"): {
+				ExchangeID: "okx",
+				Symbol:     "SOON/USDT:USDT",
+				Price:      decimal.NewFromInt(1),
+			},
+		},
+	}
+	h := newTestHandler(ps, st)
+
+	body := `{
+		"symbol":"SOON/USDT:USDT",
+		"long_exchange_id":"binance",
+		"short_exchange_id":"okx",
+		"size_type":"price",
+		"requested_size":"4"
+	}`
+	req := newAuthRequest("POST", "/v1/positions/preflight-open", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	resp := decodeResponse(t, rec)
+	payload, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected payload type %T", resp.Data)
+	}
+	canOpen, ok := payload["can_open"].(bool)
+	if !ok {
+		t.Fatalf("missing can_open")
+	}
+	if canOpen {
+		t.Fatalf("expected can_open=false")
+	}
+}
+
+func TestPreflightOpenPosition_SteppedPass(t *testing.T) {
+	ps := newMockPositionStore()
+	st := &mockStore{
+		markets: map[string]domain.Market{
+			marketKey("binance", "SOON/USDT:USDT"): {
+				ExchangeID:   "binance",
+				Symbol:       "SOON/USDT:USDT",
+				ContractSize: decimal.NewFromInt(1),
+				MinAmount:    decimal.NewFromInt(1),
+				MinCost:      decimal.NewFromInt(5),
+				MinNotional:  decimal.NewFromInt(5),
+			},
+			marketKey("okx", "SOON/USDT:USDT"): {
+				ExchangeID:   "okx",
+				Symbol:       "SOON/USDT:USDT",
+				ContractSize: decimal.NewFromInt(1),
+				MinAmount:    decimal.NewFromInt(1),
+				MinCost:      decimal.NewFromInt(5),
+				MinNotional:  decimal.NewFromInt(5),
+			},
+		},
+		tickers: map[string]domain.Ticker{
+			marketKey("binance", "SOON/USDT:USDT"): {
+				ExchangeID: "binance",
+				Symbol:     "SOON/USDT:USDT",
+				Price:      decimal.NewFromInt(1),
+			},
+			marketKey("okx", "SOON/USDT:USDT"): {
+				ExchangeID: "okx",
+				Symbol:     "SOON/USDT:USDT",
+				Price:      decimal.NewFromInt(1),
+			},
+		},
+	}
+	h := newTestHandler(ps, st)
+
+	body := `{
+		"symbol":"SOON/USDT:USDT",
+		"long_exchange_id":"binance",
+		"short_exchange_id":"okx",
+		"size_type":"price",
+		"requested_size":"50",
+		"portion_size":"10"
+	}`
+	req := newAuthRequest("POST", "/v1/positions/preflight-open", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	resp := decodeResponse(t, rec)
+	payload, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected payload type %T", resp.Data)
+	}
+	canOpen, ok := payload["can_open"].(bool)
+	if !ok {
+		t.Fatalf("missing can_open")
+	}
+	if !canOpen {
+		t.Fatalf("expected can_open=true")
 	}
 }
 

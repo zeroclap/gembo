@@ -45,6 +45,18 @@ func TestMapMarket(t *testing.T) {
 		Future:        ptrBool(false),
 		Taker:         ptrFloat(0.0004),
 		Maker:         ptrFloat(0.0002),
+		Limits: ccxt.Limits{
+			Amount: ccxt.MinMax{Min: ptrFloat(1)},
+			Cost:   ccxt.MinMax{Min: ptrFloat(5)},
+		},
+		Info: map[string]interface{}{
+			"filters": []interface{}{
+				map[string]interface{}{
+					"filterType":  "MIN_NOTIONAL",
+					"minNotional": "5",
+				},
+			},
+		},
 	}
 
 	dm := MapMarket(m, "testexch", now)
@@ -69,6 +81,15 @@ func TestMapMarket(t *testing.T) {
 	}
 	if !dm.TakerFee.Equal(decimal.NewFromFloat(0.0004)) {
 		t.Errorf("TakerFee = %s, want 0.0004", dm.TakerFee)
+	}
+	if !dm.MinAmount.Equal(decimal.NewFromInt(1)) {
+		t.Errorf("MinAmount = %s, want 1", dm.MinAmount)
+	}
+	if !dm.MinCost.Equal(decimal.NewFromInt(5)) {
+		t.Errorf("MinCost = %s, want 5", dm.MinCost)
+	}
+	if !dm.MinNotional.Equal(decimal.NewFromInt(5)) {
+		t.Errorf("MinNotional = %s, want 5", dm.MinNotional)
 	}
 }
 

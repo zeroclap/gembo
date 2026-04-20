@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shopspring/decimal"
 
 	"github.com/zeroclap/gembo/internal/domain"
@@ -14,11 +16,11 @@ import (
 func (s *Store) CreateFundingPayment(ctx context.Context, fp *domain.FundingPayment) error {
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO funding_payments (
-			user_id, position_id, exchange_id, leg, symbol, rate, payment, funded_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			user_id, position_id, exchange_id, leg, symbol, rate, payment, funded_at, external_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at`,
 		fp.UserID, fp.PositionID, fp.ExchangeID, fp.Leg, fp.Symbol,
-		fp.Rate, fp.Payment, fp.FundedAt,
+		fp.Rate, fp.Payment, fp.FundedAt, nullableString(fp.ExternalID),
 	)
 	if err := row.Scan(&fp.ID, &fp.CreatedAt); err != nil {
 		return fmt.Errorf("postgres create funding payment: %w", err)
@@ -26,11 +28,29 @@ func (s *Store) CreateFundingPayment(ctx context.Context, fp *domain.FundingPaym
 	return nil
 }
 
+// CreateFundingPaymentIfNotExists inserts a funding payment, returning false
+// when an equivalent external payment already exists.
+func (s *Store) CreateFundingPaymentIfNotExists(ctx context.Context, fp *domain.FundingPayment) (bool, error) {
+	err := s.CreateFundingPayment(ctx, fp)
+	if err == nil {
+		return true, nil
+	}
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false, err
+	}
+	if pgErr.Code == "23505" && pgErr.ConstraintName == "uq_funding_payments_external" {
+		return false, nil
+	}
+	return false, err
+}
+
 // ListFundingPayments returns all funding payments for a position, ordered by funded_at desc.
 func (s *Store) ListFundingPayments(ctx context.Context, userID, positionID string) ([]domain.FundingPayment, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT
-			id, user_id, position_id, exchange_id, leg, symbol,
+			id, COALESCE(external_id, ''), user_id, position_id, exchange_id, leg, symbol,
 			rate, payment, funded_at, created_at
 		FROM funding_payments
 		WHERE user_id = $1 AND position_id = $2
@@ -45,7 +65,7 @@ func (s *Store) ListFundingPayments(ctx context.Context, userID, positionID stri
 	for rows.Next() {
 		var fp domain.FundingPayment
 		if err := rows.Scan(
-			&fp.ID, &fp.UserID, &fp.PositionID, &fp.ExchangeID, &fp.Leg, &fp.Symbol,
+			&fp.ID, &fp.ExternalID, &fp.UserID, &fp.PositionID, &fp.ExchangeID, &fp.Leg, &fp.Symbol,
 			&fp.Rate, &fp.Payment, &fp.FundedAt, &fp.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("postgres scan funding payment: %w", err)
@@ -78,14 +98,14 @@ func (s *Store) LatestFundingPayment(ctx context.Context, userID, positionID, ex
 	var fp domain.FundingPayment
 	err := s.pool.QueryRow(ctx, `
 		SELECT
-			id, user_id, position_id, exchange_id, leg, symbol,
+			id, COALESCE(external_id, ''), user_id, position_id, exchange_id, leg, symbol,
 			rate, payment, funded_at, created_at
 		FROM funding_payments
 		WHERE user_id = $1 AND position_id = $2 AND exchange_id = $3
 		ORDER BY funded_at DESC
 		LIMIT 1`, userID, positionID, exchangeID,
 	).Scan(
-		&fp.ID, &fp.UserID, &fp.PositionID, &fp.ExchangeID, &fp.Leg, &fp.Symbol,
+		&fp.ID, &fp.ExternalID, &fp.UserID, &fp.PositionID, &fp.ExchangeID, &fp.Leg, &fp.Symbol,
 		&fp.Rate, &fp.Payment, &fp.FundedAt, &fp.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {

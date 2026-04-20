@@ -299,6 +299,10 @@ function PositionDetail({
             <span className="font-mono tabular-nums text-right">
               {formatQty(position.requested_base_qty)}
             </span>
+            <span className="text-muted-foreground">Notional (long / short)</span>
+            <span className="font-mono tabular-nums text-right">
+              {formatUsdPlain(position.long_notional)} / {formatUsdPlain(position.short_notional)}
+            </span>
             <span className="text-muted-foreground">Entry fees</span>
             <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
               {formatUsdPlain(String(totalEntryFees))}
@@ -322,6 +326,14 @@ function PositionDetail({
               <span className="text-muted-foreground">Progress</span>
               <span className="font-mono tabular-nums text-right">
                 {position.steps_completed} / {position.steps_total} steps
+              </span>
+              <span className="text-muted-foreground">Per-step base qty (long / short)</span>
+              <span className="font-mono tabular-nums text-right">
+                {formatQty(String((parseFloat(position.long_filled_base_qty) || 0) / Math.max(position.steps_completed || 1, 1)))} / {formatQty(String((parseFloat(position.short_filled_base_qty) || 0) / Math.max(position.steps_completed || 1, 1)))}
+              </span>
+              <span className="text-muted-foreground">Per-step notional (long / short)</span>
+              <span className="font-mono tabular-nums text-right">
+                {formatUsdPlain(String((parseFloat(position.long_notional) || 0) / Math.max(position.steps_completed || 1, 1)))} / {formatUsdPlain(String((parseFloat(position.short_notional) || 0) / Math.max(position.steps_completed || 1, 1)))}
               </span>
               {position.stop_reason && (
                 <>

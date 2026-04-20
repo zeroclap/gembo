@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"context"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -39,6 +40,21 @@ type Balance struct {
 	Free     decimal.Decimal `json:"free"`
 	Used     decimal.Decimal `json:"used"`
 	Total    decimal.Decimal `json:"total"`
+}
+
+// FundingHistoryEntry is an exact funding payment record returned by an exchange.
+type FundingHistoryEntry struct {
+	ID        string          `json:"id"`
+	Symbol    string          `json:"symbol"`
+	Amount    decimal.Decimal `json:"amount"`
+	Currency  string          `json:"currency"`
+	Timestamp time.Time       `json:"timestamp"`
+}
+
+// FundingHistoryFetcher is an optional interface for exchanges that support
+// exact funding payment history retrieval.
+type FundingHistoryFetcher interface {
+	FetchFundingHistory(ctx context.Context, symbol string, since time.Time, limit int64) ([]FundingHistoryEntry, error)
 }
 
 // TradingExchange extends Exchange with order placement and position management.

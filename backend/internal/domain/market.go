@@ -35,6 +35,12 @@ type Market struct {
 	// Zero means "unknown / not reported".
 	ContractSize decimal.Decimal `json:"contract_size"`
 
+	// Trading limits as reported by exchange market metadata.
+	// Zero means "unknown / not reported".
+	MinAmount   decimal.Decimal `json:"min_amount"`   // minimum contracts/amount
+	MinCost     decimal.Decimal `json:"min_cost"`     // generic minimum cost/notional
+	MinNotional decimal.Decimal `json:"min_notional"` // explicit notional floor when available
+
 	UpdatedAt time.Time `json:"updated_at"`
 }
 

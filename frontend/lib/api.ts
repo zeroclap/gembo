@@ -552,6 +552,56 @@ export interface CreatePositionRequest {
   max_hold_duration?: number; // seconds; 0 = no limit
 }
 
+export interface PreflightOpenRequest {
+  symbol: string;
+  long_exchange_id: string;
+  short_exchange_id: string;
+  size_type: SizeType;
+  requested_size: string;
+  portion_size?: string;
+}
+
+export interface OpenPreflightIssue {
+  code: string;
+  message: string;
+  exchange?: string;
+  field?: string;
+}
+
+export interface OpenPreflightLeg {
+  exchange_id: string;
+  price: string;
+  contract_size: string;
+  min_contracts: string;
+  min_cost: string;
+  min_notional: string;
+  contracts_total: string;
+  contracts_step: string;
+  notional_total: string;
+  notional_step: string;
+  required_contracts: string;
+  required_base_qty: string;
+  required_notional: string;
+}
+
+export interface OpenPreflight {
+  symbol: string;
+  long_exchange_id: string;
+  short_exchange_id: string;
+  size_type: SizeType;
+  requested_size: string;
+  portion_size: string;
+  steps: number;
+  base_qty_total: string;
+  base_qty_step: string;
+  required_base_qty: string;
+  long: OpenPreflightLeg;
+  short: OpenPreflightLeg;
+  rules_version: string;
+  errors: OpenPreflightIssue[];
+  can_open: boolean;
+}
+
 export function fetchPositions(params?: {
   status?: string;
   symbol?: string;
@@ -569,6 +619,14 @@ export function fetchPosition(id: string): Promise<Position> {
 
 export function createPosition(req: CreatePositionRequest): Promise<Position> {
   return fetchApi<Position>("/positions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export function preflightOpenPosition(req: PreflightOpenRequest): Promise<OpenPreflight> {
+  return fetchApi<OpenPreflight>("/positions/preflight-open", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),

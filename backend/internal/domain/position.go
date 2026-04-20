@@ -177,6 +177,7 @@ type ExchangeOrder struct {
 // while a position is open.
 type FundingPayment struct {
 	ID         string          `json:"id"`
+	ExternalID string          `json:"external_id,omitempty"`
 	UserID     string          `json:"user_id"`
 	PositionID string          `json:"position_id"`
 	ExchangeID string          `json:"exchange_id"`
@@ -215,4 +216,17 @@ type ExchangePositionEvent struct {
 	MarginMode       string          `json:"margin_mode"`
 	Notional         decimal.Decimal `json:"notional"`
 	Timestamp        time.Time       `json:"timestamp"`
+}
+
+// ExchangeFundingPaymentEvent represents an exact funding payment transaction
+// produced by the private collector and consumed by the trader.
+type ExchangeFundingPaymentEvent struct {
+	UserID       string          `json:"user_id"`
+	CredentialID string          `json:"credential_id"`
+	ExchangeID   string          `json:"exchange_id"`
+	PaymentID    string          `json:"payment_id"`
+	Symbol       string          `json:"symbol"`
+	Amount       decimal.Decimal `json:"amount"`
+	Currency     string          `json:"currency"`
+	Timestamp    time.Time       `json:"timestamp"`
 }

@@ -3,6 +3,7 @@ package exchange
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/zeroclap/gembo/internal/domain"
 )
@@ -39,6 +40,9 @@ func (m *mockTradingExchange) FetchPosition(_ context.Context, _ string) (*Excha
 	return nil, nil
 }
 func (m *mockTradingExchange) FetchBalance(_ context.Context) ([]Balance, error) {
+	return nil, nil
+}
+func (m *mockTradingExchange) FetchFundingHistory(_ context.Context, _ string, _ time.Time, _ int64) ([]FundingHistoryEntry, error) {
 	return nil, nil
 }
 func (m *mockTradingExchange) SetMarginMode(_ context.Context, _, _ string, _ int) error {

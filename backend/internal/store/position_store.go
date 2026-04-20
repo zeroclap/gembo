@@ -25,6 +25,7 @@ type PositionStore interface {
 
 	// Funding payments
 	CreateFundingPayment(ctx context.Context, fp *domain.FundingPayment) error
+	CreateFundingPaymentIfNotExists(ctx context.Context, fp *domain.FundingPayment) (bool, error)
 	ListFundingPayments(ctx context.Context, userID, positionID string) ([]domain.FundingPayment, error)
 	SumFundingPnL(ctx context.Context, userID, positionID string) (decimal.Decimal, error)
 	LatestFundingPayment(ctx context.Context, userID, positionID, exchangeID string) (*domain.FundingPayment, error)
