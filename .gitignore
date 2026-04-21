@@ -34,3 +34,8 @@ go.work.sum
 
 # builds
 backend/bin/
+backend/api
+backend/market-data-collector
+backend/account-data-collector
+backend/arbitrage-worker
+backend/position-manager
