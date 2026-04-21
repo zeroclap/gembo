@@ -10,6 +10,8 @@ import {
   type CreatePositionRequest,
   type ExchangeCredential,
   type OpenPreflight,
+  type OpenPreflightIssue,
+  type OpenPreflightLeg,
   type SizeType,
   type SimulationResult,
 } from "@/lib/api";
@@ -19,9 +21,9 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { SectionHeader } from "@/components/arbitrage/shared";
 import { SimulationPanelView } from "@/components/arbitrage/simulation-dialog";
-import { formatUsd, formatUsdPlain, formatPct, formatRate, formatCountdown, formatQty, formatPrice } from "@/lib/format";
+import { formatUsd, formatUsdPlain, formatPct, formatCountdown, formatQty, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Loader2, FlaskConical, ArrowLeft, CheckCircle2, AlertCircle } from "lucide-react";
+import { Loader2, FlaskConical, ArrowLeft, CheckCircle2, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -72,6 +74,7 @@ export function OpenPositionPanel({
   const [quantity, setQuantity] = useState("1000");
 
   // --- Stepped execution ---
+  const [portionEnabled, setPortionEnabled] = useState(false);
   const [portionSize, setPortionSize] = useState("");
   const [slippagePct, setSlippagePct] = useState("");
   const [slippageEnabled, setSlippageEnabled] = useState(false);
@@ -80,15 +83,23 @@ export function OpenPositionPanel({
   const [longLeverage, setLongLeverage] = useState(1);
   const [shortLeverage, setShortLeverage] = useState(1);
 
+  // --- Margin mode: per-exchange ---
+  const [longMarginMode, setLongMarginMode] = useState<"isolated" | "cross">("isolated");
+  const [shortMarginMode, setShortMarginMode] = useState<"isolated" | "cross">("isolated");
+
   const [longCredentialID, setLongCredentialID] = useState("");
   const [shortCredentialID, setShortCredentialID] = useState("");
 
-  // --- Strategy ---
-  const [strategy, setStrategy] = useState<Strategy>("funding_rate");
+  // --- Strategy: derived from priceSpreadEnabled ---
+  const [priceSpreadEnabled, setPriceSpreadEnabled] = useState(false);
+  const strategy: Strategy = priceSpreadEnabled ? "price_spread" : "funding_rate";
 
   // Price-spread strategy fields
   const [targetSpreadPct, setTargetSpreadPct] = useState("");
   const [stopLossSpreadPct, setStopLossSpreadPct] = useState("");
+
+  // --- Max Hold (optional, shared across strategies) ---
+  const [maxHoldEnabled, setMaxHoldEnabled] = useState(false);
   const [maxHoldDuration, setMaxHoldDuration] = useState(0);
 
   // --- View toggle ---
@@ -96,7 +107,7 @@ export function OpenPositionPanel({
 
   // --- Derived ---
   const isStepped =
-    portionSize.trim() !== "" && parseFloat(portionSize) > 0;
+    portionEnabled && portionSize.trim() !== "" && parseFloat(portionSize) > 0;
 
   const activeSize = sizeType === "price" ? size : quantity;
 
@@ -118,6 +129,12 @@ export function OpenPositionPanel({
   const [preflightLoading, setPreflightLoading] = useState(false);
   const simTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const preflightTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Stable min requirements — accumulate the highest minimums seen across preflight calls.
+  // Reset when the exchange pair changes so stale values don't carry over.
+  const [stableMinNotional, setStableMinNotional] = useState(0);
+  const [stableMinBaseQty, setStableMinBaseQty] = useState(0);
+  const prevPairRef = useRef("");
 
   const simSizeType = sizeType;
   const simSize = sizeType === "price" ? size : quantity;
@@ -172,9 +189,25 @@ export function OpenPositionPanel({
           short_exchange_id: shortExchange,
           size_type: sizeType,
           requested_size: activeSize,
-          ...(portionSize.trim() ? { portion_size: portionSize } : {}),
+          ...(portionEnabled && portionSize.trim() ? { portion_size: portionSize } : {}),
         });
         setOpenPreflight(result);
+
+        // Reset stable mins if the exchange pair changed.
+        const pairKey = `${symbol}|${longExchange}|${shortExchange}`;
+        const isNewPair = prevPairRef.current !== pairKey;
+        prevPairRef.current = pairKey;
+
+        const legs = [result.long, result.short];
+        const newMinNotional = Math.max(...legs.map(l => parseFloat(l.min_notional) || 0));
+        const newMinBaseQty = Math.max(...legs.map(l => parseFloat(l.min_contracts) || 0));
+        if (isNewPair) {
+          setStableMinNotional(newMinNotional);
+          setStableMinBaseQty(newMinBaseQty);
+        } else {
+          setStableMinNotional(prev => Math.max(prev, newMinNotional));
+          setStableMinBaseQty(prev => Math.max(prev, newMinBaseQty));
+        }
       } catch {
         setOpenPreflight(null);
       } finally {
@@ -183,7 +216,7 @@ export function OpenPositionPanel({
     }, 400);
 
     return () => clearTimeout(preflightTimerRef.current);
-  }, [symbol, longExchange, shortExchange, sizeType, activeSize, portionSize]);
+  }, [symbol, longExchange, shortExchange, sizeType, activeSize, portionEnabled, portionSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -273,21 +306,22 @@ export function OpenPositionPanel({
       requested_size: sizeType === "price" ? size : quantity,
     };
 
-    if (portionSize.trim()) req.portion_size = portionSize;
+    if (portionEnabled && portionSize.trim()) req.portion_size = portionSize;
     if (slippageEnabled && slippagePct.trim()) req.slippage_pct = slippagePct;
 
     if (longLeverage > 1) req.leverage = longLeverage;
+    req.long_margin_mode = longMarginMode;
+    req.short_margin_mode = shortMarginMode;
 
     if (strategy === "price_spread") {
       req.arbitrage_type = "spread";
       if (targetSpreadPct.trim()) req.target_spread_pct = targetSpreadPct;
       if (stopLossSpreadPct.trim()) req.stop_loss_spread_pct = stopLossSpreadPct;
-      if (maxHoldDuration > 0) req.max_hold_duration = maxHoldDuration;
     } else {
       // funding_rate: hold as long as profitable — no target spread
       req.arbitrage_type = "funding";
-      if (maxHoldDuration > 0) req.max_hold_duration = maxHoldDuration;
     }
+    if (maxHoldEnabled && maxHoldDuration > 0) req.max_hold_duration = maxHoldDuration;
 
     createMutation.mutate(req);
   }, [
@@ -299,13 +333,19 @@ export function OpenPositionPanel({
     sizeType,
     size,
     quantity,
+    portionEnabled,
     portionSize,
     slippageEnabled,
     slippagePct,
     longLeverage,
+    shortLeverage,
+    longMarginMode,
+    shortMarginMode,
+    priceSpreadEnabled,
     strategy,
     targetSpreadPct,
     stopLossSpreadPct,
+    maxHoldEnabled,
     maxHoldDuration,
     createMutation,
   ]);
@@ -407,141 +447,115 @@ export function OpenPositionPanel({
                 </span>
               )}
             </div>
+            {/* Min requirement hint — always shown once minimums are known */}
+            {(sizeType === "price" ? stableMinNotional > 0 : stableMinBaseQty > 0) && (
+              <p className={cn(
+                "text-[0.625rem] mt-0.5",
+                openPreflight && !openPreflight.can_open
+                  ? "text-red-600 dark:text-red-400"
+                  : "text-muted-foreground/60"
+              )}>
+                {sizeType === "price"
+                  ? `min ${formatUsdPlain(String(stableMinNotional))}`
+                  : `min ${formatQty(String(stableMinBaseQty))} base qty`}
+              </p>
+            )}
           </div>
 
           {/* ── Slippage ── */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={slippageEnabled}
-                  onChange={(e) => setSlippageEnabled(e.target.checked)}
-                  className="h-3 w-3 rounded-sm accent-primary"
-                />
-                <span className="text-xs text-muted-foreground">Max Slippage %</span>
-              </label>
-            </div>
-            <Input
-              type="text"
-              inputMode="decimal"
-              value={slippagePct}
-              onChange={(e) => setSlippagePct(e.target.value)}
-              placeholder="No limit"
-              disabled={!slippageEnabled}
-              className={cn(
-                "font-mono tabular-nums text-xs h-7",
-                !slippageEnabled && "opacity-40"
-              )}
-            />
+            <label className="flex items-center gap-1.5 cursor-pointer select-none mb-1.5">
+              <input
+                type="checkbox"
+                checked={slippageEnabled}
+                onChange={(e) => setSlippageEnabled(e.target.checked)}
+                className="h-3 w-3 rounded-sm accent-primary"
+              />
+              <span className="text-xs text-muted-foreground">Max Slippage %</span>
+            </label>
             {slippageEnabled && (
-              <div className="flex gap-1 mt-1.5">
-                {["0.1", "0.3", "0.5", "1"].map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setSlippagePct(v)}
-                    className={cn(
-                      "flex-1 rounded-md py-0.5 text-[0.625rem] font-medium transition-colors",
-                      slippagePct === v
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                  >
-                    {v}%
-                  </button>
-                ))}
+              <>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={slippagePct}
+                  onChange={(e) => setSlippagePct(e.target.value)}
+                  placeholder="No limit"
+                  className="font-mono tabular-nums text-xs h-7"
+                />
+                <div className="flex gap-1 mt-1.5">
+                  {["0.1", "0.3", "0.5", "1"].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setSlippagePct(v)}
+                      className={cn(
+                        "flex-1 rounded-md py-0.5 text-[0.625rem] font-medium transition-colors",
+                        slippagePct === v
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                    >
+                      {v}%
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* ── Price Spread TP/SL ── */}
+          <div>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none mb-1.5">
+              <input
+                type="checkbox"
+                checked={priceSpreadEnabled}
+                onChange={(e) => setPriceSpreadEnabled(e.target.checked)}
+                className="h-3 w-3 rounded-sm accent-primary"
+              />
+              <span className="text-xs text-muted-foreground">Price Spread TP/SL</span>
+            </label>
+            {priceSpreadEnabled && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground">TP Spread %</Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={targetSpreadPct}
+                    onChange={(e) => setTargetSpreadPct(e.target.value)}
+                    placeholder="e.g. 1.0"
+                    className="font-mono tabular-nums text-xs h-7 mt-0.5"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">SL Spread %</Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={stopLossSpreadPct}
+                    onChange={(e) => setStopLossSpreadPct(e.target.value)}
+                    placeholder="None"
+                    className="font-mono tabular-nums text-xs h-7 mt-0.5"
+                  />
+                </div>
               </div>
             )}
           </div>
 
-          {/* ── Strategy ── */}
+          {/* ── Max Hold ── */}
           <div>
-            <Label className="text-xs text-muted-foreground">Strategy</Label>
-            <div className="flex h-7 items-center rounded-md border bg-muted/40 p-0.5 gap-0.5 mt-1">
-              {(["funding_rate", "price_spread"] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStrategy(s)}
-                  className={cn(
-                    "flex-1 rounded-sm px-2 h-5 text-[0.625rem] font-medium transition-colors",
-                    strategy === s
-                      ? "bg-background text-foreground shadow-sm border border-border/50"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {s === "price_spread" ? "Price Spread" : "Funding Rate"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Strategy-specific fields */}
-          {strategy === "price_spread" ? (
-            <div className="space-y-2">
-              <div>
-                <Label className="text-xs text-muted-foreground">
-                  Target Spread %
-                  <span className="ml-1 text-[0.5625rem] text-muted-foreground/60">
-                    (close when spread reaches)
-                  </span>
-                </Label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={targetSpreadPct}
-                  onChange={(e) => setTargetSpreadPct(e.target.value)}
-                  placeholder="e.g. 1.0"
-                  className="font-mono tabular-nums text-xs h-7 mt-0.5"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">
-                  Stop Loss Spread %
-                </Label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={stopLossSpreadPct}
-                  onChange={(e) => setStopLossSpreadPct(e.target.value)}
-                  placeholder="None"
-                  className="font-mono tabular-nums text-xs h-7 mt-0.5"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">
-                  Max Hold
-                </Label>
-                <div className="grid grid-cols-7 gap-1 mt-1">
-                  {DURATION_PRESETS.map((preset) => (
-                    <button
-                      key={preset.value}
-                      type="button"
-                      onClick={() => setMaxHoldDuration(preset.value)}
-                      className={cn(
-                        "px-1 py-0.5 text-[0.625rem] font-medium rounded-md transition-colors",
-                        maxHoldDuration === preset.value
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            // Funding rate: hold as long as profitable; optional max duration
-            <div>
-              <Label className="text-xs text-muted-foreground">
-                Max Hold
-                <span className="ml-1 text-[0.5625rem] text-muted-foreground/60">
-                  (hold while funding profit)
-                </span>
-              </Label>
-              <div className="grid grid-cols-7 gap-1 mt-1">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none mb-1.5">
+              <input
+                type="checkbox"
+                checked={maxHoldEnabled}
+                onChange={(e) => setMaxHoldEnabled(e.target.checked)}
+                className="h-3 w-3 rounded-sm accent-primary"
+              />
+              <span className="text-xs text-muted-foreground">Max Hold</span>
+            </label>
+            {maxHoldEnabled && (
+              <div className="grid grid-cols-7 gap-1">
                 {DURATION_PRESETS.map((preset) => (
                   <button
                     key={preset.value}
@@ -558,58 +572,46 @@ export function OpenPositionPanel({
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <Separator />
 
-          {/* ── Credentials per leg ── */}
-          <div className="space-y-2">
-            <SectionHeader className="mb-1.5">Credentials</SectionHeader>
+          {/* ── Exchange legs: credentials + leverage + margin mode + preflight status ── */}
+          <div className="space-y-3">
+            {(["long", "short"] as const).map((side) => {
+              const exchange = side === "long" ? longExchange : shortExchange;
+              const credentialID = side === "long" ? longCredentialID : shortCredentialID;
+              const setCredentialID = side === "long" ? setLongCredentialID : setShortCredentialID;
+              const creds = side === "long" ? longCredentials : shortCredentials;
+              const leverage = side === "long" ? longLeverage : shortLeverage;
+              const setLeverage = side === "long" ? setLongLeverage : setShortLeverage;
+              const marginMode = side === "long" ? longMarginMode : shortMarginMode;
+              const setMarginMode = side === "long" ? setLongMarginMode : setShortMarginMode;
+              const leg = openPreflight?.[side];
+              const issues = leg ? (openPreflight?.errors ?? []).filter(e => e.exchange === leg.exchange_id) : [];
+              const passed = leg ? issues.length === 0 : null;
 
-            <div>
-              <Label className="text-[0.625rem] text-muted-foreground truncate block mb-1">
-                {longExchange || "Long"} credential
-              </Label>
-              <select
-                value={longCredentialID}
-                onChange={(e) => setLongCredentialID(e.target.value)}
-                className="w-full h-7 rounded-md border bg-background px-2 text-xs"
-                disabled={credentialsLoading || longCredentials.length === 0}
-              >
-                {longCredentials.length === 0 ? (
-                  <option value="">No credentials found</option>
-                ) : (
-                  longCredentials.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-
-            <div>
-              <Label className="text-[0.625rem] text-muted-foreground truncate block mb-1">
-                {shortExchange || "Short"} credential
-              </Label>
-              <select
-                value={shortCredentialID}
-                onChange={(e) => setShortCredentialID(e.target.value)}
-                className="w-full h-7 rounded-md border bg-background px-2 text-xs"
-                disabled={credentialsLoading || shortCredentials.length === 0}
-              >
-                {shortCredentials.length === 0 ? (
-                  <option value="">No credentials found</option>
-                ) : (
-                  shortCredentials.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
+              return (
+                <ExchangeLegBlock
+                  key={side}
+                  side={side}
+                  exchange={exchange}
+                  credentialID={credentialID}
+                  setCredentialID={setCredentialID}
+                  creds={creds}
+                  credentialsLoading={credentialsLoading}
+                  leverage={leverage}
+                  setLeverage={setLeverage}
+                  marginMode={marginMode}
+                  setMarginMode={setMarginMode}
+                  leg={leg ?? null}
+                  issues={issues}
+                  passed={passed}
+                  preflightLoading={preflightLoading}
+                />
+              );
+            })}
 
             {credentialsError && (
               <div className="rounded-md bg-destructive/10 border border-destructive/20 px-2.5 py-1.5 text-[0.625rem] text-destructive">
@@ -620,82 +622,32 @@ export function OpenPositionPanel({
 
           <Separator />
 
-          {/* ── Leverage per exchange ── */}
-          <div>
-            <SectionHeader className="mb-1.5">Leverage</SectionHeader>
-            <div className="grid grid-cols-2 gap-2">
-              {/* Long exchange */}
-              <div>
-                <Label className="text-[0.625rem] text-muted-foreground truncate block mb-1">
-                  {longExchange || "Long"}
-                </Label>
-                <div className="flex h-7 items-center rounded-md border bg-muted/40 p-0.5 gap-0.5">
-                  {[1, 2, 3].map((lv) => (
-                    <button
-                      key={lv}
-                      type="button"
-                      onClick={() => setLongLeverage(lv)}
-                      className={cn(
-                        "flex-1 rounded-sm h-5 text-[0.625rem] font-medium transition-colors",
-                        longLeverage === lv
-                          ? "bg-background text-foreground shadow-sm border border-border/50"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {lv}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Short exchange */}
-              <div>
-                <Label className="text-[0.625rem] text-muted-foreground truncate block mb-1">
-                  {shortExchange || "Short"}
-                </Label>
-                <div className="flex h-7 items-center rounded-md border bg-muted/40 p-0.5 gap-0.5">
-                  {[1, 2, 3].map((lv) => (
-                    <button
-                      key={lv}
-                      type="button"
-                      onClick={() => setShortLeverage(lv)}
-                      className={cn(
-                        "flex-1 rounded-sm h-5 text-[0.625rem] font-medium transition-colors",
-                        shortLeverage === lv
-                          ? "bg-background text-foreground shadow-sm border border-border/50"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      {lv}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
           {/* ── Stepped Execution ── */}
           <div>
-            <SectionHeader className="mb-1.5">
-              Stepped Execution
-              {isStepped && estimatedSteps && (
-                <span className="ml-1 text-violet-600 dark:text-violet-400">
-                  ({estimatedSteps} steps)
-                </span>
-              )}
-            </SectionHeader>
-            <div className="space-y-2">
-              <div>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none mb-1.5">
+              <input
+                type="checkbox"
+                checked={portionEnabled}
+                onChange={(e) => setPortionEnabled(e.target.checked)}
+                className="h-3 w-3 rounded-sm accent-primary"
+              />
+              <span className="text-xs text-muted-foreground">
+                Portion Size
+                {portionEnabled && isStepped && estimatedSteps && (
+                  <span className="ml-1 text-violet-600 dark:text-violet-400">
+                    ({estimatedSteps} steps)
+                  </span>
+                )}
+              </span>
+            </label>
+            {portionEnabled && (
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs text-muted-foreground">
-                    Portion Size
-                  </Label>
                   {portionSize && (
                     <button
                       type="button"
                       onClick={() => setPortionSize("")}
-                      className="flex items-center gap-0.5 text-[0.625rem] text-muted-foreground/60 hover:text-foreground transition-colors"
+                      className="flex items-center gap-0.5 text-[0.625rem] text-muted-foreground/60 hover:text-foreground transition-colors ml-auto"
                     >
                       <span>×</span> Clear
                     </button>
@@ -706,11 +658,10 @@ export function OpenPositionPanel({
                   inputMode="decimal"
                   value={portionSize}
                   onChange={(e) => setPortionSize(e.target.value)}
-                  placeholder="Empty = single-shot"
-                  className="font-mono tabular-nums text-xs h-7 mt-0.5"
+                  placeholder="e.g. 250"
+                  className="font-mono tabular-nums text-xs h-7"
                 />
-                {/* Quick-fill: 25 / 50 / 75 / 100 % of total */}
-                <div className="flex gap-1 mt-1.5">
+                <div className="flex gap-1">
                   {[25, 50, 75, 100].map((pct) => (
                     <button
                       key={pct}
@@ -724,7 +675,7 @@ export function OpenPositionPanel({
                   ))}
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Error / Success */}
@@ -749,16 +700,10 @@ export function OpenPositionPanel({
             </div>
           )}
           {simResult && (
-            <>
-              <OpenPlanSummary
-                result={simResult}
-                sizeType={sizeType}
-                estimatedSteps={estimatedSteps}
-                preflight={openPreflight}
-                preflightLoading={preflightLoading}
-              />
-              <SimSummary result={simResult} />
-            </>
+            <SimSummary
+              result={simResult}
+              estimatedSteps={estimatedSteps}
+            />
           )}
 
           {/* ── Actions: Open Position (wide) + Simulate icon (narrow) ── */}
@@ -796,121 +741,179 @@ export function OpenPositionPanel({
   );
 }
 
-function OpenPlanSummary({
-  result,
-  sizeType,
-  estimatedSteps,
-  preflight,
+// ---------------------------------------------------------------------------
+// ExchangeLegBlock — credentials + leverage + margin + preflight status
+// ---------------------------------------------------------------------------
+
+function ExchangeLegBlock({
+  side,
+  exchange,
+  credentialID,
+  setCredentialID,
+  creds,
+  credentialsLoading,
+  leverage,
+  setLeverage,
+  marginMode,
+  setMarginMode,
+  leg,
+  issues,
+  passed,
   preflightLoading,
 }: {
-  result: SimulationResult;
-  sizeType: SizeType;
-  estimatedSteps: number | null;
-  preflight: OpenPreflight | null;
+  side: "long" | "short";
+  exchange: string;
+  credentialID: string;
+  setCredentialID: (v: string) => void;
+  creds: ExchangeCredential[];
+  credentialsLoading: boolean;
+  leverage: number;
+  setLeverage: (v: number) => void;
+  marginMode: "isolated" | "cross";
+  setMarginMode: (v: "isolated" | "cross") => void;
+  leg: OpenPreflightLeg | null;
+  issues: OpenPreflightIssue[];
+  passed: boolean | null;
   preflightLoading: boolean;
 }) {
-  const actualNotional = parseFloat(result.actual_position_size || result.position_size) || 0;
-  const contracts = parseFloat(result.contracts) || 0;
-  const steps = estimatedSteps && estimatedSteps > 0 ? estimatedSteps : 1;
-  const perStepNotional = actualNotional / steps;
-  const perStepContracts = contracts / steps;
+  const [detailOpen, setDetailOpen] = useState(false);
+  const isLong = side === "long";
 
   return (
-    <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2.5 py-2 space-y-1.5">
-      <div className="text-[0.625rem] font-medium uppercase tracking-wider text-blue-700 dark:text-blue-300">
-        Open Plan
-      </div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
-        <span className="text-muted-foreground">Execution mode</span>
-        <span className="font-mono tabular-nums text-right">
-          {steps > 1 ? `Stepped (${steps})` : "Single-shot"}
-        </span>
-        <span className="text-muted-foreground">Effective notional</span>
-        <span className="font-mono tabular-nums text-right">
-          {formatUsdPlain(String(actualNotional))}
-        </span>
-        <span className="text-muted-foreground">Estimated contracts</span>
-        <span className="font-mono tabular-nums text-right">
-          {formatQty(String(contracts))}
-        </span>
-        {steps > 1 && (
-          <>
-            <span className="text-muted-foreground">Per-step notional</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatUsdPlain(String(perStepNotional))}
-            </span>
-            <span className="text-muted-foreground">Per-step contracts</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatQty(String(perStepContracts))}
-            </span>
-          </>
+    <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 space-y-2">
+      {/* Header row: side label + exchange + preflight status badge */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <span className={cn(
+            "text-[0.625rem] font-medium uppercase tracking-wider",
+            isLong ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
+          )}>
+            {isLong ? "↑ Long" : "↓ Short"}
+          </span>
+          <span className="text-[0.625rem] text-muted-foreground">{exchange}</span>
+        </div>
+
+        {/* Preflight status — clickable to expand */}
+        {leg && (
+          <button
+            type="button"
+            onClick={() => setDetailOpen(o => !o)}
+            className={cn(
+              "inline-flex items-center gap-1 text-[0.625rem] rounded px-1.5 py-0.5 transition-colors",
+              passed
+                ? "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+                : "text-red-600 dark:text-red-400 hover:bg-red-500/10"
+            )}
+            title={detailOpen ? "Hide details" : "Show details"}
+          >
+            {passed
+              ? <CheckCircle2 className="h-3 w-3" />
+              : <AlertCircle className="h-3 w-3" />}
+            {leg ? formatPrice(leg.price) : null}
+            {detailOpen
+              ? <ChevronDown className="h-3 w-3 opacity-60" />
+              : <ChevronRight className="h-3 w-3 opacity-60" />}
+          </button>
         )}
-        <span className="text-muted-foreground">Input mode</span>
-        <span className="font-mono tabular-nums text-right uppercase">
-          {sizeType}
-        </span>
+        {!leg && preflightLoading && (
+          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+        )}
       </div>
-      {preflight && (
-        <div className="space-y-1.5 pt-1 border-t border-blue-500/20">
-          <div className="text-[0.625rem] text-muted-foreground">
-            Validation uses backend market/ticker preflight.
+
+      {/* Preflight detail panel */}
+      {detailOpen && leg && (
+        <div className="rounded-md border border-border/50 bg-background/60 px-2 py-1.5 space-y-0.5">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
+            <span className="text-muted-foreground">Min notional</span>
+            <span className="font-mono tabular-nums text-right">{formatUsdPlain(leg.min_notional)}</span>
+            <span className="text-muted-foreground">Min base qty</span>
+            <span className="font-mono tabular-nums text-right">{formatQty(leg.min_contracts)}</span>
+            <span className="text-muted-foreground">Qty step</span>
+            <span className="font-mono tabular-nums text-right">{formatQty(leg.contracts_step)}</span>
+            <span className="text-muted-foreground">Required base qty</span>
+            <span className="font-mono tabular-nums text-right">{formatQty(leg.required_base_qty)}</span>
           </div>
-          {([preflight.long, preflight.short] as const).map((leg) => {
-            const issues = preflight.errors.filter((e) => e.exchange === leg.exchange_id);
-            const passed = issues.length === 0;
-            return (
-              <div key={leg.exchange_id} className="rounded-md border border-border/60 bg-background/70 px-2 py-1.5">
-                <div className="flex items-center justify-between gap-2 text-[0.625rem]">
-                  <span className="font-medium uppercase tracking-wider">{leg.exchange_id || "exchange"}</span>
-                  <span className={cn(
-                    "inline-flex items-center gap-1",
-                    passed ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                  )}>
-                    {passed ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                    {passed ? "Pass" : "Fail"}
-                  </span>
-                </div>
-                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
-                  <span className="text-muted-foreground">Price</span>
-                  <span className="font-mono tabular-nums text-right">{formatPrice(leg.price)}</span>
-                  <span className="text-muted-foreground">Min notional</span>
-                  <span className="font-mono tabular-nums text-right">{formatUsdPlain(leg.min_notional)}</span>
-                  <span className="text-muted-foreground">Min cost</span>
-                  <span className="font-mono tabular-nums text-right">{formatUsdPlain(leg.min_cost)}</span>
-                  <span className="text-muted-foreground">Min contracts</span>
-                  <span className="font-mono tabular-nums text-right">{formatQty(leg.min_contracts)}</span>
-                  <span className="text-muted-foreground">Step notional</span>
-                  <span className="font-mono tabular-nums text-right">{formatUsdPlain(leg.notional_step)}</span>
-                  <span className="text-muted-foreground">Step contracts</span>
-                  <span className="font-mono tabular-nums text-right">{formatQty(leg.contracts_step)}</span>
-                  <span className="text-muted-foreground">Required contracts</span>
-                  <span className="font-mono tabular-nums text-right">{formatQty(leg.required_contracts)}</span>
-                  <span className="text-muted-foreground">Required base qty</span>
-                  <span className="font-mono tabular-nums text-right">{formatQty(leg.required_base_qty)}</span>
-                  <span className="text-muted-foreground">Required notional</span>
-                  <span className="font-mono tabular-nums text-right">{formatUsdPlain(leg.required_notional)}</span>
-                </div>
-                {!passed && (
-                  <div className="mt-1 space-y-0.5 text-[0.625rem] text-red-600 dark:text-red-400">
-                    {issues.map((issue) => (
-                      <div key={issue.code + issue.message}>- {issue.message}</div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {preflightLoading && (
-            <div className="text-[0.625rem] text-muted-foreground inline-flex items-center gap-1">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Revalidating...
+          {!passed && issues.length > 0 && (
+            <div className="pt-1 space-y-0.5 text-[0.625rem] text-red-600 dark:text-red-400 border-t border-border/40">
+              {issues.map((issue) => (
+                <div key={issue.code + issue.message}>— {issue.message}</div>
+              ))}
             </div>
           )}
-          <div className="text-[0.625rem] text-muted-foreground">
-            Pair required base qty: <span className="font-mono tabular-nums">{formatQty(preflight.required_base_qty)}</span>
-          </div>
         </div>
       )}
+
+      {/* Errors inline when detail is collapsed */}
+      {!detailOpen && !passed && issues.length > 0 && (
+        <div className="space-y-0.5 text-[0.625rem] text-red-600 dark:text-red-400">
+          {issues.map((issue) => (
+            <div key={issue.code + issue.message}>— {issue.message}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Credential */}
+      <div>
+        <Label className="text-[0.625rem] text-muted-foreground block mb-1">Credential</Label>
+        <select
+          value={credentialID}
+          onChange={(e) => setCredentialID(e.target.value)}
+          className="w-full h-7 rounded-md border bg-background px-2 text-xs"
+          disabled={credentialsLoading || creds.length === 0}
+        >
+          {creds.length === 0 ? (
+            <option value="">No credentials found</option>
+          ) : (
+            creds.map((c) => (
+              <option key={c.id} value={c.id}>{c.title}</option>
+            ))
+          )}
+        </select>
+      </div>
+
+      {/* Leverage + Margin side by side */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-[0.625rem] text-muted-foreground block mb-1">Leverage</Label>
+          <div className="flex h-7 items-center rounded-md border bg-muted/40 p-0.5 gap-0.5">
+            {[1, 2, 3].map((lv) => (
+              <button
+                key={lv}
+                type="button"
+                onClick={() => setLeverage(lv)}
+                className={cn(
+                  "flex-1 rounded-sm h-5 text-[0.625rem] font-medium transition-colors",
+                  leverage === lv
+                    ? "bg-background text-foreground shadow-sm border border-border/50"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {lv}x
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <Label className="text-[0.625rem] text-muted-foreground block mb-1">Margin</Label>
+          <div className="flex h-7 items-center rounded-md border bg-muted/40 p-0.5 gap-0.5">
+            {(["isolated", "cross"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMarginMode(m)}
+                className={cn(
+                  "flex-1 rounded-sm h-5 text-[0.625rem] font-medium transition-colors capitalize",
+                  marginMode === m
+                    ? "bg-background text-foreground shadow-sm border border-border/50"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -919,7 +922,7 @@ function OpenPlanSummary({
 // SimSummary — fees, spread context, funding P&L with countdowns
 // ---------------------------------------------------------------------------
 
-function SimSummary({ result }: { result: SimulationResult }) {
+function SimSummary({ result, estimatedSteps }: { result: SimulationResult; estimatedSteps: number | null }) {
   // Live countdown ticker (re-renders every second).
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -929,78 +932,67 @@ function SimSummary({ result }: { result: SimulationResult }) {
 
   const breakevenHours = parseFloat(result.breakeven_hours);
   const spreadPct = parseFloat(result.open_spread_pct);
-  const lcmH = result.lcm_duration_hours;
+
+  const actualNotional = parseFloat(result.actual_position_size || result.position_size) || 0;
+  const contracts = parseFloat(result.contracts) || 0;
+  const steps = estimatedSteps && estimatedSteps > 0 ? estimatedSteps : 1;
+  const perStepNotional = actualNotional / steps;
+  const perStepContracts = contracts / steps;
 
   return (
-    <div className="rounded-md border bg-muted/30 px-2.5 py-2 space-y-2">
-      {/* Fees */}
+    <div className="rounded-md border bg-muted/30 px-2.5 py-2 space-y-1.5">
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
-        <span className="text-muted-foreground">Entry fees</span>
+        {/* Execution plan */}
+        <span className="text-muted-foreground">Notional</span>
+        <span className="font-mono tabular-nums text-right">{formatUsdPlain(String(actualNotional))}</span>
+        <span className="text-muted-foreground">Base qty</span>
+        <span className="font-mono tabular-nums text-right">{formatQty(String(contracts))}</span>
+        {steps > 1 && (
+          <>
+            <span className="text-muted-foreground">Per step</span>
+            <span className="font-mono tabular-nums text-right">
+              {formatUsdPlain(String(perStepNotional))} · {formatQty(String(perStepContracts))} base
+            </span>
+          </>
+        )}
+
+        <span className="col-span-2 border-t border-border/30 my-0.5" />
+
+        {/* Fees — single line */}
+        <span className="text-muted-foreground">Total fees</span>
         <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
-          {formatUsdPlain(result.entry_cost)}
-        </span>
-        <span className="text-muted-foreground">Exit fees</span>
-        <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
-          {formatUsdPlain(result.exit_cost)}
-        </span>
-        <span className="text-muted-foreground font-medium">Total fees</span>
-        <span className="font-mono tabular-nums text-right font-medium text-red-600 dark:text-red-400">
           {formatUsdPlain(result.total_cost)}
         </span>
-      </div>
 
-      <Separator />
-
-      {/* Spread context */}
-      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
+        {/* Spread */}
         <span className="text-muted-foreground">Current spread</span>
         <span className={cn(
           "font-mono tabular-nums text-right",
-          spreadPct >= 0
-            ? "text-emerald-600 dark:text-emerald-400"
-            : "text-red-600 dark:text-red-400"
+          spreadPct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
         )}>
           {formatPct(result.open_spread_pct)}
         </span>
-        <span className="text-muted-foreground">24h range</span>
+        <span className="text-muted-foreground">Spread 24h range</span>
         <span className="font-mono tabular-nums text-right text-muted-foreground">
           {formatPct(result.spread_range_24h.min)} – {formatPct(result.spread_range_24h.max)}
-        </span>
-      </div>
-
-      <Separator />
-
-      {/* Funding P&L */}
-      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[0.625rem]">
-        <span className="text-muted-foreground">Funding / 8h</span>
-        <SimPnl value={result.funding_8h} />
-        <span className="text-muted-foreground">24h rate range</span>
-        <span className="font-mono tabular-nums text-right text-muted-foreground">
-          {formatRate(result.funding_range_24h.min_rate_8h)} – {formatRate(result.funding_range_24h.max_rate_8h)}
-        </span>
-        <span className="text-muted-foreground">Breakeven</span>
-        <span className="font-mono tabular-nums text-right">
-          {breakevenHours < 0 ? "never" : `${breakevenHours.toFixed(1)}h`}
         </span>
 
         <span className="col-span-2 border-t border-border/30 my-0.5" />
 
+        {/* Funding */}
+        <span className="text-muted-foreground">Funding / 8h</span>
+        <SimPnl value={result.funding_8h} />
+        <span className="text-muted-foreground">Breakeven</span>
+        <span className="font-mono tabular-nums text-right">
+          {breakevenHours < 0 ? "never" : `${breakevenHours.toFixed(1)}h`}
+        </span>
         <span className="text-muted-foreground">
-          Next funding P&L
+          Next funding
           {result.next_funding_at && (
-            <span className="ml-1 text-muted-foreground/60">
-              {formatCountdown(result.next_funding_at)}
-            </span>
+            <span className="ml-1 text-muted-foreground/60">{formatCountdown(result.next_funding_at)}</span>
           )}
         </span>
         <SimPnl value={result.next_pnl} bold />
-        <span className="text-muted-foreground">
-          LCM funding P&L
-          {lcmH > 0 && (
-            <span className="ml-1 text-muted-foreground/60">/ {lcmH}h</span>
-          )}
-        </span>
-        <SimPnl value={result.lcm_pnl} bold />
         <span className="text-muted-foreground">24h P&L</span>
         <SimPnl value={result.pnl_hold} bold />
       </div>

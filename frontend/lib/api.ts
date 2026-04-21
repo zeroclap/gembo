@@ -543,6 +543,8 @@ export interface CreatePositionRequest {
   price_max?: string;
   slippage_pct?: string;
   leverage?: number;
+  long_margin_mode?: string;
+  short_margin_mode?: string;
   margin_capital?: string;
 
   // Spread arbitrage parameters (optional).
