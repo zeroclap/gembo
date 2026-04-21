@@ -15,16 +15,16 @@ import (
 
 // Config is the top-level configuration for gembo.
 type Config struct {
-	Server       ServerConfig       `yaml:"server"`
-	Redis        RedisConfig        `yaml:"redis"`
-	Database     DatabaseConfig     `yaml:"database"`
-	Auth         AuthConfig         `yaml:"auth"`
-	Security     SecurityConfig     `yaml:"security"`
-	Exchanges    []ExchangeCfg      `yaml:"exchanges"`
-	MarketFilter MarketFilterConfig `yaml:"market_filter"`
-	Hooks        HooksConfig        `yaml:"hooks"`
-	Trader       TraderConfig       `yaml:"trader"`
-	Log          LogConfig          `yaml:"log"`
+	Server          ServerConfig          `yaml:"server"`
+	Redis           RedisConfig           `yaml:"redis"`
+	Database        DatabaseConfig        `yaml:"database"`
+	Auth            AuthConfig            `yaml:"auth"`
+	Security        SecurityConfig        `yaml:"security"`
+	Exchanges       []ExchangeCfg         `yaml:"exchanges"`
+	MarketFilter    MarketFilterConfig    `yaml:"market_filter"`
+	Hooks           HooksConfig           `yaml:"hooks"`
+	PositionManager PositionManagerConfig `yaml:"trader"`
+	Log             LogConfig             `yaml:"log"`
 }
 
 // SecurityConfig holds security-related settings.
@@ -73,8 +73,8 @@ type ExchangeCfg struct {
 	FundingPollInterval time.Duration `yaml:"funding_poll_interval"`
 }
 
-// TraderConfig holds settings for the trader binary.
-type TraderConfig struct {
+// PositionManagerConfig holds settings for the position-manager binary.
+type PositionManagerConfig struct {
 	// Leverage is the default leverage for positions that don't specify their own.
 	// Deprecated: prefer per-position leverage in the create request.
 	Leverage             int           `yaml:"leverage"`
@@ -145,7 +145,7 @@ func defaults() Config {
 				QueuePrefix: "gembo",
 			},
 		},
-		Trader: TraderConfig{
+		PositionManager: PositionManagerConfig{
 			Leverage:             1,
 			MarginMode:           "cross",
 			FundingCheckInterval: 5 * time.Minute,
@@ -299,15 +299,15 @@ func applyEnv(cfg *Config) {
 	// Trader overrides.
 	if v := os.Getenv("TRADER_LEVERAGE"); v != "" {
 		if l, err := strconv.Atoi(v); err == nil {
-			cfg.Trader.Leverage = l
+			cfg.PositionManager.Leverage = l
 		}
 	}
 	if v := os.Getenv("TRADER_MARGIN_MODE"); v != "" {
-		cfg.Trader.MarginMode = v
+		cfg.PositionManager.MarginMode = v
 	}
 	if v := os.Getenv("TRADER_FUNDING_CHECK_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Trader.FundingCheckInterval = d
+			cfg.PositionManager.FundingCheckInterval = d
 		}
 	}
 }

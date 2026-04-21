@@ -83,9 +83,9 @@ services:
 
   # ---- backend services --------------------------------------------------
 
-  # Public collectors: one per exchange for isolation and independent restarts.
+  # Market data collectors: one per exchange for isolation and independent restarts.
   # Each instance uses the EXCHANGES env var to limit to a single exchange.
-  collector-public-bybit:
+  market-data-collector-bybit:
     image: golang:1.25-alpine
     networks: [gembo]
     working_dir: /src
@@ -100,7 +100,7 @@ services:
       REDIS_ADDR: redis:6379
       GOMODCACHE: /root/go/pkg/mod
       GOCACHE: /root/.cache/go-build
-    command: go run ./cmd/collector-public
+    command: go run ./cmd/market-data-collector
     depends_on:
       deps:
         condition: service_completed_successfully
@@ -108,7 +108,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  collector-public-okx:
+  market-data-collector-okx:
     image: golang:1.25-alpine
     networks: [gembo]
     working_dir: /src
@@ -123,7 +123,7 @@ services:
       REDIS_ADDR: redis:6379
       GOMODCACHE: /root/go/pkg/mod
       GOCACHE: /root/.cache/go-build
-    command: go run ./cmd/collector-public
+    command: go run ./cmd/market-data-collector
     depends_on:
       deps:
         condition: service_completed_successfully
@@ -131,7 +131,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  collector-public-binance:
+  market-data-collector-binance:
     image: golang:1.25-alpine
     networks: [gembo]
     working_dir: /src
@@ -146,7 +146,7 @@ services:
       REDIS_ADDR: redis:6379
       GOMODCACHE: /root/go/pkg/mod
       GOCACHE: /root/.cache/go-build
-    command: go run ./cmd/collector-public
+    command: go run ./cmd/market-data-collector
     depends_on:
       deps:
         condition: service_completed_successfully
@@ -154,7 +154,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  collector-public-gate:
+  market-data-collector-gate:
     image: golang:1.25-alpine
     networks: [gembo]
     working_dir: /src
@@ -169,7 +169,7 @@ services:
       REDIS_ADDR: redis:6379
       GOMODCACHE: /root/go/pkg/mod
       GOCACHE: /root/.cache/go-build
-    command: go run ./cmd/collector-public
+    command: go run ./cmd/market-data-collector
     depends_on:
       deps:
         condition: service_completed_successfully
@@ -179,8 +179,8 @@ services:
     ports:
       - "6060:6060" # pprof
 
-  # Private collector: positions via WebSocket. Requires API credentials.
-  collector-private:
+  # Account data collector: positions/balances/funding via WebSocket. Requires API credentials.
+  account-data-collector:
     image: golang:1.25-alpine
     networks: [gembo]
     working_dir: /src
@@ -195,7 +195,7 @@ services:
       DATABASE_URL: postgres://gembo:gembo@postgres:5432/gembo?sslmode=disable
       GOMODCACHE: /root/go/pkg/mod
       GOCACHE: /root/.cache/go-build
-    command: go run ./cmd/collector-private
+    command: go run ./cmd/account-data-collector
     depends_on:
       deps:
         condition: service_completed_successfully
@@ -233,7 +233,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  worker:
+  arbitrage-worker:
     image: golang:1.25-alpine
     networks: [gembo]
     working_dir: /src
@@ -247,7 +247,7 @@ services:
       REDIS_ADDR: redis:6379
       GOMODCACHE: /root/go/pkg/mod
       GOCACHE: /root/.cache/go-build
-    command: go run ./cmd/worker
+    command: go run ./cmd/arbitrage-worker
     depends_on:
       deps:
         condition: service_completed_successfully
@@ -255,7 +255,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  trader:
+  position-manager:
     image: golang:1.25-alpine
     networks: [gembo]
     working_dir: /src
@@ -270,7 +270,7 @@ services:
       DATABASE_URL: postgres://gembo:gembo@postgres:5432/gembo?sslmode=disable
       GOMODCACHE: /root/go/pkg/mod
       GOCACHE: /root/.cache/go-build
-    command: go run ./cmd/trader
+    command: go run ./cmd/position-manager
     depends_on:
       deps:
         condition: service_completed_successfully

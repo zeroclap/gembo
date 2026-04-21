@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,14 +13,11 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/zeroclap/gembo/internal/api"
 	"github.com/zeroclap/gembo/internal/config"
-	"github.com/zeroclap/gembo/internal/exchange"
-	binanceex "github.com/zeroclap/gembo/internal/exchange/exchanges/binance"
-	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
-	gateex "github.com/zeroclap/gembo/internal/exchange/exchanges/gate"
-	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
-	"github.com/zeroclap/gembo/internal/security"
+	"github.com/zeroclap/gembo/internal/exchanges"
+	"github.com/zeroclap/gembo/internal/pkg/logger"
+	"github.com/zeroclap/gembo/internal/pkg/security"
+	serviceapi "github.com/zeroclap/gembo/internal/service/api"
 	pgstore "github.com/zeroclap/gembo/internal/store/postgres"
 	redistore "github.com/zeroclap/gembo/internal/store/redis"
 )
@@ -36,13 +32,12 @@ func main() {
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		slog.Error("load config", "error", err)
+		os.Stderr.WriteString("load config: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 
-	logger := newLogger(cfg.Log)
+	log := logger.New(cfg.Log)
 
-	// Redis client.
 	rc := goredis.NewClient(&goredis.Options{
 		Addr:     cfg.Redis.Addr,
 		Password: cfg.Redis.Password,
@@ -53,45 +48,43 @@ func main() {
 	st := redistore.New(rc)
 
 	// Exchange registry — only used for validation/routing in the API.
-	reg := exchange.NewRegistry()
-	registerExchanges(reg, cfg, logger)
+	reg := exchanges.BuildPublicRegistry(cfg, log)
 
-	// Handler options — PostgreSQL position store is optional.
-	var handlerOpts []api.HandlerOption
-	handlerOpts = append(handlerOpts, api.WithRedis(rc))
-	handlerOpts = append(handlerOpts, api.WithJWTSecret(cfg.Auth.JWTSecret))
-	handlerOpts = append(handlerOpts, api.WithTokenTTL(cfg.Auth.TokenTTL))
+	var handlerOpts []serviceapi.HandlerOption
+	handlerOpts = append(handlerOpts, serviceapi.WithRedis(rc))
+	handlerOpts = append(handlerOpts, serviceapi.WithJWTSecret(cfg.Auth.JWTSecret))
+	handlerOpts = append(handlerOpts, serviceapi.WithTokenTTL(cfg.Auth.TokenTTL))
 
 	if cfg.Database.URL != "" {
 		ctx := context.Background()
 		ps, err := pgstore.New(ctx, cfg.Database.URL)
 		if err != nil {
-			logger.Error("postgres connect", "error", err)
+			log.Error("postgres connect", "error", err)
 			os.Exit(1)
 		}
 
 		if cfg.Security.CredentialsEncryptionKeyBase64 != "" {
-			credentialCipher, err := security.NewCredentialCipherFromBase64(cfg.Security.CredentialsEncryptionKeyBase64)
+			cipher, err := security.NewCredentialCipherFromBase64(cfg.Security.CredentialsEncryptionKeyBase64)
 			if err != nil {
-				logger.Error("credentials encryption init", "error", err)
+				log.Error("credentials encryption init", "error", err)
 				os.Exit(1)
 			}
-			ps.WithCredentialCipher(credentialCipher)
-			logger.Info("credentials encryption enabled")
+			ps.WithCredentialCipher(cipher)
+			log.Info("credentials encryption enabled")
 		}
 
 		defer ps.Close()
 
 		if err := ps.RunMigrations(); err != nil {
-			logger.Error("postgres migrations", "error", err)
+			log.Error("postgres migrations", "error", err)
 			os.Exit(1)
 		}
-		logger.Info("postgres connected and migrated")
-		handlerOpts = append(handlerOpts, api.WithPositionStore(ps))
-		handlerOpts = append(handlerOpts, api.WithUserStore(ps))
+		log.Info("postgres connected and migrated")
+		handlerOpts = append(handlerOpts, serviceapi.WithPositionStore(ps))
+		handlerOpts = append(handlerOpts, serviceapi.WithUserStore(ps))
 	}
 
-	handler := api.NewHandler(reg, st, handlerOpts...)
+	handler := serviceapi.NewHandler(reg, st, handlerOpts...)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
@@ -105,70 +98,25 @@ func main() {
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	// Start the HTTP server.
 	g.Go(func() error {
-		logger.Info("api server starting", "addr", srv.Addr)
+		log.Info("api server starting", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			return err
 		}
 		return nil
 	})
 
-	// Shut down the HTTP server when the context is cancelled.
 	g.Go(func() error {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		logger.Info("shutting down api server")
+		log.Info("shutting down api server")
 		return srv.Shutdown(shutCtx)
 	})
 
 	if err := g.Wait(); err != nil && err != context.Canceled {
-		logger.Error("api server exited with error", "error", err)
+		log.Error("api server exited with error", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("api server stopped")
-}
-
-// registerExchanges registers all enabled exchanges from config into the registry.
-func registerExchanges(reg *exchange.Registry, cfg *config.Config, logger *slog.Logger) {
-	for _, ecfg := range cfg.Exchanges {
-		if !ecfg.Enabled {
-			continue
-		}
-		switch ecfg.ID {
-		case "binance":
-			reg.Register(binanceex.New(logger))
-		case "bybit":
-			reg.Register(bybitex.New(logger))
-		case "okx":
-			reg.Register(okxex.New(logger))
-		case "gate":
-			reg.Register(gateex.New(logger))
-		default:
-			logger.Warn("unknown exchange in config", "id", ecfg.ID)
-		}
-	}
-}
-
-// newLogger constructs a slog.Logger from LogConfig.
-func newLogger(cfg config.LogConfig) *slog.Logger {
-	level := slog.LevelInfo
-	switch cfg.Level {
-	case "debug":
-		level = slog.LevelDebug
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	}
-
-	opts := &slog.HandlerOptions{Level: level}
-	var handler slog.Handler
-	if cfg.Format == "text" {
-		handler = slog.NewTextHandler(os.Stderr, opts)
-	} else {
-		handler = slog.NewJSONHandler(os.Stderr, opts)
-	}
-	return slog.New(handler)
+	log.Info("api server stopped")
 }

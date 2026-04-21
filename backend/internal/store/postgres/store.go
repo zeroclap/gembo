@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/zeroclap/gembo/internal/security"
+	"github.com/zeroclap/gembo/internal/pkg/security"
 )
 
 //go:embed migrations/*.sql

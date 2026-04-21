@@ -14,11 +14,11 @@ import (
 
 	"github.com/zeroclap/gembo/internal/config"
 	"github.com/zeroclap/gembo/internal/domain"
-	"github.com/zeroclap/gembo/internal/exchange"
-	binanceex "github.com/zeroclap/gembo/internal/exchange/exchanges/binance"
-	bybitex "github.com/zeroclap/gembo/internal/exchange/exchanges/bybit"
-	gateex "github.com/zeroclap/gembo/internal/exchange/exchanges/gate"
-	okxex "github.com/zeroclap/gembo/internal/exchange/exchanges/okx"
+	"github.com/zeroclap/gembo/internal/exchanges/base"
+	binanceex "github.com/zeroclap/gembo/internal/exchanges/binance"
+	bybitex "github.com/zeroclap/gembo/internal/exchanges/bybit"
+	gateex "github.com/zeroclap/gembo/internal/exchanges/gate"
+	okxex "github.com/zeroclap/gembo/internal/exchanges/okx"
 )
 
 type checkResult struct {
@@ -104,7 +104,7 @@ func main() {
 	}
 }
 
-func newExchangeClient(id string, logger *slog.Logger, cfg config.ExchangeCfg, withPrivate bool) (exchange.Exchange, error) {
+func newExchangeClient(id string, logger *slog.Logger, cfg config.ExchangeCfg, withPrivate bool) (base.Exchange, error) {
 	switch id {
 	case "bybit":
 		opts := []bybitex.Option{}
@@ -145,7 +145,7 @@ func newExchangeClient(id string, logger *slog.Logger, cfg config.ExchangeCfg, w
 }
 
 func runChecks(
-	ex exchange.Exchange,
+	ex base.Exchange,
 	id string,
 	symbols []string,
 	timeout time.Duration,
@@ -162,13 +162,13 @@ func runChecks(
 		results = append(results, checkTickers(ex, symbols, timeout))
 	}
 	if withPrivate {
-		if tx, ok := ex.(exchange.TradingExchange); ok {
-			results = append(results, checkPrivate(tx, id, symbols, timeout)...)
+		if px, ok := ex.(base.PrivateExchange); ok {
+			results = append(results, checkPrivate(px, id, symbols, timeout)...)
 		} else {
 			results = append(results, checkResult{
 				name:   "private",
 				ok:     false,
-				detail: "exchange does not implement trading interface",
+				detail: "exchange does not implement private interface",
 			})
 		}
 	}
@@ -176,7 +176,7 @@ func runChecks(
 	return results
 }
 
-func checkMarkets(ex exchange.Exchange, symbols []string, timeout time.Duration, sample int) checkResult {
+func checkMarkets(ex base.Exchange, symbols []string, timeout time.Duration, sample int) checkResult {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -217,7 +217,7 @@ func checkMarkets(ex exchange.Exchange, symbols []string, timeout time.Duration,
 	return checkResult{name: "markets", ok: true, detail: detail}
 }
 
-func checkFunding(ex exchange.Exchange, timeout time.Duration, sample int) checkResult {
+func checkFunding(ex base.Exchange, timeout time.Duration, sample int) checkResult {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -252,7 +252,7 @@ func checkFunding(ex exchange.Exchange, timeout time.Duration, sample int) check
 	return checkResult{name: "funding", ok: true, detail: summarizeFunding(rows)}
 }
 
-func checkTickers(ex exchange.Exchange, symbols []string, timeout time.Duration) checkResult {
+func checkTickers(ex base.Exchange, symbols []string, timeout time.Duration) checkResult {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -276,10 +276,10 @@ func checkTickers(ex exchange.Exchange, symbols []string, timeout time.Duration)
 	}
 }
 
-func checkPrivate(tx exchange.TradingExchange, id string, symbols []string, timeout time.Duration) []checkResult {
+func checkPrivate(px base.PrivateExchange, id string, symbols []string, timeout time.Duration) []checkResult {
 	results := make([]checkResult, 0, len(symbols)+2)
 
-	if !tx.HasCredentials() {
+	if !px.HasCredentials() {
 		results = append(results, checkResult{
 			name:   "private.credentials",
 			ok:     false,
@@ -290,7 +290,7 @@ func checkPrivate(tx exchange.TradingExchange, id string, symbols []string, time
 	results = append(results, checkResult{name: "private.credentials", ok: true, detail: "credentials provided"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	balances, err := tx.FetchBalance(ctx)
+	balances, err := px.FetchBalance(ctx)
 	cancel()
 	if err != nil {
 		results = append(results, checkResult{name: "private.balance", ok: false, detail: err.Error()})
@@ -300,7 +300,7 @@ func checkPrivate(tx exchange.TradingExchange, id string, symbols []string, time
 
 	for _, symbol := range symbols {
 		ctx, cancel = context.WithTimeout(context.Background(), timeout)
-		pos, perr := tx.FetchPosition(ctx, symbol)
+		pos, perr := px.FetchPosition(ctx, symbol)
 		cancel()
 		if perr != nil {
 			results = append(results, checkResult{
@@ -345,7 +345,7 @@ func summarizeFunding(rows []domain.FundingRate) string {
 	return fmt.Sprintf("rows=%d symbols=%s", len(rows), strings.Join(symbols, ","))
 }
 
-func summarizeBalances(balances []exchange.Balance) string {
+func summarizeBalances(balances []base.Balance) string {
 	if len(balances) == 0 {
 		return "rows=0"
 	}

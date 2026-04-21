@@ -1,0 +1,10 @@
+package base
+
+import "errors"
+
+// ErrPositionAlreadyClosed is returned by CloseMarketOrder when a reduce-only
+// order is rejected because the position is already at zero on the exchange.
+// Each exchange adapter detects the exchange-specific error variant and wraps
+// it with this sentinel so callers can handle the condition without importing
+// CCXT directly.
+var ErrPositionAlreadyClosed = errors.New("position already closed on exchange")
