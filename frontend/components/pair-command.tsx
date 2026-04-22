@@ -769,6 +769,7 @@ function PairSelectorPanel({
               const isActive = activeKey === posKey;
 
               // Extract per-leg funding details from snapshot for the funding-rate column.
+              const snap = pos.snapshot as FundingArbitrage | null | Record<string, never>;
               let longRate: number | null = null;
               let shortRate: number | null = null;
               let longInterval: number | null = null;
@@ -788,7 +789,6 @@ function PairSelectorPanel({
               }
               let fSpread: number | null = null;
               let pSpread: number | null = null;
-              const snap = pos.snapshot as FundingArbitrage | null | Record<string, never>;
               if (snap && "full_loop" in snap && snap.full_loop) {
                 const dir = snap.long?.exchange_id === pos.long_exchange_id ? 1 : -1;
                 const lcm = parseFloat(snap.full_loop.net_pct_per_loop) * 100 * dir;
