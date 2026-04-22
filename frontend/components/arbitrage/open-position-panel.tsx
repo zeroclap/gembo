@@ -88,6 +88,7 @@ export function OpenPositionPanel({
   const [shortMarginMode, setShortMarginMode] = useState<"isolated" | "cross">("isolated");
 
   // --- Margin capital (optional) ---
+  const [marginCapitalEnabled, setMarginCapitalEnabled] = useState(false);
   const [marginCapital, setMarginCapital] = useState("");
 
   const [longCredentialID, setLongCredentialID] = useState("");
@@ -468,20 +469,109 @@ export function OpenPositionPanel({
             )}
           </div>
 
+          {/* ── Portion Size ── */}
+          <div>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none mb-1.5">
+              <input
+                type="checkbox"
+                checked={portionEnabled}
+                onChange={(e) => setPortionEnabled(e.target.checked)}
+                className="h-3 w-3 rounded-sm accent-primary"
+              />
+              <span className="text-xs text-muted-foreground">
+                Portion Size
+                {portionEnabled && isStepped && estimatedSteps && (
+                  <span className="ml-1 text-violet-600 dark:text-violet-400">
+                    ({estimatedSteps} steps)
+                  </span>
+                )}
+              </span>
+            </label>
+            {portionEnabled && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  {portionSize && (
+                    <button
+                      type="button"
+                      onClick={() => setPortionSize("")}
+                      className="flex items-center gap-0.5 text-[0.625rem] text-muted-foreground/60 hover:text-foreground transition-colors ml-auto"
+                    >
+                      <span>×</span> Clear
+                    </button>
+                  )}
+                </div>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={portionSize}
+                  onChange={(e) => setPortionSize(e.target.value)}
+                  placeholder="e.g. 250"
+                  className="font-mono tabular-nums text-xs h-7"
+                />
+                <div className="flex gap-1">
+                  {[25, 50, 75, 100].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => applyPortionPct(pct)}
+                      disabled={!sizeValid}
+                      className="flex-1 rounded-md bg-muted/60 py-0.5 text-[0.625rem] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* ── Margin Capital ── */}
           <div>
-            <Label className="text-xs text-muted-foreground">
-              Margin Capital (USDT)
-              <span className="ml-1 text-muted-foreground/50">optional</span>
-            </Label>
-            <Input
-              type="text"
-              inputMode="decimal"
-              value={marginCapital}
-              onChange={(e) => setMarginCapital(e.target.value)}
-              placeholder="e.g. 500"
-              className="font-mono tabular-nums text-xs h-7 mt-1"
-            />
+            <label className="flex items-center gap-1.5 cursor-pointer select-none mb-1.5">
+              <input
+                type="checkbox"
+                checked={marginCapitalEnabled}
+                onChange={(e) => {
+                  setMarginCapitalEnabled(e.target.checked);
+                  if (!e.target.checked) setMarginCapital("");
+                }}
+                className="h-3 w-3 rounded-sm accent-primary"
+              />
+              <span className="text-xs text-muted-foreground">Margin Capital (USDT)</span>
+            </label>
+            {marginCapitalEnabled && (
+              <>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={marginCapital}
+                  onChange={(e) => setMarginCapital(e.target.value)}
+                  placeholder="e.g. 500"
+                  className="font-mono tabular-nums text-xs h-7"
+                />
+                {(() => {
+                  const mcVal = parseFloat(marginCapital);
+                  if (!mcVal || mcVal <= 0 || !openPreflight) return null;
+                  const legsData = [
+                    { leg: openPreflight.long, lev: longLeverage },
+                    { leg: openPreflight.short, lev: shortLeverage },
+                  ];
+                  const maxReq = Math.max(...legsData.map(({ leg, lev }) => {
+                    const price = parseFloat(leg.price) || 0;
+                    const qty = parseFloat(leg.required_base_qty) || 0;
+                    return (price * qty) / lev;
+                  }));
+                  if (maxReq > 0 && mcVal < maxReq) {
+                    return (
+                      <p className="text-[0.625rem] mt-0.5 text-amber-600 dark:text-amber-400">
+                        May be too small — est. required ≈ {formatUsdPlain(String(maxReq))}
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
+              </>
+            )}
           </div>
 
           {/* ── Slippage ── */}
@@ -612,7 +702,7 @@ export function OpenPositionPanel({
               const setMarginMode = side === "long" ? setLongMarginMode : setShortMarginMode;
               const leg = openPreflight?.[side];
               const issues = leg ? (openPreflight?.errors ?? []).filter(e => e.exchange === leg.exchange_id) : [];
-              const warnings = leg ? (openPreflight?.warnings ?? []) : [];
+              const warnings = leg ? (openPreflight?.warnings ?? []).filter(w => w.code !== "isolated_no_capital" && w.code !== "missing_margin_capital") : [];
               const passed = leg ? issues.length === 0 : null;
 
               return (
@@ -642,9 +732,9 @@ export function OpenPositionPanel({
                 {credentialsError}
               </div>
             )}
-            {(openPreflight?.warnings ?? []).length > 0 && (
+            {(openPreflight?.warnings ?? []).filter(w => w.code !== "isolated_no_capital" && w.code !== "missing_margin_capital").length > 0 && (
               <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 space-y-0.5">
-                {(openPreflight!.warnings).map((w) => (
+                {(openPreflight!.warnings).filter(w => w.code !== "isolated_no_capital" && w.code !== "missing_margin_capital").map((w) => (
                   <div key={w.code} className="flex items-start gap-1.5 text-[0.625rem] text-amber-700 dark:text-amber-300">
                     <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
                     {w.message}
@@ -655,62 +745,6 @@ export function OpenPositionPanel({
           </div>
 
           <Separator />
-
-          {/* ── Stepped Execution ── */}
-          <div>
-            <label className="flex items-center gap-1.5 cursor-pointer select-none mb-1.5">
-              <input
-                type="checkbox"
-                checked={portionEnabled}
-                onChange={(e) => setPortionEnabled(e.target.checked)}
-                className="h-3 w-3 rounded-sm accent-primary"
-              />
-              <span className="text-xs text-muted-foreground">
-                Portion Size
-                {portionEnabled && isStepped && estimatedSteps && (
-                  <span className="ml-1 text-violet-600 dark:text-violet-400">
-                    ({estimatedSteps} steps)
-                  </span>
-                )}
-              </span>
-            </label>
-            {portionEnabled && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  {portionSize && (
-                    <button
-                      type="button"
-                      onClick={() => setPortionSize("")}
-                      className="flex items-center gap-0.5 text-[0.625rem] text-muted-foreground/60 hover:text-foreground transition-colors ml-auto"
-                    >
-                      <span>×</span> Clear
-                    </button>
-                  )}
-                </div>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={portionSize}
-                  onChange={(e) => setPortionSize(e.target.value)}
-                  placeholder="e.g. 250"
-                  className="font-mono tabular-nums text-xs h-7"
-                />
-                <div className="flex gap-1">
-                  {[25, 50, 75, 100].map((pct) => (
-                    <button
-                      key={pct}
-                      type="button"
-                      onClick={() => applyPortionPct(pct)}
-                      disabled={!sizeValid}
-                      className="flex-1 rounded-md bg-muted/60 py-0.5 text-[0.625rem] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                    >
-                      {pct}%
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* Error / Success */}
           {createMutation.error && (
