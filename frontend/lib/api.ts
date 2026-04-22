@@ -689,3 +689,26 @@ export function adjustPositionSize(id: string, req: AdjustPositionSizeRequest): 
     body: JSON.stringify(req),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Workspaces
+// ---------------------------------------------------------------------------
+
+export interface RemoteWorkspace {
+  id: string;
+  symbol: string;
+  long_exchange: string;
+  short_exchange: string;
+}
+
+export function fetchWorkspaces(): Promise<RemoteWorkspace[]> {
+  return fetchApi<RemoteWorkspace[]>("/account/workspaces");
+}
+
+export function saveWorkspaces(workspaces: RemoteWorkspace[]): Promise<RemoteWorkspace[]> {
+  return fetchApi<RemoteWorkspace[]>("/account/workspaces", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspaces }),
+  });
+}

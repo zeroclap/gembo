@@ -96,6 +96,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /v1/account/credentials", auth(h.handleCreateExchangeCredential))
 	h.mux.HandleFunc("PUT /v1/account/credentials/{id}", auth(h.handleUpdateExchangeCredential))
 	h.mux.HandleFunc("DELETE /v1/account/credentials/{id}", auth(h.handleDeleteExchangeCredential))
+	h.mux.HandleFunc("GET /v1/account/workspaces", auth(h.handleGetWorkspaces))
+	h.mux.HandleFunc("PUT /v1/account/workspaces", auth(h.handleSaveWorkspaces))
 
 	// Positions
 	h.mux.HandleFunc("POST /v1/positions/preflight-open", auth(h.handlePreflightOpenPosition))

@@ -27,4 +27,8 @@ type UserStore interface {
 	UpdateExchangeCredential(ctx context.Context, c *domain.ExchangeCredential) (bool, error)
 	// DeleteExchangeCredential removes a credential by id for a user and returns true when deleted.
 	DeleteExchangeCredential(ctx context.Context, userID, credentialID string) (bool, error)
+	// GetWorkspaces returns the saved arbitrage workspaces for a user.
+	GetWorkspaces(ctx context.Context, userID string) ([]domain.ArbitrageWorkspace, error)
+	// SaveWorkspaces replaces the saved arbitrage workspaces for a user.
+	SaveWorkspaces(ctx context.Context, userID string, workspaces []domain.ArbitrageWorkspace) error
 }

@@ -3,6 +3,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { PairSelection } from "@/components/pair-command";
+import { fetchWorkspaces, saveWorkspaces } from "@/lib/api";
+import type { RemoteWorkspace } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,6 +65,24 @@ function saveToStorage(workspaces: ArbitrageWorkspace[], activeId: string | null
   }
 }
 
+function toRemote(ws: ArbitrageWorkspace): RemoteWorkspace {
+  return {
+    id: ws.id,
+    symbol: ws.symbol,
+    long_exchange: ws.longExchange,
+    short_exchange: ws.shortExchange,
+  };
+}
+
+function fromRemote(ws: RemoteWorkspace): ArbitrageWorkspace {
+  return {
+    id: ws.id,
+    symbol: ws.symbol,
+    longExchange: ws.long_exchange,
+    shortExchange: ws.short_exchange,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -81,65 +101,80 @@ export function useArbitrageWorkspaces() {
   // Skip the first sync-to-URL (we read FROM URL on first mount)
   const skipNextSync = useRef(true);
 
-  // Hydrate from localStorage + URL on client
-  useEffect(() => {
-    const stored = loadFromStorage();
-    const storedActive = loadActiveFromStorage();
+  // Debounce timer for remote save
+  const remoteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // URL params take precedence
+  // Hydrate from backend (preferred) or localStorage + URL on client
+  useEffect(() => {
     const urlSymbol = searchParams.get("symbol") || "";
     const urlLong = searchParams.get("long") || "";
     const urlShort = searchParams.get("short") || "";
 
-    if (stored) {
-      // Restore workspaces from localStorage
-      setWorkspaces(stored);
-      // Determine active:
-      // 1. If URL has a full pair, find or create matching workspace
-      if (urlSymbol && urlLong && urlShort) {
-        const match = stored.find(
-          (w) =>
-            w.symbol === urlSymbol &&
-            w.longExchange === urlLong &&
-            w.shortExchange === urlShort
-        );
-        if (match) {
-          setActiveId(match.id);
+    async function hydrate() {
+      // Try fetching from backend first; fall back to localStorage on error.
+      let stored: ArbitrageWorkspace[] | null = null;
+      try {
+        const remote = await fetchWorkspaces();
+        if (remote.length > 0) {
+          stored = remote.map(fromRemote);
+        }
+      } catch {
+        // backend unavailable or unauthenticated — fall back to localStorage
+      }
+
+      if (!stored) {
+        stored = loadFromStorage();
+      }
+
+      const storedActive = loadActiveFromStorage();
+
+      if (stored) {
+        setWorkspaces(stored);
+        if (urlSymbol && urlLong && urlShort) {
+          const match = stored.find(
+            (w) =>
+              w.symbol === urlSymbol &&
+              w.longExchange === urlLong &&
+              w.shortExchange === urlShort
+          );
+          if (match) {
+            setActiveId(match.id);
+          } else {
+            const newWs: ArbitrageWorkspace = {
+              id: makeId(),
+              symbol: urlSymbol,
+              longExchange: urlLong,
+              shortExchange: urlShort,
+            };
+            setWorkspaces((prev) => [...prev, newWs]);
+            setActiveId(newWs.id);
+          }
+        } else if (storedActive && stored.find((w) => w.id === storedActive)) {
+          setActiveId(storedActive);
         } else {
-          // Create new workspace from URL
-          const newWs: ArbitrageWorkspace = {
+          setActiveId(stored[0].id);
+        }
+      } else {
+        if (urlSymbol && urlLong && urlShort) {
+          const ws: ArbitrageWorkspace = {
             id: makeId(),
             symbol: urlSymbol,
             longExchange: urlLong,
             shortExchange: urlShort,
           };
-          setWorkspaces((prev) => [...prev, newWs]);
-          setActiveId(newWs.id);
+          setWorkspaces([ws]);
+          setActiveId(ws.id);
+        } else {
+          const ws = blankWorkspace();
+          setWorkspaces([ws]);
+          setActiveId(ws.id);
         }
-      } else if (storedActive && stored.find((w) => w.id === storedActive)) {
-        setActiveId(storedActive);
-      } else {
-        setActiveId(stored[0].id);
       }
-    } else {
-      // No stored state — build from URL or blank
-      if (urlSymbol && urlLong && urlShort) {
-        const ws: ArbitrageWorkspace = {
-          id: makeId(),
-          symbol: urlSymbol,
-          longExchange: urlLong,
-          shortExchange: urlShort,
-        };
-        setWorkspaces([ws]);
-        setActiveId(ws.id);
-      } else {
-        const ws = blankWorkspace();
-        setWorkspaces([ws]);
-        setActiveId(ws.id);
-      }
+
+      setHydrated(true);
     }
 
-    setHydrated(true);
+    hydrate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -166,10 +201,18 @@ export function useArbitrageWorkspaces() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, workspaces, hydrated]);
 
-  // Persist to localStorage whenever state changes
+  // Persist to localStorage + backend (debounced) whenever state changes
   useEffect(() => {
     if (!hydrated) return;
     saveToStorage(workspaces, activeId);
+
+    // Debounce remote save to avoid hammering the API on rapid updates
+    if (remoteSaveTimer.current) clearTimeout(remoteSaveTimer.current);
+    remoteSaveTimer.current = setTimeout(() => {
+      saveWorkspaces(workspaces.map(toRemote)).catch(() => {
+        // ignore remote save errors silently
+      });
+    }, 500);
   }, [workspaces, activeId, hydrated]);
 
   // ---------------------------------------------------------------------------

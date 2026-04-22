@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -354,4 +355,40 @@ func (s *Store) DeleteExchangeCredential(ctx context.Context, userID, credential
 		return false, fmt.Errorf("delete exchange credential: %w", err)
 	}
 	return result.RowsAffected() > 0, nil
+}
+
+// GetWorkspaces returns the saved arbitrage workspaces for a user.
+func (s *Store) GetWorkspaces(ctx context.Context, userID string) ([]domain.ArbitrageWorkspace, error) {
+	const q = `SELECT workspaces FROM users WHERE id = $1`
+	row := s.pool.QueryRow(ctx, q, userID)
+
+	var raw []byte
+	if err := row.Scan(&raw); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []domain.ArbitrageWorkspace{}, nil
+		}
+		return nil, fmt.Errorf("get workspaces: %w", err)
+	}
+
+	var workspaces []domain.ArbitrageWorkspace
+	if err := json.Unmarshal(raw, &workspaces); err != nil {
+		return nil, fmt.Errorf("get workspaces unmarshal: %w", err)
+	}
+	if workspaces == nil {
+		return []domain.ArbitrageWorkspace{}, nil
+	}
+	return workspaces, nil
+}
+
+// SaveWorkspaces replaces the saved arbitrage workspaces for a user.
+func (s *Store) SaveWorkspaces(ctx context.Context, userID string, workspaces []domain.ArbitrageWorkspace) error {
+	data, err := json.Marshal(workspaces)
+	if err != nil {
+		return fmt.Errorf("save workspaces marshal: %w", err)
+	}
+	const q = `UPDATE users SET workspaces = $2, updated_at = now() WHERE id = $1`
+	if _, err := s.pool.Exec(ctx, q, userID, data); err != nil {
+		return fmt.Errorf("save workspaces: %w", err)
+	}
+	return nil
 }

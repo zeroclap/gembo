@@ -241,6 +241,14 @@ func (m *mockUserStore) DeleteExchangeCredential(_ context.Context, _, _ string)
 	return false, nil
 }
 
+func (m *mockUserStore) GetWorkspaces(_ context.Context, _ string) ([]domain.ArbitrageWorkspace, error) {
+	return []domain.ArbitrageWorkspace{}, nil
+}
+
+func (m *mockUserStore) SaveWorkspaces(_ context.Context, _ string, _ []domain.ArbitrageWorkspace) error {
+	return nil
+}
+
 var _ store.UserStore = (*mockUserStore)(nil)
 
 // ---------------------------------------------------------------------------
