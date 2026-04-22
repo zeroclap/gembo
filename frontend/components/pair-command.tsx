@@ -767,6 +767,20 @@ function PairSelectorPanel({
             {ongoingPositions.map((pos) => {
               const posKey = `${pos.symbol}::${pos.long_exchange_id}::${pos.short_exchange_id}`;
               const isActive = activeKey === posKey;
+
+              // Compute F/P spreads from snapshot (FundingArbitrage captured at open).
+              let fSpread: number | null = null;
+              let pSpread: number | null = null;
+              const snap = pos.snapshot as FundingArbitrage | null | Record<string, never>;
+              if (snap && "full_loop" in snap && snap.full_loop) {
+                const dir = snap.long?.exchange_id === pos.long_exchange_id ? 1 : -1;
+                const lcm = parseFloat(snap.full_loop.net_pct_per_loop) * 100 * dir;
+                const next = snap.next_payment
+                  ? parseFloat(snap.next_payment.payment_pct) * 100 * dir
+                  : lcm;
+                fSpread = spreadMode === "lcm" ? lcm : next;
+                pSpread = parseFloat(snap.open_spread) * dir;
+              }
               return (
                 <div
                   key={pos.id}
@@ -804,8 +818,16 @@ function PairSelectorPanel({
                         <span className="font-mono tabular-nums text-muted-foreground/50">entry {formatPrice(pos.short_entry_price)}</span>
                       </span>
                     </div>
-                    <div className="px-2 py-2 text-xs text-muted-foreground">—</div>
-                    <div className="px-2 py-2 text-xs text-muted-foreground">—</div>
+                    <div className="px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs">
+                      {fSpread !== null
+                        ? <span className={fSpread >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>{formatPct(fSpread)}</span>
+                        : <span className="text-muted-foreground">—</span>}
+                    </div>
+                    <div className="px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs">
+                      {pSpread !== null
+                        ? <span className={pSpread > 0 ? "text-emerald-600 dark:text-emerald-400" : pSpread < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}>{formatPct(pSpread)}</span>
+                        : <span className="text-muted-foreground">—</span>}
+                    </div>
                   </div>
 
                   {/* Desktop */}
@@ -840,8 +862,16 @@ function PairSelectorPanel({
                       <span>entry {formatPrice(pos.long_entry_price)}</span>
                       <span>entry {formatPrice(pos.short_entry_price)}</span>
                     </div>
-                    <div className="px-2 py-2 text-xs text-muted-foreground">—</div>
-                    <div className="px-2 py-2 text-xs text-muted-foreground">—</div>
+                    <div className="px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs">
+                      {fSpread !== null
+                        ? <span className={fSpread >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>{formatPct(fSpread)}</span>
+                        : <span className="text-muted-foreground">—</span>}
+                    </div>
+                    <div className="px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs">
+                      {pSpread !== null
+                        ? <span className={pSpread > 0 ? "text-emerald-600 dark:text-emerald-400" : pSpread < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}>{formatPct(pSpread)}</span>
+                        : <span className="text-muted-foreground">—</span>}
+                    </div>
                   </div>
                 </div>
               );
