@@ -662,6 +662,7 @@ interface PairSelectorPanelProps {
   onClearExchangeFilter: () => void;
   ongoingPositions: Position[];
   onSelectPosition: (position: Position) => void;
+  liveArbitrages: Map<string, FundingArbitrage>;
 }
 
 function PairSelectorPanel({
@@ -681,6 +682,7 @@ function PairSelectorPanel({
   onClearExchangeFilter,
   ongoingPositions,
   onSelectPosition,
+  liveArbitrages,
 }: PairSelectorPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -780,12 +782,16 @@ function PairSelectorPanel({
                 const dir = snap.long.exchange_id === pos.long_exchange_id ? 1 : -1;
                 const snapLong  = dir === 1 ? snap.long  : snap.short;
                 const snapShort = dir === 1 ? snap.short : snap.long;
-                longRate        = parseFloat(snapLong.funding_rate)  * 100;
-                shortRate       = parseFloat(snapShort.funding_rate) * 100;
-                longInterval    = snapLong.interval_hours;
-                shortInterval   = snapShort.interval_hours;
-                longNextFunding  = snapLong.next_funding_at  || null;
-                shortNextFunding = snapShort.next_funding_at || null;
+                longRate     = parseFloat(snapLong.funding_rate)  * 100;
+                shortRate    = parseFloat(snapShort.funding_rate) * 100;
+                longInterval  = snapLong.interval_hours;
+                shortInterval = snapShort.interval_hours;
+                // Use live next_funding_at for countdown; fall back to snapshot.
+                const liveArb = liveArbitrages.get(pos.symbol);
+                const liveLong  = liveArb ? (dir === 1 ? liveArb.long  : liveArb.short) : null;
+                const liveShort = liveArb ? (dir === 1 ? liveArb.short : liveArb.long)  : null;
+                longNextFunding  = (liveLong?.next_funding_at  || snapLong.next_funding_at)  || null;
+                shortNextFunding = (liveShort?.next_funding_at || snapShort.next_funding_at) || null;
               }
               let fSpread: number | null = null;
               let pSpread: number | null = null;
@@ -1020,6 +1026,13 @@ export function PairCommand({
     [allPositions]
   );
 
+  // Build a symbol→FundingArbitrage lookup for live leg data (countdown).
+  const liveArbitrages = useMemo(() => {
+    const map = new Map<string, FundingArbitrage>();
+    for (const arb of arbitrages ?? []) map.set(arb.symbol, arb);
+    return map;
+  }, [arbitrages]);
+
   // Build both directions for every pair
   const allPairs = useMemo(
     () => (arbitrages ? buildDirectionalPairs(arbitrages) : []),
@@ -1130,6 +1143,7 @@ export function PairCommand({
     onClearExchangeFilter: () => setExchangeFilter(new Set()),
     ongoingPositions,
     onSelectPosition: handleSelectPosition,
+    liveArbitrages,
   };
 
   if (!open) return null;
