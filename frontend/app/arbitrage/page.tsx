@@ -58,11 +58,24 @@ function ArbitrageContent() {
 
   const handlePairSelect = useCallback(
     (selection: PairSelection) => {
-      if (activeId) {
+      if (!activeId) return;
+      // If another workspace already has this exact pair, close the current
+      // (newly-created blank) workspace and switch to the existing one.
+      const existing = workspaces.find(
+        (w) =>
+          w.id !== activeId &&
+          w.symbol === selection.symbol &&
+          w.longExchange === selection.longExchange &&
+          w.shortExchange === selection.shortExchange
+      );
+      if (existing) {
+        closeWorkspace(activeId);
+        selectWorkspace(existing.id);
+      } else {
         applyPairSelection(activeId, selection);
       }
     },
-    [activeId, applyPairSelection]
+    [activeId, workspaces, applyPairSelection, closeWorkspace, selectWorkspace]
   );
 
   const handleSwap = useCallback(() => {
