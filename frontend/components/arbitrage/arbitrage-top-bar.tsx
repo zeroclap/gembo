@@ -45,10 +45,12 @@ function SpreadMiniBar({
   tickers,
   fundingRates,
   arbitrage,
+  longExchange,
 }: {
   tickers?: ArbitrageTickers;
   fundingRates?: ArbitrageFundingRates;
   arbitrage?: ArbitrageData;
+  longExchange?: string;
 }) {
   // Funding spread: short rate − long rate, normalised to 8h
   const longRate = parseFloat(fundingRates?.long?.rate ?? arbitrage?.funding?.long.funding_rate ?? "0");
@@ -68,7 +70,16 @@ function SpreadMiniBar({
   const shortBid = parseFloat(tickers?.short?.bid ?? "0");
   const midPrice = longAsk && shortBid ? (longAsk + shortBid) / 2 : 0;
   const rawSpreadPct = midPrice > 0 ? ((shortBid - longAsk) / midPrice) * 100 : null;
-  const spreadPct = arbitrage?.spread ? parseFloat(arbitrage.spread.spread_pct) : rawSpreadPct;
+  let spreadPct: number | null = rawSpreadPct;
+  if (arbitrage?.spread) {
+    const backendPct = parseFloat(arbitrage.spread.spread_pct);
+    // Backend always returns the best-direction (positive) spread.
+    // Negate if the backend's buy side is the workspace's short exchange.
+    const isReversed = longExchange
+      ? arbitrage.spread.buy_exchange_id !== longExchange
+      : false;
+    spreadPct = isReversed ? -backendPct : backendPct;
+  }
   const spreadStr = spreadPct !== null
     ? `${spreadPct >= 0 ? "+" : ""}${spreadPct.toFixed(4)}%`
     : "—";
@@ -231,6 +242,7 @@ export function ArbitrageTopBar({
               tickers={tickers}
               fundingRates={fundingRates}
               arbitrage={arbitrage}
+              longExchange={longExchange}
             />
           )}
         </div>
