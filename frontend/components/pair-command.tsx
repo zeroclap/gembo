@@ -768,7 +768,24 @@ function PairSelectorPanel({
               const posKey = `${pos.symbol}::${pos.long_exchange_id}::${pos.short_exchange_id}`;
               const isActive = activeKey === posKey;
 
-              // Compute F/P spreads from snapshot (FundingArbitrage captured at open).
+              // Extract per-leg funding details from snapshot for the funding-rate column.
+              let longRate: number | null = null;
+              let shortRate: number | null = null;
+              let longInterval: number | null = null;
+              let shortInterval: number | null = null;
+              let longNextFunding: string | null = null;
+              let shortNextFunding: string | null = null;
+              if (snap && "long" in snap && snap.long && snap.short) {
+                const dir = snap.long.exchange_id === pos.long_exchange_id ? 1 : -1;
+                const snapLong  = dir === 1 ? snap.long  : snap.short;
+                const snapShort = dir === 1 ? snap.short : snap.long;
+                longRate        = parseFloat(snapLong.funding_rate)  * 100;
+                shortRate       = parseFloat(snapShort.funding_rate) * 100;
+                longInterval    = snapLong.interval_hours;
+                shortInterval   = snapShort.interval_hours;
+                longNextFunding  = snapLong.next_funding_at  || null;
+                shortNextFunding = snapShort.next_funding_at || null;
+              }
               let fSpread: number | null = null;
               let pSpread: number | null = null;
               const snap = pos.snapshot as FundingArbitrage | null | Record<string, never>;
@@ -805,8 +822,13 @@ function PairSelectorPanel({
                         </span>
                         <ExchangeBadge exchangeId={pos.long_exchange_id} />
                         <span className="font-mono tabular-nums text-muted-foreground/70">{formatPrice(pos.long_mark_price)}</span>
-                        <span className="text-muted-foreground/30 select-none">·</span>
-                        <span className="font-mono tabular-nums text-muted-foreground/50">entry {formatPrice(pos.long_entry_price)}</span>
+                        {longRate !== null && (
+                          <>
+                            <span className="text-muted-foreground/30 select-none">·</span>
+                            <span className={cn("font-mono tabular-nums", longRate <= 0 ? "text-emerald-600/70 dark:text-emerald-400/70" : "text-red-600/70 dark:text-red-400/70")}>{formatPct(longRate)}</span>
+                            {longInterval !== null && <span className="text-muted-foreground/50 font-mono">{longInterval}h</span>}
+                          </>
+                        )}
                       </span>
                       <span className="flex items-center gap-1 text-[10px]">
                         <span className="inline-flex items-center justify-center h-3 w-3 rounded-sm bg-red-600 dark:bg-red-500 shrink-0">
@@ -814,8 +836,13 @@ function PairSelectorPanel({
                         </span>
                         <ExchangeBadge exchangeId={pos.short_exchange_id} />
                         <span className="font-mono tabular-nums text-muted-foreground/70">{formatPrice(pos.short_mark_price)}</span>
-                        <span className="text-muted-foreground/30 select-none">·</span>
-                        <span className="font-mono tabular-nums text-muted-foreground/50">entry {formatPrice(pos.short_entry_price)}</span>
+                        {shortRate !== null && (
+                          <>
+                            <span className="text-muted-foreground/30 select-none">·</span>
+                            <span className={cn("font-mono tabular-nums", shortRate >= 0 ? "text-emerald-600/70 dark:text-emerald-400/70" : "text-red-600/70 dark:text-red-400/70")}>{formatPct(shortRate)}</span>
+                            {shortInterval !== null && <span className="text-muted-foreground/50 font-mono">{shortInterval}h</span>}
+                          </>
+                        )}
                       </span>
                     </div>
                     <div className="px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs">
@@ -857,10 +884,40 @@ function PairSelectorPanel({
                       <span className="text-muted-foreground/70">{formatPrice(pos.long_mark_price)}</span>
                       <span className="text-muted-foreground/70">{formatPrice(pos.short_mark_price)}</span>
                     </div>
-                    {/* Entry prices in funding-rate column */}
-                    <div className="px-2 py-2 flex flex-col whitespace-nowrap text-[10px] font-mono tabular-nums text-muted-foreground/50">
-                      <span>entry {formatPrice(pos.long_entry_price)}</span>
-                      <span>entry {formatPrice(pos.short_entry_price)}</span>
+                    {/* Funding rates */}
+                    <div className="px-2 py-2 flex flex-col whitespace-nowrap text-[10px]">
+                      <span className="flex items-center gap-1">
+                        {longRate !== null ? (
+                          <>
+                            <span className={cn("font-mono tabular-nums", longRate <= 0 ? "text-emerald-600/70 dark:text-emerald-400/70" : "text-red-600/70 dark:text-red-400/70")}>
+                              {formatPct(longRate)}
+                            </span>
+                            {longInterval !== null && <span className="text-muted-foreground/50 font-mono">{longInterval}h</span>}
+                            {longNextFunding && (
+                              <>
+                                <span className="text-muted-foreground/30 select-none">·</span>
+                                <span className="text-muted-foreground/40 font-mono">{formatCountdown(longNextFunding)}</span>
+                              </>
+                            )}
+                          </>
+                        ) : <span className="text-muted-foreground/40">—</span>}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        {shortRate !== null ? (
+                          <>
+                            <span className={cn("font-mono tabular-nums", shortRate >= 0 ? "text-emerald-600/70 dark:text-emerald-400/70" : "text-red-600/70 dark:text-red-400/70")}>
+                              {formatPct(shortRate)}
+                            </span>
+                            {shortInterval !== null && <span className="text-muted-foreground/50 font-mono">{shortInterval}h</span>}
+                            {shortNextFunding && (
+                              <>
+                                <span className="text-muted-foreground/30 select-none">·</span>
+                                <span className="text-muted-foreground/40 font-mono">{formatCountdown(shortNextFunding)}</span>
+                              </>
+                            )}
+                          </>
+                        ) : <span className="text-muted-foreground/40">—</span>}
+                      </span>
                     </div>
                     <div className="px-2 py-2 whitespace-nowrap font-mono tabular-nums font-medium text-xs">
                       {fSpread !== null
