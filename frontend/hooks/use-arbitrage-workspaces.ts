@@ -260,6 +260,12 @@ export function useArbitrageWorkspaces() {
     []
   );
 
+  // Close one workspace and atomically activate another by id.
+  const closeAndActivate = useCallback((closeId: string, activateId: string) => {
+    setWorkspaces((prev) => prev.filter((w) => w.id !== closeId));
+    setActiveId(activateId);
+  }, []);
+
   const applyPairSelection = useCallback(
     (id: string, selection: PairSelection) => {
       updateWorkspace(id, {
@@ -279,6 +285,7 @@ export function useArbitrageWorkspaces() {
     selectWorkspace,
     addWorkspace,
     closeWorkspace,
+    closeAndActivate,
     updateWorkspace,
     applyPairSelection,
   };

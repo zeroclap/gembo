@@ -28,6 +28,7 @@ function ArbitrageContent() {
     selectWorkspace,
     addWorkspace,
     closeWorkspace,
+    closeAndActivate,
     applyPairSelection,
   } = useArbitrageWorkspaces();
 
@@ -69,13 +70,12 @@ function ArbitrageContent() {
           w.shortExchange === selection.shortExchange
       );
       if (existing) {
-        closeWorkspace(activeId);
-        selectWorkspace(existing.id);
+        closeAndActivate(activeId, existing.id);
       } else {
         applyPairSelection(activeId, selection);
       }
     },
-    [activeId, workspaces, applyPairSelection, closeWorkspace, selectWorkspace]
+    [activeId, workspaces, applyPairSelection, closeAndActivate]
   );
 
   const handleSwap = useCallback(() => {
