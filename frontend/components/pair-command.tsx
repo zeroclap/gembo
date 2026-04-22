@@ -6,7 +6,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   fetchFundingArbitrage,
+  fetchPositions,
   type FundingArbitrage,
+  type Position,
 } from "@/lib/api";
 import { formatPrice, formatCountdown } from "@/lib/format";
 import { ExchangeBadge } from "@/components/arbitrage/shared";
@@ -634,6 +636,15 @@ function DataRowPair({
 // PairSelectorPanel
 // ---------------------------------------------------------------------------
 
+const ACTIVE_POSITION_STATUSES = new Set([
+  "pending",
+  "opening",
+  "open",
+  "partially_open",
+  "closing",
+]);
+
+
 interface PairSelectorPanelProps {
   data: DirectionalPair[];
   sort: SortState;
@@ -649,6 +660,8 @@ interface PairSelectorPanelProps {
   exchangeFilter: Set<string>;
   onToggleExchange: (exchange: string) => void;
   onClearExchangeFilter: () => void;
+  ongoingPositions: Position[];
+  onSelectPosition: (position: Position) => void;
 }
 
 function PairSelectorPanel({
@@ -666,6 +679,8 @@ function PairSelectorPanel({
   exchangeFilter,
   onToggleExchange,
   onClearExchangeFilter,
+  ongoingPositions,
+  onSelectPosition,
 }: PairSelectorPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -679,10 +694,10 @@ function PairSelectorPanel({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Toolbar */}
+      {/* Unified header: toolbar + column headers, one bottom border */}
       <div className="border-b shrink-0">
-        <div className="flex items-center gap-1.5 px-3 py-2.5 max-w-4xl mx-auto">
-          {/* Symbol search */}
+        {/* Toolbar row */}
+        <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-2 max-w-4xl mx-auto">
           <div className="flex-1 min-w-0 relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none z-10" />
             <input
@@ -693,19 +708,13 @@ function PairSelectorPanel({
               className="w-full h-7 rounded-md border bg-background pl-6 pr-2 text-xs outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
             />
           </div>
-
-          {/* Exchange filter */}
           <ExchangeFilterDropdown
             exchanges={exchanges}
             selected={exchangeFilter}
             onToggle={onToggleExchange}
             onClear={onClearExchangeFilter}
           />
-
-          {/* Spread mode */}
           <SpreadModeDropdown value={spreadMode} onChange={onSpreadModeChange} />
-
-          {/* Close */}
           <button
             type="button"
             onClick={onClose}
@@ -716,41 +725,135 @@ function PairSelectorPanel({
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
-      </div>
 
-      {/* Table header */}
-      <div className="border-b bg-background text-xs text-foreground font-medium shrink-0">
-        {/* Mobile header */}
-        <div className={cn(GRID_MOBILE, "items-center")}>
-          <div className="px-3 py-2">
-            <SortButton label="Symbol" sortKey="symbol" current={sort} onToggle={toggleSort} />
+        {/* Column header row */}
+        <div className="text-xs text-foreground font-medium border-t">
+          <div className={cn(GRID_MOBILE, "items-center")}>
+            <div className="px-3 py-1.5">
+              <SortButton label="Symbol" sortKey="symbol" current={sort} onToggle={toggleSort} />
+            </div>
+            <div className="px-2 py-1.5">
+              <SortButton label="F. Spread" sortKey="funding_spread" current={sort} onToggle={toggleSort} />
+            </div>
+            <div className="px-2 py-1.5">
+              <SortButton label="P. Spread" sortKey="open_spread" current={sort} onToggle={toggleSort} />
+            </div>
           </div>
-          <div className="px-2 py-2">
-            <SortButton label="F. Spread" sortKey="funding_spread" current={sort} onToggle={toggleSort} />
-          </div>
-          <div className="px-2 py-2">
-            <SortButton label="P. Spread" sortKey="open_spread" current={sort} onToggle={toggleSort} />
-          </div>
-        </div>
-        {/* Desktop header */}
-        <div className={cn(GRID_DESKTOP, "items-center")}>
-          <div className="px-3 py-2">
-            <SortButton label="Symbol" sortKey="symbol" current={sort} onToggle={toggleSort} />
-          </div>
-          <div className="px-2 py-2">Exchanges</div>
-          <div className="px-2 py-2">Price</div>
-          <div className="px-2 py-2">Funding Rate</div>
-          <div className="px-2 py-2">
-            <SortButton label="F. Spread" sortKey="funding_spread" current={sort} onToggle={toggleSort} />
-          </div>
-          <div className="px-2 py-2">
-            <SortButton label="P. Spread" sortKey="open_spread" current={sort} onToggle={toggleSort} />
+          <div className={cn(GRID_DESKTOP, "items-center")}>
+            <div className="px-3 py-1.5">
+              <SortButton label="Symbol" sortKey="symbol" current={sort} onToggle={toggleSort} />
+            </div>
+            <div className="px-2 py-1.5">Exchanges</div>
+            <div className="px-2 py-1.5">Price</div>
+            <div className="px-2 py-1.5">Funding Rate</div>
+            <div className="px-2 py-1.5">
+              <SortButton label="F. Spread" sortKey="funding_spread" current={sort} onToggle={toggleSort} />
+            </div>
+            <div className="px-2 py-1.5">
+              <SortButton label="P. Spread" sortKey="open_spread" current={sort} onToggle={toggleSort} />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Virtualized rows */}
+      {/* Scrollable body */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0">
+        {/* Ongoing positions pinned at top */}
+        {ongoingPositions.length > 0 && (
+          <>
+            <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/30">
+              <span className="text-[0.6rem] font-medium text-muted-foreground uppercase tracking-wider">Open positions</span>
+            </div>
+            {ongoingPositions.map((pos) => {
+              const posKey = `${pos.symbol}::${pos.long_exchange_id}::${pos.short_exchange_id}`;
+              const isActive = activeKey === posKey;
+              return (
+                <div
+                  key={pos.id}
+                  className={cn(
+                    "group/row cursor-pointer border-b border-l-2 transition-colors hover:bg-muted/50 text-[11px] leading-tight",
+                    isActive
+                      ? "bg-violet-500/5 dark:bg-violet-500/10 border-l-violet-500 border-violet-500/20"
+                      : "border-l-emerald-500 hover:bg-muted/50"
+                  )}
+                  onClick={() => onSelectPosition(pos)}
+                >
+                  {/* Mobile */}
+                  <div className={cn(GRID_MOBILE, "items-center")}>
+                    <div className="px-3 py-2 flex flex-col gap-0.5 min-w-0">
+                      <div className="flex items-center gap-1 whitespace-nowrap font-medium text-xs">
+                        {isActive && <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />}
+                        {pos.symbol}
+                      </div>
+                      <span className="flex items-center gap-1 text-[10px]">
+                        <span className="inline-flex items-center justify-center h-3 w-3 rounded-sm bg-emerald-600 dark:bg-emerald-500 shrink-0">
+                          <ArrowUp className="h-2 w-2 text-white" strokeWidth={2.5} />
+                        </span>
+                        <ExchangeBadge exchangeId={pos.long_exchange_id} />
+                        <span className="font-mono tabular-nums text-muted-foreground/70">{formatPrice(pos.long_mark_price)}</span>
+                        <span className="text-muted-foreground/30 select-none">·</span>
+                        <span className="font-mono tabular-nums text-muted-foreground/50">entry {formatPrice(pos.long_entry_price)}</span>
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px]">
+                        <span className="inline-flex items-center justify-center h-3 w-3 rounded-sm bg-red-600 dark:bg-red-500 shrink-0">
+                          <ArrowDown className="h-2 w-2 text-white" strokeWidth={2.5} />
+                        </span>
+                        <ExchangeBadge exchangeId={pos.short_exchange_id} />
+                        <span className="font-mono tabular-nums text-muted-foreground/70">{formatPrice(pos.short_mark_price)}</span>
+                        <span className="text-muted-foreground/30 select-none">·</span>
+                        <span className="font-mono tabular-nums text-muted-foreground/50">entry {formatPrice(pos.short_entry_price)}</span>
+                      </span>
+                    </div>
+                    <div className="px-2 py-2 text-xs text-muted-foreground">—</div>
+                    <div className="px-2 py-2 text-xs text-muted-foreground">—</div>
+                  </div>
+
+                  {/* Desktop */}
+                  <div className={cn(GRID_DESKTOP, "items-center")}>
+                    {/* Symbol */}
+                    <div className="px-3 py-2 flex items-center gap-1 whitespace-nowrap font-medium text-xs">
+                      {isActive && <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />}
+                      {pos.symbol}
+                    </div>
+                    {/* Exchanges */}
+                    <div className="px-2 py-2 flex flex-col text-[10px]">
+                      <span className="flex items-center gap-1">
+                        <span className="inline-flex items-center justify-center h-3 w-3 rounded-sm bg-emerald-600 dark:bg-emerald-500 shrink-0">
+                          <ArrowUp className="h-2 w-2 text-white" strokeWidth={2.5} />
+                        </span>
+                        <ExchangeBadge exchangeId={pos.long_exchange_id} />
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="inline-flex items-center justify-center h-3 w-3 rounded-sm bg-red-600 dark:bg-red-500 shrink-0">
+                          <ArrowDown className="h-2 w-2 text-white" strokeWidth={2.5} />
+                        </span>
+                        <ExchangeBadge exchangeId={pos.short_exchange_id} />
+                      </span>
+                    </div>
+                    {/* Mark price / entry price */}
+                    <div className="px-2 py-2 flex flex-col whitespace-nowrap text-[10px] font-mono tabular-nums">
+                      <span className="text-muted-foreground/70">{formatPrice(pos.long_mark_price)}</span>
+                      <span className="text-muted-foreground/70">{formatPrice(pos.short_mark_price)}</span>
+                    </div>
+                    {/* Entry prices in funding-rate column */}
+                    <div className="px-2 py-2 flex flex-col whitespace-nowrap text-[10px] font-mono tabular-nums text-muted-foreground/50">
+                      <span>entry {formatPrice(pos.long_entry_price)}</span>
+                      <span>entry {formatPrice(pos.short_entry_price)}</span>
+                    </div>
+                    <div className="px-2 py-2 text-xs text-muted-foreground">—</div>
+                    <div className="px-2 py-2 text-xs text-muted-foreground">—</div>
+                  </div>
+                </div>
+              );
+            })}
+            {/* Divider before main list */}
+            <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/30">
+              <span className="text-[0.6rem] font-medium text-muted-foreground uppercase tracking-wider">All pairs</span>
+            </div>
+          </>
+        )}
+
+        {/* Virtualized main list */}
         {data.length === 0 ? (
           <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
             {search
@@ -818,6 +921,17 @@ export function PairCommand({
     queryKey: ["funding-arbitrage"],
     queryFn: fetchFundingArbitrage,
   });
+
+  const { data: allPositions } = useQuery({
+    queryKey: ["positions"],
+    queryFn: () => fetchPositions(),
+    enabled: open,
+  });
+
+  const ongoingPositions = useMemo(
+    () => (allPositions ?? []).filter((p) => ACTIVE_POSITION_STATUSES.has(p.status)),
+    [allPositions]
+  );
 
   // Build both directions for every pair
   const allPairs = useMemo(
@@ -893,6 +1007,18 @@ export function PairCommand({
     [onSelect, onOpenChange]
   );
 
+  const handleSelectPosition = useCallback(
+    (pos: Position) => {
+      onSelect({
+        symbol: pos.symbol,
+        longExchange: pos.long_exchange_id,
+        shortExchange: pos.short_exchange_id,
+      });
+      onOpenChange(false);
+    },
+    [onSelect, onOpenChange]
+  );
+
   const panelProps: PairSelectorPanelProps = {
     data: sortedPairs,
     sort,
@@ -915,6 +1041,8 @@ export function PairCommand({
       });
     },
     onClearExchangeFilter: () => setExchangeFilter(new Set()),
+    ongoingPositions,
+    onSelectPosition: handleSelectPosition,
   };
 
   if (!open) return null;
