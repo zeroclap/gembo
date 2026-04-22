@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { PairCommand, type PairSelection } from "@/components/pair-command";
 import { ExchangeStatusRow } from "@/components/arbitrage/metric-cards";
-import { ChevronDown, BarChart2, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, BarChart2, SlidersHorizontal, ArrowLeftRight } from "lucide-react";
 import type { ArbitrageWorkspace } from "@/hooks/use-arbitrage-workspaces";
 import type { ArbitrageTickers, ArbitrageFundingRates, ArbitrageData } from "@/hooks/use-arbitrage-data";
 
@@ -154,6 +154,7 @@ interface ArbitrageTopBarProps {
   /** Mobile panel tab state — passed in from page so it can control content */
   mobileTab?: MobileTab;
   onMobileTabChange?: (tab: MobileTab) => void;
+  onSwap?: () => void;
 }
 
 export function ArbitrageTopBar({
@@ -164,6 +165,7 @@ export function ArbitrageTopBar({
   arbitrage,
   mobileTab,
   onMobileTabChange,
+  onSwap,
 }: ArbitrageTopBarProps) {
   const [commandOpen, setCommandOpen] = useState(false);
 
@@ -205,12 +207,24 @@ export function ArbitrageTopBar({
 
       <div className="flex items-center gap-2 px-3 border-b bg-card/20 md:py-0 py-2">
         {/* Symbol button + spread values: side-by-side on mobile, stacked on desktop */}
-        <div className="flex items-center gap-2 md:flex-col md:items-start md:gap-0">
+        <div className="flex items-center gap-1 md:flex-col md:items-start md:gap-0">
           {hasPair && (
-            <SymbolButton
-              symbol={symbol}
-              onClick={() => setCommandOpen(true)}
-            />
+            <div className="flex items-center gap-1">
+              <SymbolButton
+                symbol={symbol}
+                onClick={() => setCommandOpen(true)}
+              />
+              {onSwap && (
+                <button
+                  type="button"
+                  onClick={onSwap}
+                  title="Swap long/short direction"
+                  className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shrink-0"
+                >
+                  <ArrowLeftRight className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           )}
           {hasPair && (
             <SpreadMiniBar

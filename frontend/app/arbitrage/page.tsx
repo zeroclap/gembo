@@ -65,6 +65,15 @@ function ArbitrageContent() {
     [activeId, applyPairSelection]
   );
 
+  const handleSwap = useCallback(() => {
+    if (!activeId || !activeWorkspace?.symbol) return;
+    applyPairSelection(activeId, {
+      symbol: activeWorkspace.symbol,
+      longExchange: activeWorkspace.shortExchange,
+      shortExchange: activeWorkspace.longExchange,
+    });
+  }, [activeId, activeWorkspace, applyPairSelection]);
+
   const handleAddAndOpen = useCallback(() => {
     addWorkspace();
     setInitCommandOpen(true);
@@ -116,6 +125,7 @@ function ArbitrageContent() {
         <ArbitrageTopBar
           workspace={activeWorkspace}
           onPairSelect={handlePairSelect}
+          onSwap={handleSwap}
           tickers={tickers}
           fundingRates={fundingRates}
           arbitrage={arbitrage}
