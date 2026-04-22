@@ -9,16 +9,21 @@ import (
 // MapPosition converts a CCXT Position to a base.ExchangePosition.
 func MapPosition(p ccxt.Position) *ExchangePosition {
 	return &ExchangePosition{
-		Symbol:           ccxtutil.DerefString(p.Symbol),
-		Side:             ccxtutil.NormalizePositionSide(ccxtutil.DerefString(p.Side)),
-		Contracts:        ccxtutil.FloatToDecimal(p.Contracts),
-		EntryPrice:       ccxtutil.FloatToDecimal(p.EntryPrice),
-		MarkPrice:        ccxtutil.FloatToDecimal(p.MarkPrice),
-		LiquidationPrice: ccxtutil.FloatToDecimal(p.LiquidationPrice),
-		UnrealizedPnL:    ccxtutil.FloatToDecimal(p.UnrealizedPnl),
-		Leverage:         ccxtutil.FloatToDecimal(p.Leverage),
-		MarginMode:       ccxtutil.DerefString(p.MarginMode),
-		Notional:         ccxtutil.FloatToDecimal(p.Notional),
+		Symbol:            ccxtutil.DerefString(p.Symbol),
+		Side:              ccxtutil.NormalizePositionSide(ccxtutil.DerefString(p.Side)),
+		Contracts:         ccxtutil.FloatToDecimal(p.Contracts),
+		EntryPrice:        ccxtutil.FloatToDecimal(p.EntryPrice),
+		MarkPrice:         ccxtutil.FloatToDecimal(p.MarkPrice),
+		LiquidationPrice:  ccxtutil.FloatToDecimal(p.LiquidationPrice),
+		UnrealizedPnL:     ccxtutil.FloatToDecimal(p.UnrealizedPnl),
+		Leverage:          ccxtutil.FloatToDecimal(p.Leverage),
+		MarginMode:        ccxtutil.DerefString(p.MarginMode),
+		Notional:          ccxtutil.FloatToDecimal(p.Notional),
+		InitialMargin:     ccxtutil.FloatToDecimal(p.InitialMargin),
+		MaintenanceMargin: ccxtutil.FloatToDecimal(p.MaintenanceMargin),
+		MarginRatio:       ccxtutil.FloatToDecimal(p.MarginRatio),
+		Collateral:        ccxtutil.FloatToDecimal(p.Collateral),
+		AdlQuantile:       ccxtutil.InfoAdlQuantile(p.Info),
 	}
 }
 

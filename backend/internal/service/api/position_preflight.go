@@ -20,6 +20,9 @@ type preflightOpenRequest struct {
 	SizeType        string `json:"size_type"`
 	RequestedSize   string `json:"requested_size"`
 	PortionSize     string `json:"portion_size"`
+	Leverage        int    `json:"leverage"`
+	MarginCapital   string `json:"margin_capital"`
+	MarginMode      string `json:"margin_mode"` // "cross" or "isolated"
 }
 
 type openPreflightResponse struct {
@@ -37,6 +40,7 @@ type openPreflightResponse struct {
 	Short           legOpenPreflight    `json:"short"`
 	RulesVersion    string              `json:"rules_version"`
 	Errors          []openPreflightItem `json:"errors"`
+	Warnings        []openPreflightItem `json:"warnings"`
 	CanOpen         bool                `json:"can_open"`
 }
 
@@ -135,6 +139,8 @@ func (h *Handler) buildOpenPreflight(ctx context.Context, req preflightOpenReque
 		requiredBaseQty = shortLeg.RequiredBaseQty
 	}
 
+	warns := warnMarginConfig(req)
+
 	res := &openPreflightResponse{
 		Symbol:          req.Symbol,
 		LongExchangeID:  req.LongExchangeID,
@@ -150,6 +156,7 @@ func (h *Handler) buildOpenPreflight(ctx context.Context, req preflightOpenReque
 		Short:           *shortLeg,
 		RulesVersion:    "market-metadata-v2",
 		Errors:          errs,
+		Warnings:        warns,
 		CanOpen:         len(errs) == 0,
 	}
 
@@ -291,6 +298,31 @@ func (h *Handler) preflightLeg(
 		RequiredBaseQty:   requiredBaseQty,
 		RequiredNotional:  requiredNotional,
 	}, nil
+}
+
+func warnMarginConfig(req preflightOpenRequest) []openPreflightItem {
+	warns := make([]openPreflightItem, 0, 2)
+
+	// Warn when leverage > 1 but no margin_capital provided — the position will
+	// use full notional collateral which is inefficient for isolated margin.
+	if req.Leverage > 1 && req.MarginCapital == "" {
+		warns = append(warns, openPreflightItem{
+			Code:    "missing_margin_capital",
+			Field:   "margin_capital",
+			Message: fmt.Sprintf("leverage %d is set but margin_capital is not provided; isolated margin will default to full notional, which is inefficient", req.Leverage),
+		})
+	}
+
+	// Warn when isolated margin mode is requested but no margin_capital is given.
+	if req.MarginMode == "isolated" && req.MarginCapital == "" {
+		warns = append(warns, openPreflightItem{
+			Code:    "isolated_no_capital",
+			Field:   "margin_capital",
+			Message: "margin_mode is 'isolated' but margin_capital is not provided; position may open with unintended collateral",
+		})
+	}
+
+	return warns
 }
 
 func validateLegOpen(leg *legOpenPreflight) []openPreflightItem {

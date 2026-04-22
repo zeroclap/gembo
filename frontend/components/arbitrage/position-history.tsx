@@ -115,11 +115,6 @@ function PositionRow({
         {/* Status + Type */}
         <div className="flex items-center gap-1.5 shrink-0">
           <StatusBadge status={position.status} />
-          {position.arbitrage_type && (
-            <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider px-1 py-0.5 rounded bg-muted">
-              {position.arbitrage_type}
-            </span>
-          )}
         </div>
 
         {/* Exchanges */}

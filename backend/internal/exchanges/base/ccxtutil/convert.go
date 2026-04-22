@@ -90,6 +90,47 @@ func NormalizePositionSide(raw string) domain.PositionSide {
 	}
 }
 
+// InfoAdlQuantile extracts the ADL (Auto-Deleveraging) quantile (1–5) from a
+// raw CCXT position Info map. Different exchanges use different keys:
+//   - Bybit: "adlRankingPercentage" (0–100)
+//   - OKX:   "adlRankingPercentile" (0–100)
+//
+// The percentage is converted to a 1–5 quantile via ceil(pct/20).
+// Returns 0 if no recognised key is present or the value cannot be parsed.
+func InfoAdlQuantile(info map[string]interface{}) int {
+	keys := []string{"adlRankingPercentage", "adlRankingPercentile"}
+	for _, k := range keys {
+		v, ok := info[k]
+		if !ok {
+			continue
+		}
+		var pct float64
+		switch val := v.(type) {
+		case float64:
+			pct = val
+		case int:
+			pct = float64(val)
+		default:
+			continue
+		}
+		if pct <= 0 {
+			return 0
+		}
+		q := int(pct / 20)
+		if pct > float64(q)*20 {
+			q++
+		}
+		if q > 5 {
+			q = 5
+		}
+		if q < 1 {
+			q = 1
+		}
+		return q
+	}
+	return 0
+}
+
 // NormalizeOrderSide converts a raw CCXT order side string to a
 // domain.OrderSide. Returns the zero value and logs a warning for
 // unrecognised values.

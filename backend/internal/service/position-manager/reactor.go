@@ -181,6 +181,13 @@ func (t *Trader) applyPositionEvent(p *domain.Position, event *domain.ExchangePo
 		p.LongLeverage = event.Leverage
 		p.LongMarginMode = event.MarginMode
 		p.LongNotional = event.Notional
+		p.LongInitialMargin = event.InitialMargin
+		p.LongMaintenanceMargin = event.MaintenanceMargin
+		p.LongMarginRatio = event.MarginRatio
+		p.LongCollateral = event.Collateral
+		if event.AdlQuantile > 0 {
+			p.LongAdlQuantile = event.AdlQuantile
+		}
 	case "short":
 		if event.ContractSize.GreaterThan(decimal.Zero) {
 			p.ShortContractSize = event.ContractSize
@@ -191,6 +198,13 @@ func (t *Trader) applyPositionEvent(p *domain.Position, event *domain.ExchangePo
 		p.ShortLeverage = event.Leverage
 		p.ShortMarginMode = event.MarginMode
 		p.ShortNotional = event.Notional
+		p.ShortInitialMargin = event.InitialMargin
+		p.ShortMaintenanceMargin = event.MaintenanceMargin
+		p.ShortMarginRatio = event.MarginRatio
+		p.ShortCollateral = event.Collateral
+		if event.AdlQuantile > 0 {
+			p.ShortAdlQuantile = event.AdlQuantile
+		}
 	}
 }
 

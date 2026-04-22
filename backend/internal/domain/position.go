@@ -134,6 +134,24 @@ type Position struct {
 	LongNotional          decimal.Decimal `json:"long_notional"`
 	ShortNotional         decimal.Decimal `json:"short_notional"`
 
+	// IM/MM per-leg (updated by position reactor from exchange position events).
+	// InitialMargin is the collateral locked to open the position (USDT).
+	// MaintenanceMargin is the minimum collateral required to avoid liquidation (USDT).
+	// MarginRatio = MaintenanceMargin / Collateral — approaching 1.0 means near-liquidation.
+	// Collateral is the actual isolated margin balance allocated to the position (USDT).
+	LongInitialMargin      decimal.Decimal `json:"long_initial_margin"`
+	LongMaintenanceMargin  decimal.Decimal `json:"long_maintenance_margin"`
+	LongMarginRatio        decimal.Decimal `json:"long_margin_ratio"`
+	LongCollateral         decimal.Decimal `json:"long_collateral"`
+	ShortInitialMargin     decimal.Decimal `json:"short_initial_margin"`
+	ShortMaintenanceMargin decimal.Decimal `json:"short_maintenance_margin"`
+	ShortMarginRatio       decimal.Decimal `json:"short_margin_ratio"`
+	ShortCollateral        decimal.Decimal `json:"short_collateral"`
+
+	// ADL quantile per leg (1–5, or 0 if exchange does not provide it).
+	LongAdlQuantile  int `json:"long_adl_quantile"`
+	ShortAdlQuantile int `json:"short_adl_quantile"`
+
 	// Close metadata.
 	CloseReason CloseReason `json:"close_reason,omitempty"`
 
@@ -215,7 +233,17 @@ type ExchangePositionEvent struct {
 	Leverage         decimal.Decimal `json:"leverage"`
 	MarginMode       string          `json:"margin_mode"`
 	Notional         decimal.Decimal `json:"notional"`
-	Timestamp        time.Time       `json:"timestamp"`
+
+	// Margin health fields (may be zero if exchange does not provide them).
+	InitialMargin     decimal.Decimal `json:"initial_margin"`
+	MaintenanceMargin decimal.Decimal `json:"maintenance_margin"`
+	MarginRatio       decimal.Decimal `json:"margin_ratio"`
+	Collateral        decimal.Decimal `json:"collateral"`
+
+	// ADL quantile (1–5, or 0 if exchange does not provide it).
+	AdlQuantile int `json:"adl_quantile"`
+
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ExchangeFundingPaymentEvent represents an exact funding payment transaction

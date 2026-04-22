@@ -1,10 +1,17 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { closePosition, type Position } from "@/lib/api";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { adjustPositionSize, closePosition, fetchExchangeCredentials, transferMargin, type Position } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   ExchangeBadge,
   StatusBadge,
@@ -25,9 +32,9 @@ import {
   TrendingUp,
   TrendingDown,
   Clock,
-  DollarSign,
   Activity,
   AlertTriangle,
+  Settings2,
 } from "lucide-react";
 
 interface ActivePositionProps {
@@ -67,27 +74,65 @@ function PositionDetail({
   position: Position;
 }) {
   const queryClient = useQueryClient();
+  const [modifyOpen, setModifyOpen] = useState(false);
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
 
   const closeMutation = useMutation({
     mutationFn: closePosition,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["positions"] });
+      setCloseConfirmOpen(false);
     },
   });
 
+  const { data: credentials } = useQuery({
+    queryKey: ["credentials"],
+    queryFn: fetchExchangeCredentials,
+    staleTime: 60_000,
+  });
+  const credLabel = (id: string) => {
+    const c = credentials?.find((x) => x.id === id);
+    return c ? c.title : id.slice(-8);
+  };
+
   const canClose =
+    position.status === "open" || position.status === "partially_open";
+  const canModify =
     position.status === "open" || position.status === "partially_open";
 
   // Computed metrics
   const longUnrealized = parseFloat(position.long_unrealized_pnl) || 0;
   const shortUnrealized = parseFloat(position.short_unrealized_pnl) || 0;
-  const totalUnrealized = longUnrealized + shortUnrealized;
+  const priceChangePnl = longUnrealized + shortUnrealized;
   const fundingPnl = parseFloat(position.total_funding_pnl) || 0;
-  const totalPnl = totalUnrealized + fundingPnl;
 
   const longEntryFees = parseFloat(position.long_entry_fees) || 0;
   const shortEntryFees = parseFloat(position.short_entry_fees) || 0;
   const totalEntryFees = longEntryFees + shortEntryFees;
+
+  // Close fees: populated on close; while open, show as 0 / est.
+  const longCloseFees = parseFloat(position.long_close_fees) || 0;
+  const shortCloseFees = parseFloat(position.short_close_fees) || 0;
+  const totalCloseFees = longCloseFees + shortCloseFees;
+
+  // Realized = entry fees (negative) + funding PnL
+  const realizedPnl = -Math.abs(totalEntryFees) + fundingPnl;
+  // Unrealized = price change PnL + close fees (negative while open = 0; negative when closed)
+  const unrealizedPnl = priceChangePnl - Math.abs(totalCloseFees);
+  // Total
+  const totalPnl = realizedPnl + unrealizedPnl;
+
+  // Estimated close fee while open: use entry fee rate × notional as proxy.
+  // Entry fee rate = totalEntryFees / (longEntryCost + shortEntryCost).
+  const longNotional = parseFloat(position.long_notional) || 0;
+  const shortNotional = parseFloat(position.short_notional) || 0;
+  const longEntryCost = parseFloat(position.long_entry_cost) || 0;
+  const shortEntryCost = parseFloat(position.short_entry_cost) || 0;
+  const totalEntryCost = longEntryCost + shortEntryCost;
+  const estCloseFee = totalEntryCost > 0
+    ? (Math.abs(totalEntryFees) / totalEntryCost) * (longNotional + shortNotional)
+    : 0;
+  const estTotalPnl = totalPnl - estCloseFee;
 
   return (
     <div className="rounded-lg border bg-card/50 overflow-hidden">
@@ -99,301 +144,379 @@ function PositionDetail({
             Active Position
           </SectionHeader>
           <StatusBadge status={position.status} />
-          {position.arbitrage_type && (
-            <span className="text-[0.625rem] text-muted-foreground uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-muted">
-              {position.arbitrage_type}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1.5">
+          {canModify && (
+            <Popover open={modifyOpen} onOpenChange={setModifyOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "h-7 px-2 text-xs transition-colors",
+                    modifyOpen && "bg-muted text-foreground"
+                  )}
+                >
+                  <Settings2 className="h-3 w-3 mr-1" />
+                  Modify
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-3 space-y-2" align="end">
+                <ModifySizePanel position={position} />
+                {(position.long_margin_mode === "isolated" || position.short_margin_mode === "isolated") && (
+                  <>
+                    <Separator />
+                    <ModifyMarginPanel position={position} />
+                  </>
+                )}
+              </PopoverContent>
+            </Popover>
+          )}
           {canClose && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-xs text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10"
-              disabled={closeMutation.isPending}
-              onClick={() => closeMutation.mutate(position.id)}
-            >
-              {closeMutation.isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin mr-1" />
-              ) : (
-                <X className="h-3 w-3 mr-1" />
-              )}
-              Close
-            </Button>
+            <Popover open={closeConfirmOpen} onOpenChange={setCloseConfirmOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10"
+                  disabled={closeMutation.isPending}
+                >
+                  {closeMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  ) : (
+                    <X className="h-3 w-3 mr-1" />
+                  )}
+                  Close
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-3" align="end">
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium">Close position?</p>
+                  <p className="text-[0.625rem] text-muted-foreground">
+                    Market orders will be placed on both legs.
+                  </p>
+                  <Separator className="my-1" />
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Current P&L</span>
+                      <PnlValue value={String(totalPnl)} className="text-[0.625rem]" />
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Est. close fee</span>
+                      <span className="text-[0.625rem] font-mono tabular-nums text-muted-foreground">
+                        −{formatUsdPlain(String(estCloseFee))}
+                      </span>
+                    </div>
+                    <Separator className="opacity-50 my-0.5" />
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] font-medium">Est. P&L after close</span>
+                      <PnlValue value={String(estTotalPnl)} className="text-[0.625rem] font-medium" />
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 pt-0.5">
+                    <Button
+                      size="sm"
+                      className="w-full h-7 text-xs bg-red-600 hover:bg-red-700 text-white"
+                      disabled={closeMutation.isPending}
+                      onClick={() => closeMutation.mutate(position.id)}
+                    >
+                      {closeMutation.isPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : "Confirm Close"}
+                    </Button>
+                  </div>
+                  {closeMutation.error && (
+                    <p className="text-[0.625rem] text-destructive">
+                      {(closeMutation.error as Error).message}
+                    </p>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
         </div>
       </div>
 
       <div className="p-4 space-y-4">
-        {/* P&L Summary — top-level, prominent */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="text-center">
-            <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-1">
-              Unrealized
-            </div>
-            <PnlValue
-              value={String(totalUnrealized)}
-              className="text-sm font-medium"
-            />
+        {/* P&L */}
+        <div className="space-y-2">
+          {/* Total — full-width prominent row */}
+          <div className="flex items-baseline justify-between">
+            <span className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+              Total P&amp;L
+            </span>
+            <PnlValue value={String(totalPnl)} className="text-base font-semibold" />
           </div>
-          <div className="text-center">
-            <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-1">
-              Funding
+
+          {/* Realized / Unrealized — 2-col sub-table */}
+          <div className="grid grid-cols-2 gap-px rounded-md overflow-hidden border border-border/40">
+            {/* Realized */}
+            <div className="bg-muted/20 px-2.5 py-2 space-y-1.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">Realized</span>
+                <PnlValue value={String(realizedPnl)} className="text-xs font-medium" />
+              </div>
+              <div className="border-t border-border/30 pt-1.5 space-y-0.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[0.625rem] text-muted-foreground">Funding</span>
+                  <PnlValue value={String(fundingPnl)} className="text-[0.625rem]" />
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[0.625rem] text-muted-foreground">Entry fees</span>
+                  <span className="text-[0.625rem] font-mono tabular-nums text-red-600 dark:text-red-400">
+                    -{formatUsdPlain(String(Math.abs(totalEntryFees)))}
+                  </span>
+                </div>
+              </div>
             </div>
-            <PnlValue
-              value={position.total_funding_pnl}
-              className="text-sm font-medium"
-            />
-          </div>
-          <div className="text-center">
-            <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground mb-1">
-              Total P&L
+
+            {/* Unrealized */}
+            <div className="bg-muted/20 px-2.5 py-2 space-y-1.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">Unrealized</span>
+                <PnlValue value={String(unrealizedPnl)} className="text-xs font-medium" />
+              </div>
+              <div className="border-t border-border/30 pt-1.5 space-y-0.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[0.625rem] text-muted-foreground">Price Δ</span>
+                  <PnlValue value={String(priceChangePnl)} className="text-[0.625rem]" />
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[0.625rem] text-muted-foreground">Close fees</span>
+                  {totalCloseFees > 0 ? (
+                    <span className="text-[0.625rem] font-mono tabular-nums text-red-600 dark:text-red-400">
+                      -{formatUsdPlain(String(Math.abs(totalCloseFees)))}
+                    </span>
+                  ) : (
+                    <span className="text-[0.625rem] text-muted-foreground/50">—</span>
+                  )}
+                </div>
+              </div>
             </div>
-            <PnlValue
-              value={String(totalPnl)}
-              className="text-base font-semibold"
-            />
           </div>
         </div>
 
         <Separator />
 
-        {/* Position details table */}
-        <div>
-          <SectionHeader className="mb-2">
-            <DollarSign className="inline h-3 w-3 mr-0.5 align-text-top" />
-            Position Details
-          </SectionHeader>
-          <table className="text-xs w-full">
-            <thead>
-              <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                <th className="pr-4 pb-1 text-left font-medium" />
-                <th className="pr-4 pb-1 text-right font-medium">
-                  <span className="inline-flex items-center gap-1">
-                    <TrendingUp className="h-3 w-3 text-emerald-500" />
-                    Long
-                  </span>
-                </th>
-                <th className="pb-1 text-right font-medium">
-                  <span className="inline-flex items-center gap-1">
-                    <TrendingDown className="h-3 w-3 text-red-500" />
-                    Short
-                  </span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-t border-border/30">
-                <td className="pr-4 py-0.5 text-muted-foreground">Exchange</td>
-                <td className="pr-4 py-0.5 text-right">
-                  <ExchangeBadge exchangeId={position.long_exchange_id} />
-                </td>
-                <td className="py-0.5 text-right">
-                  <ExchangeBadge exchangeId={position.short_exchange_id} />
-                </td>
-              </tr>
-              <tr className="border-t border-border/30">
-                <td className="pr-4 py-0.5 text-muted-foreground">
-                  Entry price
-                </td>
-                <td className="pr-4 py-0.5 text-right font-mono tabular-nums">
-                  {formatPrice(position.long_entry_price)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums">
-                  {formatPrice(position.short_entry_price)}
-                </td>
-              </tr>
-              <tr className="border-t border-border/30">
-                <td className="pr-4 py-0.5 text-muted-foreground">
-                  Mark price
-                </td>
-                <td className="pr-4 py-0.5 text-right font-mono tabular-nums">
-                  {formatPrice(position.long_mark_price)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums">
-                  {formatPrice(position.short_mark_price)}
-                </td>
-              </tr>
-              <tr className="border-t border-border/30">
-                <td className="pr-4 py-0.5 text-muted-foreground">
-                  Filled qty
-                </td>
-                <td className="pr-4 py-0.5 text-right font-mono tabular-nums">
-                  {formatQty(position.long_filled_qty)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums">
-                  {formatQty(position.short_filled_qty)}
-                </td>
-              </tr>
-              <tr className="border-t border-border/30">
-                <td className="pr-4 py-0.5 text-muted-foreground">
-                  Base qty
-                </td>
-                <td className="pr-4 py-0.5 text-right font-mono tabular-nums">
-                  {formatQty(position.long_filled_base_qty)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums">
-                  {formatQty(position.short_filled_base_qty)}
-                </td>
-              </tr>
-              <tr className="border-t border-border/30">
-                <td className="pr-4 py-0.5 text-muted-foreground">
-                  Contract size
-                </td>
-                <td className="pr-4 py-0.5 text-right font-mono tabular-nums text-muted-foreground">
-                  {formatQty(position.long_contract_size)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums text-muted-foreground">
-                  {formatQty(position.short_contract_size)}
-                </td>
-              </tr>
-              <tr className="border-t border-border/30">
-                <td className="pr-4 py-0.5 text-muted-foreground">
-                  Unrealized
-                </td>
-                <td className="pr-4 py-0.5 text-right">
-                  <PnlValue
-                    value={position.long_unrealized_pnl}
-                    className="text-[0.625rem]"
-                  />
-                </td>
-                <td className="py-0.5 text-right">
-                  <PnlValue
-                    value={position.short_unrealized_pnl}
-                    className="text-[0.625rem]"
-                  />
-                </td>
-              </tr>
-              {(position.long_liquidation_price !== "0" ||
-                position.short_liquidation_price !== "0") && (
-                <tr className="border-t border-border/30">
-                  <td className="pr-4 py-0.5 text-muted-foreground">
-                    Liquidation
-                  </td>
-                  <td className="pr-4 py-0.5 text-right font-mono tabular-nums text-amber-600 dark:text-amber-400">
-                    {formatPrice(position.long_liquidation_price)}
-                  </td>
-                  <td className="py-0.5 text-right font-mono tabular-nums text-amber-600 dark:text-amber-400">
-                    {formatPrice(position.short_liquidation_price)}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {/* Leg cards */}
+        <div className="grid grid-cols-2 gap-2">
+          {(["long", "short"] as const).map((side) => {
+            const isLong = side === "long";
+            const exchangeId = isLong ? position.long_exchange_id : position.short_exchange_id;
+            const credId    = isLong ? position.long_credential_id : position.short_credential_id;
+            const entryPx   = isLong ? position.long_entry_price : position.short_entry_price;
+            const markPx    = isLong ? position.long_mark_price : position.short_mark_price;
+            const filledQty = isLong ? position.long_filled_qty : position.short_filled_qty;
+            const baseQty   = isLong ? position.long_filled_base_qty : position.short_filled_base_qty;
+            const contractSz= isLong ? position.long_contract_size : position.short_contract_size;
+            const leverage  = isLong ? position.long_leverage : position.short_leverage;
+            const marginMode= isLong ? position.long_margin_mode : position.short_margin_mode;
+            const liqPx     = isLong ? position.long_liquidation_price : position.short_liquidation_price;
+            const unrealized= isLong ? position.long_unrealized_pnl : position.short_unrealized_pnl;
+            const initMargin= isLong ? position.long_initial_margin : position.short_initial_margin;
+            const maintMargin=isLong ? position.long_maintenance_margin : position.short_maintenance_margin;
+            const collateral= isLong ? position.long_collateral : position.short_collateral;
+            const marginRatio=isLong ? position.long_margin_ratio : position.short_margin_ratio;
+            const adlQuantile=isLong ? (position.long_adl_quantile ?? 0) : (position.short_adl_quantile ?? 0);
 
-        {/* Size & Capital */}
-        <div>
-          <SectionHeader className="mb-2">Size &amp; Capital</SectionHeader>
-          <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-            <span className="text-muted-foreground">Requested size</span>
-            <span className="font-mono tabular-nums text-right">
-              {position.size_type === "price" ? "$" : ""}
-              {formatQty(position.requested_size)}
-              <span className="ml-1 text-[0.625rem] text-muted-foreground uppercase">
-                {position.size_type}
-              </span>
-            </span>
-            <span className="text-muted-foreground">Requested base qty</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatQty(position.requested_base_qty)}
-            </span>
-            <span className="text-muted-foreground">Notional (long / short)</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatUsdPlain(position.long_notional)} / {formatUsdPlain(position.short_notional)}
-            </span>
-            <span className="text-muted-foreground">Entry fees</span>
-            <span className="font-mono tabular-nums text-right text-red-600 dark:text-red-400">
-              {formatUsdPlain(String(totalEntryFees))}
-            </span>
-            {position.leverage > 0 && (
-              <>
-                <span className="text-muted-foreground">Leverage</span>
-                <span className="font-mono tabular-nums text-right">
-                  {position.leverage}x
-                </span>
-              </>
-            )}
-          </div>
-        </div>
+            const ratio = parseFloat(marginRatio) || 0;
+            const ratioColor = ratio > 0.8
+              ? "text-red-600 dark:text-red-400"
+              : ratio > 0.5
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-muted-foreground";
 
-        {/* Stepped execution progress */}
-        {position.steps_total > 0 && (
-          <div>
-            <SectionHeader className="mb-2">Stepped Execution</SectionHeader>
-            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-              <span className="text-muted-foreground">Progress</span>
-              <span className="font-mono tabular-nums text-right">
-                {position.steps_completed} / {position.steps_total} steps
-              </span>
-              <span className="text-muted-foreground">Per-step base qty (long / short)</span>
-              <span className="font-mono tabular-nums text-right">
-                {formatQty(String((parseFloat(position.long_filled_base_qty) || 0) / Math.max(position.steps_completed || 1, 1)))} / {formatQty(String((parseFloat(position.short_filled_base_qty) || 0) / Math.max(position.steps_completed || 1, 1)))}
-              </span>
-              <span className="text-muted-foreground">Per-step notional (long / short)</span>
-              <span className="font-mono tabular-nums text-right">
-                {formatUsdPlain(String((parseFloat(position.long_notional) || 0) / Math.max(position.steps_completed || 1, 1)))} / {formatUsdPlain(String((parseFloat(position.short_notional) || 0) / Math.max(position.steps_completed || 1, 1)))}
-              </span>
-              {position.stop_reason && (
-                <>
-                  <span className="text-muted-foreground">Stop reason</span>
-                  <span className="text-right">
-                    <span className="text-[0.625rem] text-amber-600 dark:text-amber-400">
-                      {position.stop_reason.replace(/_/g, " ")}
+            return (
+              <div key={side} className="rounded-md border border-border/50 bg-muted/10 p-2.5 space-y-2">
+                {/* Leg header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    {isLong
+                      ? <TrendingUp className="h-3 w-3 text-emerald-500" />
+                      : <TrendingDown className="h-3 w-3 text-red-500" />}
+                    <span className={cn(
+                      "text-[0.625rem] font-semibold uppercase tracking-wider",
+                      isLong ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+                    )}>
+                      {side}
                     </span>
+                  </div>
+                  <ExchangeBadge exchangeId={exchangeId} />
+                </div>
+
+                {/* Credential */}
+                <div className="text-[0.625rem] text-muted-foreground truncate">
+                  {credLabel(credId)}
+                </div>
+
+                <Separator className="opacity-50" />
+
+                {/* Price */}
+                <div className="space-y-0.5">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[0.625rem] text-muted-foreground">Entry</span>
+                    <span className="text-xs font-mono tabular-nums">{formatPrice(entryPx)}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[0.625rem] text-muted-foreground">Mark</span>
+                    <span className="text-xs font-mono tabular-nums">{formatPrice(markPx)}</span>
+                  </div>
+                  {liqPx !== "0" && liqPx !== "" && (
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Liq.</span>
+                      <span className="text-[0.625rem] font-mono tabular-nums text-amber-600 dark:text-amber-400">
+                        {formatPrice(liqPx)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <Separator className="opacity-50" />
+
+                {/* Qty */}
+                <div className="space-y-0.5">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[0.625rem] text-muted-foreground">Qty</span>
+                    <span className="text-xs font-mono tabular-nums">{formatQty(filledQty)}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[0.625rem] text-muted-foreground">Base</span>
+                    <span className="text-xs font-mono tabular-nums">{formatQty(baseQty)}</span>
+                  </div>
+                  {parseFloat(contractSz) > 0 && (
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Contract</span>
+                      <span className="text-[0.625rem] font-mono tabular-nums text-muted-foreground">
+                        {formatQty(contractSz)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <Separator className="opacity-50" />
+
+                {/* Setup */}
+                <div className="flex items-center justify-between gap-1">
+                  {leverage > 0 && (
+                    <span className="text-[0.625rem] font-mono text-muted-foreground">{leverage}×</span>
+                  )}
+                  {marginMode && (
+                    <span className={cn(
+                      "text-[0.625rem] font-medium px-1 py-0.5 rounded ml-auto",
+                      marginMode === "isolated"
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        : "bg-muted text-muted-foreground"
+                    )}>
+                      {marginMode}
+                    </span>
+                  )}
+                </div>
+
+                <Separator className="opacity-50" />
+
+                {/* P&L + margin */}
+                <div className="space-y-0.5">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[0.625rem] text-muted-foreground">Unrealized</span>
+                    <PnlValue value={unrealized} className="text-[0.625rem]" />
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[0.625rem] text-muted-foreground">Collateral</span>
+                    <span className="text-[0.625rem] font-mono tabular-nums">
+                      {parseFloat(collateral) > 0 ? formatUsdPlain(collateral) : "—"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[0.625rem] text-muted-foreground">IM</span>
+                    <span className="text-[0.625rem] font-mono tabular-nums">
+                      {parseFloat(initMargin) > 0 ? formatUsdPlain(initMargin) : "—"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[0.625rem] text-muted-foreground">MM</span>
+                    <span className="text-[0.625rem] font-mono tabular-nums">
+                      {parseFloat(maintMargin) > 0 ? formatUsdPlain(maintMargin) : "—"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[0.625rem] text-muted-foreground">Ratio</span>
+                    {ratio > 0 ? (
+                      <span className={cn("text-[0.625rem] font-mono tabular-nums", ratioColor)}>
+                        {(ratio * 100).toFixed(1)}%
+                      </span>
+                    ) : (
+                      <span className="text-[0.625rem] font-mono tabular-nums text-muted-foreground">—</span>
+                    )}
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[0.625rem] text-muted-foreground">ADL</span>
+                    {adlQuantile > 0 ? (
+                      <div className="flex items-end gap-px">
+                        {[1, 2, 3, 4, 5].map((level) => {
+                          const filled = level <= adlQuantile;
+                          const color = adlQuantile >= 4
+                            ? filled ? "bg-red-500 dark:bg-red-400" : "bg-muted-foreground/20"
+                            : adlQuantile === 3
+                              ? filled ? "bg-amber-500 dark:bg-amber-400" : "bg-muted-foreground/20"
+                              : filled ? "bg-emerald-500 dark:bg-emerald-400" : "bg-muted-foreground/20";
+                          return (
+                            <div
+                              key={level}
+                              style={{ height: `${4 + level * 2}px` }}
+                              className={cn("w-1.5 rounded-sm transition-colors", color)}
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span className="text-[0.625rem] font-mono tabular-nums text-muted-foreground">—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Stepped execution */}
+        {position.steps_total > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[0.625rem] text-muted-foreground">
+              <span>Steps</span>
+              <span className="font-mono tabular-nums">
+                {position.steps_completed} / {position.steps_total}
+                {position.stop_reason && (
+                  <span className="ml-1.5 text-amber-600 dark:text-amber-400">
+                    · {position.stop_reason.replace(/_/g, " ")}
                   </span>
-                </>
-              )}
+                )}
+              </span>
             </div>
-            <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
               <div
                 className={cn(
                   "h-full rounded-full transition-all",
-                  position.stop_reason
-                    ? "bg-amber-500"
-                    : position.steps_completed === position.steps_total
-                      ? "bg-emerald-500"
-                      : "bg-violet-500"
+                  position.stop_reason ? "bg-amber-500"
+                    : position.steps_completed === position.steps_total ? "bg-emerald-500"
+                    : "bg-violet-500"
                 )}
-                style={{
-                  width: `${(position.steps_completed / position.steps_total) * 100}%`,
-                }}
+                style={{ width: `${(position.steps_completed / position.steps_total) * 100}%` }}
               />
             </div>
           </div>
         )}
 
         {/* Timing */}
-        <div>
-          <SectionHeader className="mb-2">
-            <Clock className="inline h-3 w-3 mr-0.5 align-text-top" />
-            Timing
-          </SectionHeader>
-          <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-            <span className="text-muted-foreground">Created</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatTimeShort(position.created_at)}
-            </span>
-            {position.opened_at && (
-              <>
-                <span className="text-muted-foreground">Opened</span>
-                <span className="font-mono tabular-nums text-right">
-                  {formatTimeShort(position.opened_at)}
-                </span>
-              </>
-            )}
-            <span className="text-muted-foreground">Duration</span>
-            <span className="font-mono tabular-nums text-right">
-              {formatDuration(
-                position.opened_at || position.created_at,
-                position.closed_at
-              )}
-            </span>
-          </div>
+        <div className="flex items-center gap-3 text-[0.625rem] text-muted-foreground">
+          <Clock className="h-3 w-3 shrink-0" />
+          <span>{formatTimeShort(position.opened_at || position.created_at)}</span>
+          <span className="text-border">·</span>
+          <span className="font-mono tabular-nums">
+            {formatDuration(position.opened_at || position.created_at, position.closed_at)}
+          </span>
         </div>
 
-        {/* Error message */}
+        {/* Error */}
         {position.error_message && (
           <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 flex items-start gap-2">
             <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
@@ -404,3 +527,182 @@ function PositionDetail({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// ModifySizePanel — adjust position size (increase / reduce)
+// ---------------------------------------------------------------------------
+
+function ModifySizePanel({ position }: { position: Position }) {
+  const queryClient = useQueryClient();
+  const [action, setAction] = useState<"increase" | "reduce">("increase");
+  const [deltaBaseQty, setDeltaBaseQty] = useState("");
+
+  const adjustMutation = useMutation({
+    mutationFn: () =>
+      adjustPositionSize(position.id, {
+        action,
+        delta_base_qty: deltaBaseQty.trim(),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+      setDeltaBaseQty("");
+    },
+  });
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+        Position Size
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        {/* Inc / Red toggle */}
+        <div className="flex h-7 items-center rounded-md border bg-muted/40 p-0.5 gap-0.5 shrink-0">
+          {(["increase", "reduce"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setAction(s)}
+              className={cn(
+                "rounded-sm h-5 px-1.5 text-[0.625rem] font-medium transition-colors capitalize whitespace-nowrap",
+                action === s
+                  ? "bg-background text-foreground shadow-sm border border-border/50"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {s === "increase" ? "Inc" : "Red"}
+            </button>
+          ))}
+        </div>
+
+        {/* Input */}
+        <Input
+          type="text"
+          inputMode="decimal"
+          value={deltaBaseQty}
+          onChange={(e) => setDeltaBaseQty(e.target.value)}
+          placeholder="base qty"
+          className="font-mono tabular-nums text-xs h-7 min-w-0"
+        />
+      </div>
+
+      <Button
+        size="sm"
+        className="h-6 px-2 text-xs w-full"
+        disabled={!deltaBaseQty.trim() || deltaBaseQty === "0" || adjustMutation.isPending}
+        onClick={() => adjustMutation.mutate()}
+      >
+        {adjustMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Apply"}
+      </Button>
+
+      {adjustMutation.error && (
+        <p className="text-[0.625rem] text-destructive">
+          {(adjustMutation.error as Error).message}
+        </p>
+      )}
+      {adjustMutation.isSuccess && (
+        <p className="text-[0.625rem] text-emerald-600 dark:text-emerald-400">Size adjusted</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ModifyMarginPanel — transfer isolated margin on a leg
+// ---------------------------------------------------------------------------
+
+function ModifyMarginPanel({ position }: { position: Position }) {
+  const queryClient = useQueryClient();
+  const [leg, setLeg] = useState<"long" | "short">("long");
+  const [action, setAction] = useState<"increase" | "reduce">("increase");
+  const [amount, setAmount] = useState("");
+
+  const adjustMutation = useMutation({
+    mutationFn: () => {
+      const normalized = amount.trim().replace(/^[-+]/, "");
+      const signedAmount = action === "reduce" ? `-${normalized}` : normalized;
+      return transferMargin(position.id, { leg, amount: signedAmount });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+      setAmount("");
+    },
+  });
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+        Margin
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        {/* Leg toggle */}
+        <div className="flex h-7 items-center rounded-md border bg-muted/40 p-0.5 gap-0.5 shrink-0">
+          {(["long", "short"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setLeg(s)}
+              className={cn(
+                "rounded-sm h-5 px-1.5 text-[0.625rem] font-medium transition-colors capitalize whitespace-nowrap",
+                leg === s
+                  ? "bg-background text-foreground shadow-sm border border-border/50"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {s === "long" ? "L" : "S"}
+            </button>
+          ))}
+        </div>
+
+        {/* Inc / Red toggle */}
+        <div className="flex h-7 items-center rounded-md border bg-muted/40 p-0.5 gap-0.5 shrink-0">
+          {(["increase", "reduce"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setAction(s)}
+              className={cn(
+                "rounded-sm h-5 px-1.5 text-[0.625rem] font-medium transition-colors capitalize whitespace-nowrap",
+                action === s
+                  ? "bg-background text-foreground shadow-sm border border-border/50"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {s === "increase" ? "Inc" : "Red"}
+            </button>
+          ))}
+        </div>
+
+        {/* Amount input */}
+        <Input
+          type="text"
+          inputMode="decimal"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="USDT"
+          className="font-mono tabular-nums text-xs h-7 min-w-0"
+        />
+      </div>
+
+      <Button
+        size="sm"
+        className="h-6 px-2 text-xs w-full"
+        disabled={!amount.trim() || amount === "0" || adjustMutation.isPending}
+        onClick={() => adjustMutation.mutate()}
+      >
+        {adjustMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Apply"}
+      </Button>
+
+      {adjustMutation.error && (
+        <p className="text-[0.625rem] text-destructive">
+          {(adjustMutation.error as Error).message}
+        </p>
+      )}
+      {adjustMutation.isSuccess && (
+        <p className="text-[0.625rem] text-emerald-600 dark:text-emerald-400">Margin adjusted</p>
+      )}
+    </div>
+  );
+}
+

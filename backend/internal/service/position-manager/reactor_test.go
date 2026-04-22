@@ -342,6 +342,9 @@ func (m *mockTradingExchange) FundingHistory(_ context.Context) (<-chan []base.F
 func (m *mockTradingExchange) SetMarginMode(_ context.Context, _, _ string, _ int) error {
 	return nil
 }
+func (m *mockTradingExchange) TransferIsolatedMargin(_ context.Context, _ string, _ domain.PositionSide, _ float64) error {
+	return nil
+}
 func (m *mockTradingExchange) HasCredentials() bool { return true }
 
 var _ base.PrivateExchange = (*mockTradingExchange)(nil)
@@ -1035,6 +1038,9 @@ func (m *mockZeroFillExchange) FundingHistory(_ context.Context) (<-chan []base.
 func (m *mockZeroFillExchange) SetMarginMode(_ context.Context, _, _ string, _ int) error {
 	return nil
 }
+func (m *mockZeroFillExchange) TransferIsolatedMargin(_ context.Context, _ string, _ domain.PositionSide, _ float64) error {
+	return nil
+}
 func (m *mockZeroFillExchange) HasCredentials() bool { return true }
 
 var _ base.PrivateExchange = (*mockZeroFillExchange)(nil)
@@ -1665,6 +1671,9 @@ func (m *mockAlreadyClosedExchange) FundingHistory(_ context.Context) (<-chan []
 	return nil, nil
 }
 func (m *mockAlreadyClosedExchange) SetMarginMode(_ context.Context, _, _ string, _ int) error {
+	return nil
+}
+func (m *mockAlreadyClosedExchange) TransferIsolatedMargin(_ context.Context, _ string, _ domain.PositionSide, _ float64) error {
 	return nil
 }
 func (m *mockAlreadyClosedExchange) HasCredentials() bool { return true }

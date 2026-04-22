@@ -113,6 +113,22 @@ func (c *Client) SetMarginMode(ctx context.Context, symbol string, mode string, 
 	return nil
 }
 
+// TransferIsolatedMargin adjusts the isolated margin for a position.
+// A positive amount adds margin; a negative amount removes margin.
+func (c *Client) TransferIsolatedMargin(ctx context.Context, symbol string, side domain.PositionSide, amount float64) error {
+	ccxtSide := "Buy"
+	if side == domain.PositionSideShort {
+		ccxtSide = "Sell"
+	}
+	_, err := c.api.SetMargin(symbol, amount, ccxt.WithSetMarginParams(map[string]any{
+		"side": ccxtSide,
+	}))
+	if err != nil {
+		return fmt.Errorf("bybit transfer isolated margin %s %s %.4f: %w", symbol, ccxtSide, amount, err)
+	}
+	return nil
+}
+
 // Positions subscribes to real-time position updates via WatchPositions WebSocket.
 // Each emission is the full set of current positions on the exchange.
 func (c *Client) Positions(ctx context.Context) (<-chan []base.ExchangePosition, error) {

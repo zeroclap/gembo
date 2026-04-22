@@ -23,7 +23,7 @@ import { SectionHeader } from "@/components/arbitrage/shared";
 import { SimulationPanelView } from "@/components/arbitrage/simulation-dialog";
 import { formatUsd, formatUsdPlain, formatPct, formatCountdown, formatQty, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Loader2, FlaskConical, ArrowLeft, CheckCircle2, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, FlaskConical, ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -86,6 +86,9 @@ export function OpenPositionPanel({
   // --- Margin mode: per-exchange ---
   const [longMarginMode, setLongMarginMode] = useState<"isolated" | "cross">("isolated");
   const [shortMarginMode, setShortMarginMode] = useState<"isolated" | "cross">("isolated");
+
+  // --- Margin capital (optional) ---
+  const [marginCapital, setMarginCapital] = useState("");
 
   const [longCredentialID, setLongCredentialID] = useState("");
   const [shortCredentialID, setShortCredentialID] = useState("");
@@ -190,6 +193,9 @@ export function OpenPositionPanel({
           size_type: sizeType,
           requested_size: activeSize,
           ...(portionEnabled && portionSize.trim() ? { portion_size: portionSize } : {}),
+          ...(longLeverage > 1 || shortLeverage > 1 ? { leverage: Math.max(longLeverage, shortLeverage) } : {}),
+          ...(marginCapital.trim() ? { margin_capital: marginCapital } : {}),
+          ...((longMarginMode === "isolated" || shortMarginMode === "isolated") ? { margin_mode: "isolated" } : { margin_mode: "cross" }),
         });
         setOpenPreflight(result);
 
@@ -216,7 +222,7 @@ export function OpenPositionPanel({
     }, 400);
 
     return () => clearTimeout(preflightTimerRef.current);
-  }, [symbol, longExchange, shortExchange, sizeType, activeSize, portionEnabled, portionSize]);
+  }, [symbol, longExchange, shortExchange, sizeType, activeSize, portionEnabled, portionSize, longLeverage, shortLeverage, marginCapital, longMarginMode, shortMarginMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -312,14 +318,13 @@ export function OpenPositionPanel({
     if (longLeverage > 1) req.leverage = longLeverage;
     req.long_margin_mode = longMarginMode;
     req.short_margin_mode = shortMarginMode;
+    if (marginCapital.trim()) req.margin_capital = marginCapital;
 
     if (strategy === "price_spread") {
-      req.arbitrage_type = "spread";
       if (targetSpreadPct.trim()) req.target_spread_pct = targetSpreadPct;
       if (stopLossSpreadPct.trim()) req.stop_loss_spread_pct = stopLossSpreadPct;
     } else {
       // funding_rate: hold as long as profitable — no target spread
-      req.arbitrage_type = "funding";
     }
     if (maxHoldEnabled && maxHoldDuration > 0) req.max_hold_duration = maxHoldDuration;
 
@@ -341,6 +346,7 @@ export function OpenPositionPanel({
     shortLeverage,
     longMarginMode,
     shortMarginMode,
+    marginCapital,
     priceSpreadEnabled,
     strategy,
     targetSpreadPct,
@@ -460,6 +466,22 @@ export function OpenPositionPanel({
                   : `min ${formatQty(String(stableMinBaseQty))} base qty`}
               </p>
             )}
+          </div>
+
+          {/* ── Margin Capital ── */}
+          <div>
+            <Label className="text-xs text-muted-foreground">
+              Margin Capital (USDT)
+              <span className="ml-1 text-muted-foreground/50">optional</span>
+            </Label>
+            <Input
+              type="text"
+              inputMode="decimal"
+              value={marginCapital}
+              onChange={(e) => setMarginCapital(e.target.value)}
+              placeholder="e.g. 500"
+              className="font-mono tabular-nums text-xs h-7 mt-1"
+            />
           </div>
 
           {/* ── Slippage ── */}
@@ -590,6 +612,7 @@ export function OpenPositionPanel({
               const setMarginMode = side === "long" ? setLongMarginMode : setShortMarginMode;
               const leg = openPreflight?.[side];
               const issues = leg ? (openPreflight?.errors ?? []).filter(e => e.exchange === leg.exchange_id) : [];
+              const warnings = leg ? (openPreflight?.warnings ?? []) : [];
               const passed = leg ? issues.length === 0 : null;
 
               return (
@@ -607,6 +630,7 @@ export function OpenPositionPanel({
                   setMarginMode={setMarginMode}
                   leg={leg ?? null}
                   issues={issues}
+                  warnings={warnings}
                   passed={passed}
                   preflightLoading={preflightLoading}
                 />
@@ -616,6 +640,16 @@ export function OpenPositionPanel({
             {credentialsError && (
               <div className="rounded-md bg-destructive/10 border border-destructive/20 px-2.5 py-1.5 text-[0.625rem] text-destructive">
                 {credentialsError}
+              </div>
+            )}
+            {(openPreflight?.warnings ?? []).length > 0 && (
+              <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 space-y-0.5">
+                {(openPreflight!.warnings).map((w) => (
+                  <div key={w.code} className="flex items-start gap-1.5 text-[0.625rem] text-amber-700 dark:text-amber-300">
+                    <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+                    {w.message}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -758,6 +792,7 @@ function ExchangeLegBlock({
   setMarginMode,
   leg,
   issues,
+  warnings,
   passed,
   preflightLoading,
 }: {
@@ -773,6 +808,7 @@ function ExchangeLegBlock({
   setMarginMode: (v: "isolated" | "cross") => void;
   leg: OpenPreflightLeg | null;
   issues: OpenPreflightIssue[];
+  warnings: OpenPreflightIssue[];
   passed: boolean | null;
   preflightLoading: boolean;
 }) {
@@ -837,6 +873,16 @@ function ExchangeLegBlock({
             <div className="pt-1 space-y-0.5 text-[0.625rem] text-red-600 dark:text-red-400 border-t border-border/40">
               {issues.map((issue) => (
                 <div key={issue.code + issue.message}>— {issue.message}</div>
+              ))}
+            </div>
+          )}
+          {warnings.length > 0 && (
+            <div className="pt-1 space-y-0.5 text-[0.625rem] text-amber-600 dark:text-amber-400 border-t border-border/40">
+              {warnings.map((w) => (
+                <div key={w.code + w.message} className="flex items-start gap-1">
+                  <AlertTriangle className="h-2.5 w-2.5 shrink-0 mt-px" />
+                  {w.message}
+                </div>
               ))}
             </div>
           )}

@@ -103,6 +103,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /v1/positions", auth(h.handleListPositions))
 	h.mux.HandleFunc("GET /v1/positions/{id}", auth(h.handleGetPosition))
 	h.mux.HandleFunc("POST /v1/positions/{id}/close", auth(h.handleClosePosition))
+	h.mux.HandleFunc("POST /v1/positions/{id}/size", auth(h.handleAdjustPositionSize))
+	h.mux.HandleFunc("POST /v1/positions/{id}/margin", auth(h.handleTransferMargin))
 	h.mux.HandleFunc("DELETE /v1/positions/{id}", auth(h.handleDeletePosition))
 	h.mux.HandleFunc("GET /v1/positions/{id}/orders", auth(h.handleListPositionOrders))
 	h.mux.HandleFunc("GET /v1/positions/{id}/funding", auth(h.handleListPositionFunding))

@@ -21,6 +21,16 @@ type ExchangePosition struct {
 	Leverage         decimal.Decimal     `json:"leverage"`
 	MarginMode       string              `json:"margin_mode"`
 	Notional         decimal.Decimal     `json:"notional"`
+
+	// Margin health fields (may be zero if exchange does not provide them).
+	InitialMargin     decimal.Decimal `json:"initial_margin"`
+	MaintenanceMargin decimal.Decimal `json:"maintenance_margin"`
+	MarginRatio       decimal.Decimal `json:"margin_ratio"`
+	Collateral        decimal.Decimal `json:"collateral"`
+
+	// ADL quantile (1–5, or 0 if exchange does not provide it).
+	// Derived from the raw Info map via ccxtutil.InfoAdlQuantile.
+	AdlQuantile int `json:"adl_quantile"`
 }
 
 // Balance represents an account balance for a single currency.
@@ -89,4 +99,9 @@ type PrivateExchange interface {
 	// SetMarginMode sets the margin mode ("cross" or "isolated") for a symbol.
 	// leverage is optional — pass 0 to skip setting leverage.
 	SetMarginMode(ctx context.Context, symbol string, mode string, leverage int) error
+
+	// TransferIsolatedMargin adjusts the isolated margin allocated to a position.
+	// A positive amount adds margin; a negative amount removes margin.
+	// Only valid when the position is in isolated margin mode.
+	TransferIsolatedMargin(ctx context.Context, symbol string, side domain.PositionSide, amount float64) error
 }

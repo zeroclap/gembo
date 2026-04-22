@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"math"
 	"net/http"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/zeroclap/gembo/internal/domain"
+	"github.com/zeroclap/gembo/internal/exchanges"
 	"github.com/zeroclap/gembo/pkg/rediskey"
 )
 
@@ -39,8 +41,7 @@ type createPositionRequest struct {
 	Leverage          int    `json:"leverage"`       // per-position leverage (1, 2, 3, etc.)
 	MarginCapital     string `json:"margin_capital"` // declared available collateral in USD (optional)
 
-	// Spread arbitrage parameters (optional; only used when arbitrage_type == "spread").
-	ArbitrageType     string `json:"arbitrage_type"`       // "funding" (default) or "spread"
+	// Spread arbitrage parameters (optional; spread mode is inferred when target_spread_pct is set).
 	TargetSpreadPct   string `json:"target_spread_pct"`    // target convergence spread %
 	StopLossSpreadPct string `json:"stop_loss_spread_pct"` // stop-loss spread %
 	MaxHoldDuration   int64  `json:"max_hold_duration"`    // max hold time in seconds; 0 = no limit
@@ -208,8 +209,8 @@ func (h *Handler) handleCreatePosition(w http.ResponseWriter, r *http.Request) {
 		Snapshot:          snapshot,
 	}
 
-	// Handle spread arbitrage type.
-	if req.ArbitrageType == string(domain.ArbitrageTypeSpread) {
+	// Handle spread arbitrage type — inferred when target_spread_pct or stop_loss_spread_pct is set.
+	if req.TargetSpreadPct != "" || req.StopLossSpreadPct != "" {
 		p.ArbitrageType = domain.ArbitrageTypeSpread
 
 		if req.TargetSpreadPct != "" {
@@ -468,6 +469,272 @@ func (h *Handler) handleListPositionFunding(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeOK(w, payments)
+}
+
+// transferMarginRequest is the JSON body for POST /v1/positions/{id}/margin.
+type transferMarginRequest struct {
+	Leg    string `json:"leg"`    // "long" or "short"
+	Amount string `json:"amount"` // decimal string; positive = add, negative = remove
+}
+
+type adjustPositionSizeRequest struct {
+	Action       string `json:"action"`         // "increase" or "reduce"
+	DeltaBaseQty string `json:"delta_base_qty"` // positive decimal in base asset units
+}
+
+// handleAdjustPositionSize increases or reduces an open position by base quantity.
+func (h *Handler) handleAdjustPositionSize(w http.ResponseWriter, r *http.Request) {
+	if !h.requirePositionStore(w) {
+		return
+	}
+	if !h.requireUserStore(w) {
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, "missing_id", "position id is required")
+		return
+	}
+
+	au, ok := h.currentAuthUser(w, r)
+	if !ok {
+		return
+	}
+
+	p, err := h.positionStore.GetPosition(r.Context(), au.ID, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if p == nil {
+		writeErr(w, http.StatusNotFound, "not_found", "position not found")
+		return
+	}
+
+	if p.Status != domain.PositionStatusOpen && p.Status != domain.PositionStatusPartiallyOpen {
+		writeErr(w, http.StatusConflict, "invalid_status",
+			"position must be 'open' or 'partially_open' to adjust size, current: "+string(p.Status))
+		return
+	}
+
+	var req adjustPositionSizeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_body", "invalid JSON body")
+		return
+	}
+	if req.Action != "increase" && req.Action != "reduce" {
+		writeErr(w, http.StatusBadRequest, "invalid_action", "action must be 'increase' or 'reduce'")
+		return
+	}
+
+	deltaBaseQty, err := decimal.NewFromString(req.DeltaBaseQty)
+	if err != nil || deltaBaseQty.LessThanOrEqual(decimal.Zero) {
+		writeErr(w, http.StatusBadRequest, "invalid_delta_base_qty", "delta_base_qty must be a positive decimal number")
+		return
+	}
+
+	if p.LongContractSize.LessThanOrEqual(decimal.Zero) || p.ShortContractSize.LessThanOrEqual(decimal.Zero) {
+		writeErr(w, http.StatusConflict, "invalid_contract_size", "position contract size is not available for one or both legs")
+		return
+	}
+
+	if req.Action == "reduce" {
+		maxReducible := p.LongFilledBaseQty
+		if p.ShortFilledBaseQty.LessThan(maxReducible) {
+			maxReducible = p.ShortFilledBaseQty
+		}
+		if deltaBaseQty.GreaterThan(maxReducible) {
+			writeErr(w, http.StatusBadRequest, "reduce_exceeds_position", "delta_base_qty exceeds current open base quantity")
+			return
+		}
+	}
+
+	longCred, err := h.userStore.GetExchangeCredentialByID(r.Context(), au.ID, p.LongCredentialID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", "failed to resolve long credential")
+		return
+	}
+	if longCred == nil {
+		writeErr(w, http.StatusBadRequest, "invalid_credential", "long credential not found for this user")
+		return
+	}
+	if longCred.ExchangeID != p.LongExchangeID {
+		writeErr(w, http.StatusBadRequest, "invalid_credential_exchange", "long credential exchange does not match long leg exchange")
+		return
+	}
+
+	shortCred, err := h.userStore.GetExchangeCredentialByID(r.Context(), au.ID, p.ShortCredentialID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", "failed to resolve short credential")
+		return
+	}
+	if shortCred == nil {
+		writeErr(w, http.StatusBadRequest, "invalid_credential", "short credential not found for this user")
+		return
+	}
+	if shortCred.ExchangeID != p.ShortExchangeID {
+		writeErr(w, http.StatusBadRequest, "invalid_credential_exchange", "short credential exchange does not match short leg exchange")
+		return
+	}
+
+	longEx, err := exchanges.NewPrivateExchangeFromCredential(slog.Default(), *longCred)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "unsupported_exchange", err.Error())
+		return
+	}
+	shortEx, err := exchanges.NewPrivateExchangeFromCredential(slog.Default(), *shortCred)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "unsupported_exchange", err.Error())
+		return
+	}
+
+	longContracts := deltaBaseQty.Div(p.LongContractSize)
+	shortContracts := deltaBaseQty.Div(p.ShortContractSize)
+	longContractsF64, _ := longContracts.Float64()
+	shortContractsF64, _ := shortContracts.Float64()
+
+	if longContractsF64 <= 0 || shortContractsF64 <= 0 {
+		writeErr(w, http.StatusBadRequest, "invalid_contract_amount", "calculated contract amount must be positive on both legs")
+		return
+	}
+
+	if req.Action == "increase" {
+		if _, err := longEx.CreateMarketOrder(r.Context(), p.Symbol, domain.OrderSideBuy, longContractsF64); err != nil {
+			writeErr(w, http.StatusBadGateway, "exchange_error", "long leg increase failed: "+err.Error())
+			return
+		}
+		if _, err := shortEx.CreateMarketOrder(r.Context(), p.Symbol, domain.OrderSideSell, shortContractsF64); err != nil {
+			_, _ = longEx.CloseMarketOrder(r.Context(), p.Symbol, domain.OrderSideSell, longContractsF64)
+			writeErr(w, http.StatusBadGateway, "exchange_error", "short leg increase failed: "+err.Error())
+			return
+		}
+		p.RequestedBaseQty = p.RequestedBaseQty.Add(deltaBaseQty)
+		if p.SizeType == domain.SizeTypeQuantity {
+			p.RequestedSize = p.RequestedSize.Add(deltaBaseQty)
+		}
+	} else {
+		if _, err := longEx.CloseMarketOrder(r.Context(), p.Symbol, domain.OrderSideSell, longContractsF64); err != nil {
+			writeErr(w, http.StatusBadGateway, "exchange_error", "long leg reduce failed: "+err.Error())
+			return
+		}
+		if _, err := shortEx.CloseMarketOrder(r.Context(), p.Symbol, domain.OrderSideBuy, shortContractsF64); err != nil {
+			_, _ = longEx.CreateMarketOrder(r.Context(), p.Symbol, domain.OrderSideBuy, longContractsF64)
+			writeErr(w, http.StatusBadGateway, "exchange_error", "short leg reduce failed: "+err.Error())
+			return
+		}
+		p.RequestedBaseQty = p.RequestedBaseQty.Sub(deltaBaseQty)
+		if p.RequestedBaseQty.LessThan(decimal.Zero) {
+			p.RequestedBaseQty = decimal.Zero
+		}
+		if p.SizeType == domain.SizeTypeQuantity {
+			p.RequestedSize = p.RequestedSize.Sub(deltaBaseQty)
+			if p.RequestedSize.LessThan(decimal.Zero) {
+				p.RequestedSize = decimal.Zero
+			}
+		}
+	}
+
+	if err := h.positionStore.UpdatePosition(r.Context(), p); err != nil {
+		writeErr(w, http.StatusInternalServerError, "update_failed", err.Error())
+		return
+	}
+
+	writeOK(w, p)
+}
+
+// handleTransferMargin adjusts the isolated margin on one leg of an open position.
+func (h *Handler) handleTransferMargin(w http.ResponseWriter, r *http.Request) {
+	if !h.requirePositionStore(w) {
+		return
+	}
+	if !h.requireUserStore(w) {
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, "missing_id", "position id is required")
+		return
+	}
+
+	au, ok := h.currentAuthUser(w, r)
+	if !ok {
+		return
+	}
+
+	p, err := h.positionStore.GetPosition(r.Context(), au.ID, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if p == nil {
+		writeErr(w, http.StatusNotFound, "not_found", "position not found")
+		return
+	}
+
+	// Only open or partially-open positions can have margin adjusted.
+	if p.Status != domain.PositionStatusOpen && p.Status != domain.PositionStatusPartiallyOpen {
+		writeErr(w, http.StatusConflict, "invalid_status",
+			"position must be 'open' or 'partially_open' to adjust margin, current: "+string(p.Status))
+		return
+	}
+
+	var req transferMarginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_body", "invalid JSON body")
+		return
+	}
+	if req.Leg != "long" && req.Leg != "short" {
+		writeErr(w, http.StatusBadRequest, "invalid_leg", "leg must be 'long' or 'short'")
+		return
+	}
+	amount, err := decimal.NewFromString(req.Amount)
+	if err != nil || amount.IsZero() {
+		writeErr(w, http.StatusBadRequest, "invalid_amount", "amount must be a non-zero decimal number")
+		return
+	}
+
+	// Resolve the credential and exchange for the chosen leg.
+	var exchangeID, credentialID string
+	var side domain.PositionSide
+	if req.Leg == "long" {
+		exchangeID = p.LongExchangeID
+		credentialID = p.LongCredentialID
+		side = domain.PositionSideLong
+	} else {
+		exchangeID = p.ShortExchangeID
+		credentialID = p.ShortCredentialID
+		side = domain.PositionSideShort
+	}
+
+	cred, err := h.userStore.GetExchangeCredentialByID(r.Context(), au.ID, credentialID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", "failed to resolve credential")
+		return
+	}
+	if cred == nil {
+		writeErr(w, http.StatusBadRequest, "invalid_credential", "credential not found for this user")
+		return
+	}
+	if cred.ExchangeID != exchangeID {
+		writeErr(w, http.StatusBadRequest, "invalid_credential_exchange", "credential exchange does not match position leg exchange")
+		return
+	}
+
+	ex, err := exchanges.NewPrivateExchangeFromCredential(slog.Default(), *cred)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "unsupported_exchange", err.Error())
+		return
+	}
+
+	amountF64, _ := amount.Float64()
+	if err := ex.TransferIsolatedMargin(r.Context(), p.Symbol, side, amountF64); err != nil {
+		writeErr(w, http.StatusBadGateway, "exchange_error", err.Error())
+		return
+	}
+
+	writeOK(w, p)
 }
 
 // snapshotArbitrage looks up the current FundingArbitrage opportunity for the given

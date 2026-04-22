@@ -847,3 +847,83 @@ func TestDeletePosition_NotPending(t *testing.T) {
 		t.Fatal("expected position to still exist in store")
 	}
 }
+
+func TestAdjustPositionSize_WrongStatus(t *testing.T) {
+	ps := newMockPositionStore()
+	st := &mockStore{}
+	h := newTestHandler(ps, st)
+
+	ps.positions["p1"] = &domain.Position{
+		ID:                "p1",
+		UserID:            "test-user-id",
+		Symbol:            "BTC/USDT:USDT",
+		Status:            domain.PositionStatusPending,
+		LongContractSize:  decimal.NewFromInt(1),
+		ShortContractSize: decimal.NewFromInt(1),
+	}
+
+	body := `{"action":"increase","delta_base_qty":"0.1"}`
+	req := newAuthRequest("POST", "/v1/positions/p1/size", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdjustPositionSize_InvalidAction(t *testing.T) {
+	ps := newMockPositionStore()
+	st := &mockStore{}
+	h := newTestHandler(ps, st)
+
+	ps.positions["p1"] = &domain.Position{
+		ID:                "p1",
+		UserID:            "test-user-id",
+		Symbol:            "BTC/USDT:USDT",
+		Status:            domain.PositionStatusOpen,
+		LongContractSize:  decimal.NewFromInt(1),
+		ShortContractSize: decimal.NewFromInt(1),
+	}
+
+	body := `{"action":"grow","delta_base_qty":"0.1"}`
+	req := newAuthRequest("POST", "/v1/positions/p1/size", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdjustPositionSize_ReduceExceedsPosition(t *testing.T) {
+	ps := newMockPositionStore()
+	st := &mockStore{}
+	h := newTestHandler(ps, st)
+
+	ps.positions["p1"] = &domain.Position{
+		ID:                 "p1",
+		UserID:             "test-user-id",
+		Symbol:             "BTC/USDT:USDT",
+		Status:             domain.PositionStatusOpen,
+		LongContractSize:   decimal.NewFromInt(1),
+		ShortContractSize:  decimal.NewFromInt(1),
+		LongFilledBaseQty:  decimal.NewFromFloat(0.5),
+		ShortFilledBaseQty: decimal.NewFromFloat(0.5),
+	}
+
+	body := `{"action":"reduce","delta_base_qty":"0.8"}`
+	req := newAuthRequest("POST", "/v1/positions/p1/size", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}

@@ -38,6 +38,11 @@ const positionColumns = `
 	COALESCE(long_leverage, 0), COALESCE(short_leverage, 0),
 	COALESCE(long_margin_mode, ''), COALESCE(short_margin_mode, ''),
 	COALESCE(long_notional, 0), COALESCE(short_notional, 0),
+	COALESCE(long_initial_margin, 0), COALESCE(long_maintenance_margin, 0),
+	COALESCE(long_margin_ratio, 0), COALESCE(long_collateral, 0),
+	COALESCE(short_initial_margin, 0), COALESCE(short_maintenance_margin, 0),
+	COALESCE(short_margin_ratio, 0), COALESCE(short_collateral, 0),
+	COALESCE(long_adl_quantile, 0), COALESCE(short_adl_quantile, 0),
 	COALESCE(close_reason, ''),
 	COALESCE(error_message, ''),
 	created_at, opened_at, closed_at, updated_at`
@@ -71,6 +76,9 @@ func scanPosition(scanner interface{ Scan(...any) error }) (*domain.Position, er
 		&p.LongLeverage, &p.ShortLeverage,
 		&p.LongMarginMode, &p.ShortMarginMode,
 		&p.LongNotional, &p.ShortNotional,
+		&p.LongInitialMargin, &p.LongMaintenanceMargin, &p.LongMarginRatio, &p.LongCollateral,
+		&p.ShortInitialMargin, &p.ShortMaintenanceMargin, &p.ShortMarginRatio, &p.ShortCollateral,
+		&p.LongAdlQuantile, &p.ShortAdlQuantile,
 		&p.CloseReason,
 		&p.ErrorMessage,
 		&p.CreatedAt, &p.OpenedAt, &p.ClosedAt, &p.UpdatedAt,
@@ -192,10 +200,15 @@ func (s *Store) UpdatePosition(ctx context.Context, p *domain.Position) error {
 			long_leverage = $28, short_leverage = $29,
 			long_margin_mode = $30, short_margin_mode = $31,
 			long_notional = $32, short_notional = $33,
-			close_reason = $34,
-			error_message = $35,
-			opened_at = $36, closed_at = $37,
-			steps_completed = $38, stop_reason = $39,
+			long_initial_margin = $34, long_maintenance_margin = $35,
+			long_margin_ratio = $36, long_collateral = $37,
+			short_initial_margin = $38, short_maintenance_margin = $39,
+			short_margin_ratio = $40, short_collateral = $41,
+			close_reason = $42,
+			error_message = $43,
+			opened_at = $44, closed_at = $45,
+			steps_completed = $46, stop_reason = $47,
+			long_adl_quantile = $48, short_adl_quantile = $49,
 			updated_at = NOW()
 		WHERE id = $1 AND user_id = $2`,
 		p.ID, p.UserID,
@@ -215,10 +228,15 @@ func (s *Store) UpdatePosition(ctx context.Context, p *domain.Position) error {
 		decimalToNullable(p.LongLeverage), decimalToNullable(p.ShortLeverage),
 		nullableString(p.LongMarginMode), nullableString(p.ShortMarginMode),
 		decimalToNullable(p.LongNotional), decimalToNullable(p.ShortNotional),
+		decimalToNullable(p.LongInitialMargin), decimalToNullable(p.LongMaintenanceMargin),
+		decimalToNullable(p.LongMarginRatio), decimalToNullable(p.LongCollateral),
+		decimalToNullable(p.ShortInitialMargin), decimalToNullable(p.ShortMaintenanceMargin),
+		decimalToNullable(p.ShortMarginRatio), decimalToNullable(p.ShortCollateral),
 		nullableString(string(p.CloseReason)),
 		nullableString(p.ErrorMessage),
 		p.OpenedAt, p.ClosedAt,
 		p.StepsCompleted, nullableString(string(p.StopReason)),
+		nullableInt(p.LongAdlQuantile), nullableInt(p.ShortAdlQuantile),
 	)
 	if err != nil {
 		return fmt.Errorf("postgres update position: %w", err)
@@ -265,6 +283,14 @@ func nullableString(s string) interface{} {
 
 // nullableInt64 returns nil for zero int64 values.
 func nullableInt64(v int64) interface{} {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
+
+// nullableInt returns nil for zero int values.
+func nullableInt(v int) interface{} {
 	if v == 0 {
 		return nil
 	}

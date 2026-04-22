@@ -485,6 +485,20 @@ export interface Position {
   long_notional: string;
   short_notional: string;
 
+  // Margin health (populated from exchange position events; may be "0" if unavailable).
+  long_initial_margin: string;
+  long_maintenance_margin: string;
+  long_margin_ratio: string;
+  long_collateral: string;
+  short_initial_margin: string;
+  short_maintenance_margin: string;
+  short_margin_ratio: string;
+  short_collateral: string;
+
+  // ADL quantile per leg (1–5, or 0 if exchange does not provide it).
+  long_adl_quantile: number;
+  short_adl_quantile: number;
+
   // Close metadata.
   close_reason: CloseReason;
 
@@ -548,7 +562,6 @@ export interface CreatePositionRequest {
   margin_capital?: string;
 
   // Spread arbitrage parameters (optional).
-  arbitrage_type?: ArbitrageType;
   target_spread_pct?: string;
   stop_loss_spread_pct?: string;
   max_hold_duration?: number; // seconds; 0 = no limit
@@ -561,6 +574,9 @@ export interface PreflightOpenRequest {
   size_type: SizeType;
   requested_size: string;
   portion_size?: string;
+  leverage?: number;
+  margin_capital?: string;
+  margin_mode?: string;
 }
 
 export interface OpenPreflightIssue {
@@ -601,6 +617,7 @@ export interface OpenPreflight {
   short: OpenPreflightLeg;
   rules_version: string;
   errors: OpenPreflightIssue[];
+  warnings: OpenPreflightIssue[];
   can_open: boolean;
 }
 
@@ -645,4 +662,30 @@ export function fetchPositionOrders(id: string): Promise<ExchangeOrder[]> {
 
 export function fetchPositionFunding(id: string): Promise<FundingPayment[]> {
   return fetchApi<FundingPayment[]>(`/positions/${id}/funding`);
+}
+
+export interface TransferMarginRequest {
+  leg: "long" | "short";
+  amount: string; // decimal string; positive = add, negative = remove
+}
+
+export interface AdjustPositionSizeRequest {
+  action: "increase" | "reduce";
+  delta_base_qty: string;
+}
+
+export function transferMargin(id: string, req: TransferMarginRequest): Promise<Position> {
+  return fetchApi<Position>(`/positions/${id}/margin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export function adjustPositionSize(id: string, req: AdjustPositionSizeRequest): Promise<Position> {
+  return fetchApi<Position>(`/positions/${id}/size`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
 }
