@@ -140,6 +140,43 @@ function PositionDetail({
     : 0;
   const estTotalPnl = totalPnl - estCloseFee;
 
+  // Upcoming funding payment from live arb data
+  const upcomingPayment = (() => {
+    if (!funding) return null;
+    if (!longNotional && !shortNotional) return null;
+
+    // Direction-correct: arb may have long/short swapped relative to our position
+    const dir = funding.long.exchange_id === position.long_exchange_id ? 1 : -1;
+    const arbLong  = dir === 1 ? funding.long  : funding.short;
+    const arbShort = dir === 1 ? funding.short : funding.long;
+
+    const longRate  = parseFloat(arbLong.funding_rate);
+    const shortRate = parseFloat(arbShort.funding_rate);
+
+    // Long pays if rate > 0; receives if rate < 0. Short is opposite.
+    const longPayout  = -longRate  * longNotional;
+    const shortPayout =  shortRate * shortNotional;
+    const netPayout   = longPayout + shortPayout;
+
+    // Take the earliest next_funding_at across both legs
+    const nextAt = [arbLong.next_funding_at, arbShort.next_funding_at]
+      .filter(Boolean)
+      .sort()[0] ?? "";
+
+    return {
+      longExchangeId:  arbLong.exchange_id,
+      shortExchangeId: arbShort.exchange_id,
+      longRate,
+      shortRate,
+      longInterval:    arbLong.interval_hours,
+      shortInterval:   arbShort.interval_hours,
+      longPayout,
+      shortPayout,
+      netPayout,
+      nextAt,
+    };
+  })();
+
   return (
     <div className="rounded-lg border bg-card/50 overflow-hidden">
       {/* Header */}
@@ -573,47 +610,7 @@ function PositionDetail({
                             : adlQuantile === 3
                               ? filled ? "bg-amber-500 dark:bg-amber-400" : "bg-muted-foreground/20"
                               : filled ? "bg-emerald-500 dark:bg-emerald-400" : "bg-muted-foreground/20";
-  // Upcoming funding payment from live arb data
-  const upcomingPayment = (() => {
-    if (!funding) return null;
-    const longNotional = parseFloat(position.long_notional) || 0;
-    const shortNotional = parseFloat(position.short_notional) || 0;
-    if (!longNotional && !shortNotional) return null;
-
-    // Direction-correct: arb may have long/short swapped relative to our position
-    const dir = funding.long.exchange_id === position.long_exchange_id ? 1 : -1;
-    const arbLong  = dir === 1 ? funding.long  : funding.short;
-    const arbShort = dir === 1 ? funding.short : funding.long;
-
-    const longRate  = parseFloat(arbLong.funding_rate);
-    const shortRate = parseFloat(arbShort.funding_rate);
-
-    // Long position: pays if rate > 0, receives if rate < 0
-    // Short position: receives if rate > 0, pays if rate < 0
-    const longPayout  = -longRate  * longNotional;
-    const shortPayout =  shortRate * shortNotional;
-    const netPayout   = longPayout + shortPayout;
-
-    // Next funding timestamps — take the earliest
-    const nextAt = [arbLong.next_funding_at, arbShort.next_funding_at]
-      .filter(Boolean)
-      .sort()[0] ?? "";
-
-    return {
-      longExchangeId:  arbLong.exchange_id,
-      shortExchangeId: arbShort.exchange_id,
-      longRate,
-      shortRate,
-      longInterval:    arbLong.interval_hours,
-      shortInterval:   arbShort.interval_hours,
-      longPayout,
-      shortPayout,
-      netPayout,
-      nextAt,
-    };
-  })();
-
-  return (
+                          return (
                             <div
                               key={level}
                               style={{ height: `${4 + level * 2}px` }}
