@@ -13,8 +13,6 @@ import {
   formatPrice,
   formatQty,
   formatUsdPlain,
-  formatUsd,
-  formatRate,
   formatTimeShort,
   formatDuration,
 } from "@/lib/format";
@@ -26,6 +24,8 @@ import {
   FileText,
   Coins,
   History,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -90,11 +90,11 @@ function PositionRow({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const unrealized =
+  const pricePnl =
     (parseFloat(position.long_unrealized_pnl) || 0) +
     (parseFloat(position.short_unrealized_pnl) || 0);
   const fundingPnl = parseFloat(position.total_funding_pnl) || 0;
-  const totalPnl = unrealized + fundingPnl;
+  const totalPnl = pricePnl + fundingPnl;
 
   return (
     <div>
@@ -117,25 +117,10 @@ function PositionRow({
           <StatusBadge status={position.status} />
         </div>
 
-        {/* Exchanges */}
-        <div className="flex items-center gap-1 shrink-0">
-          <ExchangeBadge exchangeId={position.long_exchange_id} />
-          <span className="text-muted-foreground">/</span>
-          <ExchangeBadge exchangeId={position.short_exchange_id} />
-        </div>
-
         {/* Size */}
         <span className="font-mono tabular-nums text-muted-foreground ml-auto">
           {position.size_type === "price" ? "$" : ""}
           {formatQty(position.requested_size)}
-        </span>
-
-        {/* Duration */}
-        <span className="font-mono tabular-nums text-muted-foreground w-[4.5rem] text-right">
-          {formatDuration(
-            position.opened_at || position.created_at,
-            position.closed_at
-          )}
         </span>
 
         {/* P&L */}
@@ -162,11 +147,11 @@ function PositionRow({
 function ExpandedDetail({ position }: { position: Position }) {
   const [tab, setTab] = useState<"overview" | "orders" | "funding">("overview");
 
-  const unrealized =
+  const pricePnl =
     (parseFloat(position.long_unrealized_pnl) || 0) +
     (parseFloat(position.short_unrealized_pnl) || 0);
   const fundingPnl = parseFloat(position.total_funding_pnl) || 0;
-  const totalPnl = unrealized + fundingPnl;
+  const totalPnl = pricePnl + fundingPnl;
 
   return (
     <div className="border-t bg-muted/10 px-4 py-3">
@@ -194,101 +179,116 @@ function ExpandedDetail({ position }: { position: Position }) {
 
       {tab === "overview" && (
         <div className="space-y-3">
-          {/* P&L summary */}
-          <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs">
-            <span className="text-muted-foreground">Unrealized</span>
-            <PnlValue value={String(unrealized)} className="text-right text-xs" />
-            <span className="text-muted-foreground pl-2">Long</span>
-            <PnlValue value={position.long_unrealized_pnl} className="text-right text-xs" />
-            <span className="text-muted-foreground pl-2">Short</span>
-            <PnlValue value={position.short_unrealized_pnl} className="text-right text-xs" />
-            <span className="text-muted-foreground">Funding</span>
-            <PnlValue value={position.total_funding_pnl} className="text-right text-xs" />
-            <span className="text-muted-foreground font-medium">Total</span>
-            <PnlValue value={String(totalPnl)} className="text-right text-xs font-medium" />
+          <div className="grid grid-cols-2 gap-2">
+            {(["long", "short"] as const).map((side) => {
+              const isLong = side === "long";
+              const exchangeId = isLong ? position.long_exchange_id : position.short_exchange_id;
+              const entryPx = isLong ? position.long_entry_price : position.short_entry_price;
+              const exitPx = isLong ? position.long_exit_price : position.short_exit_price;
+              const filledQty = isLong ? position.long_filled_qty : position.short_filled_qty;
+              const baseQty = isLong ? position.long_filled_base_qty : position.short_filled_base_qty;
+              const contractSize = isLong ? position.long_contract_size : position.short_contract_size;
+              const legPricePnl = isLong ? position.long_unrealized_pnl : position.short_unrealized_pnl;
+              const entryFees = isLong ? position.long_entry_fees : position.short_entry_fees;
+              const closeFees = isLong ? position.long_close_fees : position.short_close_fees;
+
+              return (
+                <div
+                  key={side}
+                  className="rounded-md border border-border/50 bg-muted/10 p-2.5 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      {isLong ? (
+                        <TrendingUp className="h-3 w-3 text-emerald-500" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3 text-red-500" />
+                      )}
+                      <span
+                        className={cn(
+                          "text-[0.625rem] font-semibold uppercase tracking-wider",
+                          isLong
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-red-600 dark:text-red-400"
+                        )}
+                      >
+                        {side}
+                      </span>
+                    </div>
+                    <ExchangeBadge exchangeId={exchangeId} />
+                  </div>
+
+                  <div className="space-y-0.5 border-t border-border/30 pt-1.5">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Entry</span>
+                      <span className="text-xs font-mono tabular-nums">{formatPrice(entryPx)}</span>
+                    </div>
+                    {exitPx !== "0" && (
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-[0.625rem] text-muted-foreground">Exit</span>
+                        <span className="text-xs font-mono tabular-nums">{formatPrice(exitPx)}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-0.5 border-t border-border/30 pt-1.5">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Qty</span>
+                      <span className="text-xs font-mono tabular-nums">{formatQty(filledQty)}</span>
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Base</span>
+                      <span className="text-xs font-mono tabular-nums">{formatQty(baseQty)}</span>
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Contract</span>
+                      <span className="text-[0.625rem] font-mono tabular-nums text-muted-foreground">
+                        {formatQty(contractSize)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-0.5 border-t border-border/30 pt-1.5">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Price P&amp;L</span>
+                      <PnlValue value={legPricePnl} className="text-[0.625rem]" />
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Entry fees</span>
+                      <span className="text-[0.625rem] font-mono tabular-nums text-red-600 dark:text-red-400">
+                        {formatUsdPlain(entryFees)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-[0.625rem] text-muted-foreground">Close fees</span>
+                      {parseFloat(closeFees) > 0 ? (
+                        <span className="text-[0.625rem] font-mono tabular-nums text-red-600 dark:text-red-400">
+                          {formatUsdPlain(closeFees)}
+                        </span>
+                      ) : (
+                        <span className="text-[0.625rem] font-mono tabular-nums text-muted-foreground">-</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
-          {/* Entry/Exit details */}
-          <table className="text-xs w-full">
-            <thead>
-              <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
-                <th className="pr-3 pb-1 text-left font-medium" />
-                <th className="pr-3 pb-1 text-right font-medium">Long</th>
-                <th className="pb-1 text-right font-medium">Short</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-t border-border/30">
-                <td className="pr-3 py-0.5 text-muted-foreground">Entry price</td>
-                <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
-                  {formatPrice(position.long_entry_price)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums">
-                  {formatPrice(position.short_entry_price)}
-                </td>
-              </tr>
-              {(position.long_exit_price !== "0" ||
-                position.short_exit_price !== "0") && (
-                <tr className="border-t border-border/30">
-                  <td className="pr-3 py-0.5 text-muted-foreground">Exit price</td>
-                  <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
-                    {formatPrice(position.long_exit_price)}
-                  </td>
-                  <td className="py-0.5 text-right font-mono tabular-nums">
-                    {formatPrice(position.short_exit_price)}
-                  </td>
-                </tr>
-              )}
-              <tr className="border-t border-border/30">
-                <td className="pr-3 py-0.5 text-muted-foreground">Filled qty</td>
-                <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
-                  {formatQty(position.long_filled_qty)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums">
-                  {formatQty(position.short_filled_qty)}
-                </td>
-              </tr>
-              <tr className="border-t border-border/30">
-                <td className="pr-3 py-0.5 text-muted-foreground">Base qty</td>
-                <td className="pr-3 py-0.5 text-right font-mono tabular-nums">
-                  {formatQty(position.long_filled_base_qty)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums">
-                  {formatQty(position.short_filled_base_qty)}
-                </td>
-              </tr>
-              <tr className="border-t border-border/30">
-                <td className="pr-3 py-0.5 text-muted-foreground">Contract size</td>
-                <td className="pr-3 py-0.5 text-right font-mono tabular-nums text-muted-foreground">
-                  {formatQty(position.long_contract_size)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums text-muted-foreground">
-                  {formatQty(position.short_contract_size)}
-                </td>
-              </tr>
-              <tr className="border-t border-border/30">
-                <td className="pr-3 py-0.5 text-muted-foreground">Entry fees</td>
-                <td className="pr-3 py-0.5 text-right font-mono tabular-nums text-red-600 dark:text-red-400">
-                  {formatUsdPlain(position.long_entry_fees)}
-                </td>
-                <td className="py-0.5 text-right font-mono tabular-nums text-red-600 dark:text-red-400">
-                  {formatUsdPlain(position.short_entry_fees)}
-                </td>
-              </tr>
-              {(parseFloat(position.long_close_fees) > 0 ||
-                parseFloat(position.short_close_fees) > 0) && (
-                <tr className="border-t border-border/30">
-                  <td className="pr-3 py-0.5 text-muted-foreground">Close fees</td>
-                  <td className="pr-3 py-0.5 text-right font-mono tabular-nums text-red-600 dark:text-red-400">
-                    {formatUsdPlain(position.long_close_fees)}
-                  </td>
-                  <td className="py-0.5 text-right font-mono tabular-nums text-red-600 dark:text-red-400">
-                    {formatUsdPlain(position.short_close_fees)}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <div className="rounded-md border border-border/40 bg-muted/10 px-2.5 py-2 space-y-0.5">
+            <div className="flex items-baseline justify-between">
+              <span className="text-[0.625rem] text-muted-foreground">Price P&amp;L</span>
+              <PnlValue value={String(pricePnl)} className="text-[0.625rem]" />
+            </div>
+            <div className="flex items-baseline justify-between">
+              <span className="text-[0.625rem] text-muted-foreground">Funding</span>
+              <PnlValue value={position.total_funding_pnl} className="text-[0.625rem]" />
+            </div>
+            <div className="border-t border-border/30 pt-1 flex items-baseline justify-between">
+              <span className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">Total P&amp;L</span>
+              <PnlValue value={String(totalPnl)} className="text-xs font-medium" />
+            </div>
+          </div>
 
           {/* Close reason */}
           {position.close_reason && (
@@ -500,17 +500,19 @@ function FundingPanel({ positionId }: { positionId: string }) {
         <table className="text-xs w-full">
           <thead>
             <tr className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+              <th className="pr-2 pb-1 text-left font-medium">Time</th>
               <th className="pr-2 pb-1 text-left font-medium">Exchange</th>
               <th className="pr-2 pb-1 text-left font-medium">Leg</th>
-              <th className="pr-2 pb-1 text-right font-medium">Rate</th>
               <th className="pr-2 pb-1 text-right font-medium">Payment</th>
               <th className="pr-2 pb-1 text-right font-medium">Cum.</th>
-              <th className="pb-1 text-left font-medium">Time</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((f) => (
               <tr key={f.id} className="border-t border-border/30">
+                <td className="pr-2 py-0.5 text-muted-foreground font-mono tabular-nums">
+                  {formatTimeShort(f.funded_at)}
+                </td>
                 <td className="pr-2 py-0.5">
                   <ExchangeBadge exchangeId={f.exchange_id} />
                 </td>
@@ -526,35 +528,11 @@ function FundingPanel({ positionId }: { positionId: string }) {
                     {f.leg}
                   </span>
                 </td>
-                <td className="pr-2 py-0.5 text-right font-mono tabular-nums">
-                  {formatRate(f.rate)}
+                <td className="pr-2 py-0.5 text-right">
+                  <PnlValue value={f.payment} className="text-xs" />
                 </td>
                 <td className="pr-2 py-0.5 text-right">
-                  <span
-                    className={cn(
-                      "font-mono tabular-nums",
-                      parseFloat(f.payment) >= 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-red-600 dark:text-red-400"
-                    )}
-                  >
-                    {formatUsd(f.payment)}
-                  </span>
-                </td>
-                <td className="pr-2 py-0.5 text-right">
-                  <span
-                    className={cn(
-                      "font-mono tabular-nums font-medium",
-                      f.cumulative >= 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-red-600 dark:text-red-400"
-                    )}
-                  >
-                    {formatUsd(String(f.cumulative))}
-                  </span>
-                </td>
-                <td className="py-0.5 text-muted-foreground font-mono tabular-nums">
-                  {formatTimeShort(f.funded_at)}
+                  <PnlValue value={String(f.cumulative)} className="text-xs font-medium" />
                 </td>
               </tr>
             ))}
