@@ -197,10 +197,11 @@ function ArbitrageContent() {
                 />
 
                 <div className="mt-4">
-                  <ActivePosition
-                    position={positions.active}
-                    isLoading={positions.isLoading}
-                  />
+                   <ActivePosition
+                     position={positions.active}
+                     isLoading={positions.isLoading}
+                     funding={arbitrage.funding}
+                   />
                 </div>
 
                 <div className="mt-4">

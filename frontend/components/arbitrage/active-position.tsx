@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { adjustPositionSize, closePosition, fetchExchangeCredentials, transferMargin, type Position } from "@/lib/api";
+import { adjustPositionSize, closePosition, fetchExchangeCredentials, transferMargin, type Position, type FundingArbitrage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -24,6 +24,7 @@ import {
   formatUsdPlain,
   formatDuration,
   formatTimeShort,
+  formatCountdown,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -35,16 +36,19 @@ import {
   Activity,
   AlertTriangle,
   Settings2,
+  Zap,
 } from "lucide-react";
 
 interface ActivePositionProps {
   position: Position | null;
   isLoading: boolean;
+  funding?: FundingArbitrage | null;
 }
 
 export function ActivePosition({
   position,
   isLoading,
+  funding,
 }: ActivePositionProps) {
   if (isLoading) {
     return (
@@ -65,13 +69,15 @@ export function ActivePosition({
     );
   }
 
-  return <PositionDetail position={position} />;
+  return <PositionDetail position={position} funding={funding} />;
 }
 
 function PositionDetail({
   position,
+  funding,
 }: {
   position: Position;
+  funding?: FundingArbitrage | null;
 }) {
   const queryClient = useQueryClient();
   const [modifyOpen, setModifyOpen] = useState(false);
@@ -296,6 +302,114 @@ function PositionDetail({
           </div>
         </div>
 
+        {/* Upcoming funding payment */}
+        {upcomingPayment && (
+          <div className="rounded-md border border-border/40 bg-muted/10 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-border/40 bg-muted/20">
+              <div className="flex items-center gap-1.5">
+                <Zap className="h-3 w-3 text-amber-500" />
+                <span className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                  Next Payment
+                </span>
+              </div>
+              {upcomingPayment.nextAt && (
+                <span className="text-[0.625rem] font-mono tabular-nums text-muted-foreground">
+                  {formatCountdown(upcomingPayment.nextAt)}
+                </span>
+              )}
+            </div>
+
+            <div className="px-2.5 py-2 space-y-1">
+              {/* Long leg */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1 min-w-0">
+                  <TrendingUp className="h-2.5 w-2.5 text-emerald-500 shrink-0" />
+                  <ExchangeBadge exchangeId={upcomingPayment.longExchangeId} />
+                  <span className={cn(
+                    "text-[0.625rem] font-mono tabular-nums",
+                    upcomingPayment.longRate <= 0
+                      ? "text-emerald-600/70 dark:text-emerald-400/70"
+                      : "text-red-600/70 dark:text-red-400/70"
+                  )}>
+                    {upcomingPayment.longRate >= 0 ? "+" : ""}{(upcomingPayment.longRate * 100).toFixed(4)}%
+                  </span>
+                  <span className="text-[0.625rem] text-muted-foreground/50 font-mono">
+                    {upcomingPayment.longInterval}h
+                  </span>
+                </div>
+                <span className={cn(
+                  "text-[0.625rem] font-mono tabular-nums shrink-0",
+                  upcomingPayment.longPayout >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                )}>
+                  {upcomingPayment.longPayout >= 0 ? "+" : "−"}
+                  {formatUsdPlain(String(Math.abs(upcomingPayment.longPayout)))}
+                </span>
+              </div>
+
+              {/* Short leg */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1 min-w-0">
+                  <TrendingDown className="h-2.5 w-2.5 text-red-500 shrink-0" />
+                  <ExchangeBadge exchangeId={upcomingPayment.shortExchangeId} />
+                  <span className={cn(
+                    "text-[0.625rem] font-mono tabular-nums",
+                    upcomingPayment.shortRate >= 0
+                      ? "text-emerald-600/70 dark:text-emerald-400/70"
+                      : "text-red-600/70 dark:text-red-400/70"
+                  )}>
+                    {upcomingPayment.shortRate >= 0 ? "+" : ""}{(upcomingPayment.shortRate * 100).toFixed(4)}%
+                  </span>
+                  <span className="text-[0.625rem] text-muted-foreground/50 font-mono">
+                    {upcomingPayment.shortInterval}h
+                  </span>
+                </div>
+                <span className={cn(
+                  "text-[0.625rem] font-mono tabular-nums shrink-0",
+                  upcomingPayment.shortPayout >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                )}>
+                  {upcomingPayment.shortPayout >= 0 ? "+" : "−"}
+                  {formatUsdPlain(String(Math.abs(upcomingPayment.shortPayout)))}
+                </span>
+              </div>
+
+              {/* Divider + net + projected */}
+              <div className="border-t border-border/30 pt-1 mt-1 space-y-0.5">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[0.625rem] text-muted-foreground">Net payment</span>
+                  <span className={cn(
+                    "text-[0.625rem] font-mono tabular-nums font-medium",
+                    upcomingPayment.netPayout >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}>
+                    {upcomingPayment.netPayout >= 0 ? "+" : "−"}
+                    {formatUsdPlain(String(Math.abs(upcomingPayment.netPayout)))}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[0.625rem] text-muted-foreground">Realized after</span>
+                  <PnlValue
+                    value={String(realizedPnl + upcomingPayment.netPayout)}
+                    className="text-[0.625rem] font-medium"
+                  />
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[0.625rem] text-muted-foreground">Total P&amp;L after</span>
+                  <PnlValue
+                    value={String(totalPnl + upcomingPayment.netPayout)}
+                    className="text-[0.625rem] font-medium"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <Separator />
 
         {/* Leg cards */}
@@ -459,7 +573,47 @@ function PositionDetail({
                             : adlQuantile === 3
                               ? filled ? "bg-amber-500 dark:bg-amber-400" : "bg-muted-foreground/20"
                               : filled ? "bg-emerald-500 dark:bg-emerald-400" : "bg-muted-foreground/20";
-                          return (
+  // Upcoming funding payment from live arb data
+  const upcomingPayment = (() => {
+    if (!funding) return null;
+    const longNotional = parseFloat(position.long_notional) || 0;
+    const shortNotional = parseFloat(position.short_notional) || 0;
+    if (!longNotional && !shortNotional) return null;
+
+    // Direction-correct: arb may have long/short swapped relative to our position
+    const dir = funding.long.exchange_id === position.long_exchange_id ? 1 : -1;
+    const arbLong  = dir === 1 ? funding.long  : funding.short;
+    const arbShort = dir === 1 ? funding.short : funding.long;
+
+    const longRate  = parseFloat(arbLong.funding_rate);
+    const shortRate = parseFloat(arbShort.funding_rate);
+
+    // Long position: pays if rate > 0, receives if rate < 0
+    // Short position: receives if rate > 0, pays if rate < 0
+    const longPayout  = -longRate  * longNotional;
+    const shortPayout =  shortRate * shortNotional;
+    const netPayout   = longPayout + shortPayout;
+
+    // Next funding timestamps — take the earliest
+    const nextAt = [arbLong.next_funding_at, arbShort.next_funding_at]
+      .filter(Boolean)
+      .sort()[0] ?? "";
+
+    return {
+      longExchangeId:  arbLong.exchange_id,
+      shortExchangeId: arbShort.exchange_id,
+      longRate,
+      shortRate,
+      longInterval:    arbLong.interval_hours,
+      shortInterval:   arbShort.interval_hours,
+      longPayout,
+      shortPayout,
+      netPayout,
+      nextAt,
+    };
+  })();
+
+  return (
                             <div
                               key={level}
                               style={{ height: `${4 + level * 2}px` }}
