@@ -136,8 +136,10 @@ export function useArbitrageData(
       fundingQuery.data.find(
         (a) =>
           a.symbol === pair.symbol &&
-          a.long.exchange_id === pair.longExchange &&
-          a.short.exchange_id === pair.shortExchange
+          ((a.long.exchange_id === pair.longExchange &&
+            a.short.exchange_id === pair.shortExchange) ||
+           (a.long.exchange_id === pair.shortExchange &&
+            a.short.exchange_id === pair.longExchange))
       ) ?? null
     );
   }, [pair, fundingQuery.data]);
