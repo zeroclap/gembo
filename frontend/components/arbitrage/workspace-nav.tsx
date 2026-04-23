@@ -192,10 +192,6 @@ function WorkspaceButton({
   };
   const longColor = exchangeColorMap[longExchange ?? ""] ?? "bg-muted-foreground";
 
-  // Mock "active position" status — workspace is "live" when it's the active one
-  // and has a fully configured pair. In production this would come from a real hook.
-  const hasActiveTrade = isActive && Boolean(symbol && longExchange && shortExchange);
-
   const isHorizontal = orientation === "horizontal";
 
   // Horizontal buttons are slightly wider to show text label inline
@@ -259,17 +255,6 @@ function WorkspaceButton({
         {isActive && <span className={activeIndicatorClass} />}
       </button>
 
-      {/* "Active position" green pulse dot — bottom-right corner */}
-      {hasActiveTrade && (
-        <span
-          title="Position active"
-          className="absolute bottom-0 right-0 z-10 flex h-2.5 w-2.5 items-center justify-center"
-        >
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-        </span>
-      )}
-
       {/* Close button — hover on desktop, always visible on mobile (horizontal) */}
       {canClose && (
         <button
@@ -302,11 +287,6 @@ function WorkspaceButton({
         >
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">{symbol}</span>
-            {hasActiveTrade && (
-              <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[0.5rem] font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-                Live
-              </span>
-            )}
           </div>
           {longExchange && shortExchange && (
             <div className="flex items-center gap-1 mt-0.5">
