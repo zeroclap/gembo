@@ -179,6 +179,29 @@ services:
     ports:
       - "6060:6060" # pprof
 
+  market-data-collector-htx:
+    image: golang:1.25-alpine
+    networks: [gembo]
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - gomodcache:/root/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    env_file:
+      - ../.env
+    environment:
+      EXCHANGES: htx
+      REDIS_ADDR: redis:6379
+      GOMODCACHE: /root/go/pkg/mod
+      GOCACHE: /root/.cache/go-build
+    command: go run ./cmd/market-data-collector
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Account data collector: positions/balances/funding via WebSocket. Requires API credentials.
   account-data-collector:
     image: golang:1.25-alpine

@@ -13,6 +13,7 @@ import (
 	binanceex "github.com/zeroclap/gembo/internal/exchanges/binance"
 	bybitex "github.com/zeroclap/gembo/internal/exchanges/bybit"
 	gateex "github.com/zeroclap/gembo/internal/exchanges/gate"
+	htxex "github.com/zeroclap/gembo/internal/exchanges/htx"
 	okxex "github.com/zeroclap/gembo/internal/exchanges/okx"
 )
 
@@ -34,6 +35,9 @@ func BuildPublicRegistry(cfg *config.Config, logger *slog.Logger) *base.Registry
 		case "gate":
 			opts := gatePublicOpts(ecfg)
 			reg.Register(gateex.New(logger, opts...))
+		case "htx":
+			opts := htxPublicOpts(ecfg)
+			reg.Register(htxex.New(logger, opts...))
 		case "binance":
 			opts := binancePublicOpts(ecfg)
 			reg.Register(binanceex.New(logger, opts...))
@@ -103,6 +107,17 @@ func gatePublicOpts(e config.ExchangeCfg) []gateex.Option {
 	}
 	if e.MarketsPollInterval > 0 {
 		opts = append(opts, gateex.WithMarketsPollInterval(e.MarketsPollInterval))
+	}
+	return opts
+}
+
+func htxPublicOpts(e config.ExchangeCfg) []htxex.Option {
+	var opts []htxex.Option
+	if e.FundingPollInterval > 0 {
+		opts = append(opts, htxex.WithFundingPollInterval(e.FundingPollInterval))
+	}
+	if e.MarketsPollInterval > 0 {
+		opts = append(opts, htxex.WithMarketsPollInterval(e.MarketsPollInterval))
 	}
 	return opts
 }

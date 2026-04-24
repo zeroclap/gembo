@@ -49,6 +49,11 @@ exchanges:
     markets_poll_interval: 60s
     funding_poll_interval: 60s
 
+  - id: htx
+    enabled: true
+    markets_poll_interval: 60s
+    funding_poll_interval: 60s
+
 # Market filter — controls which markets enter the data pipeline.
 # Leave a field empty (or remove it) to include all values for that dimension.
 # Env overrides: MARKET_QUOTE_ASSETS, MARKET_SETTLE_ASSETS, MARKET_TYPES
