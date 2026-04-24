@@ -9,6 +9,7 @@ import (
 
 	"github.com/zeroclap/gembo/internal/config"
 	"github.com/zeroclap/gembo/internal/domain"
+	asterex "github.com/zeroclap/gembo/internal/exchanges/aster"
 	"github.com/zeroclap/gembo/internal/exchanges/base"
 	binanceex "github.com/zeroclap/gembo/internal/exchanges/binance"
 	bybitex "github.com/zeroclap/gembo/internal/exchanges/bybit"
@@ -26,6 +27,9 @@ func BuildPublicRegistry(cfg *config.Config, logger *slog.Logger) *base.Registry
 			continue
 		}
 		switch ecfg.ID {
+		case "aster":
+			opts := asterPublicOpts(ecfg)
+			reg.Register(asterex.New(logger, opts...))
 		case "bybit":
 			opts := bybitPublicOpts(ecfg)
 			reg.Register(bybitex.New(logger, opts...))
@@ -77,6 +81,17 @@ func NewPrivateExchangeFromCredential(logger *slog.Logger, cred domain.ExchangeC
 }
 
 // — helpers — keep the switch arms readable.
+
+func asterPublicOpts(e config.ExchangeCfg) []asterex.Option {
+	var opts []asterex.Option
+	if e.FundingPollInterval > 0 {
+		opts = append(opts, asterex.WithFundingPollInterval(e.FundingPollInterval))
+	}
+	if e.MarketsPollInterval > 0 {
+		opts = append(opts, asterex.WithMarketsPollInterval(e.MarketsPollInterval))
+	}
+	return opts
+}
 
 func bybitPublicOpts(e config.ExchangeCfg) []bybitex.Option {
 	var opts []bybitex.Option
