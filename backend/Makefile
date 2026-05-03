@@ -1,5 +1,5 @@
-.PHONY: build market-data-collector account-data-collector api arbitrage-worker position-manager \
-        run-market-data-collector run-account-data-collector run-api run-arbitrage-worker run-position-manager \
+.PHONY: build market-data-collector account-data-collector api arbitrage-worker position-manager strategy-runner \
+        run-market-data-collector run-account-data-collector run-api run-arbitrage-worker run-position-manager run-strategy-runner \
         tidy lint vet test clean \
         docker-build \
         up down
@@ -9,7 +9,7 @@ COMPOSE  := deployments/docker-compose.yml
 
 # ---- local build -------------------------------------------------------
 
-build: market-data-collector account-data-collector api arbitrage-worker position-manager
+build: market-data-collector account-data-collector api arbitrage-worker position-manager strategy-runner
 
 market-data-collector:
 	@mkdir -p $(BIN_DIR)
@@ -31,6 +31,10 @@ position-manager:
 	@mkdir -p $(BIN_DIR)
 	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/position-manager ./cmd/position-manager
 
+strategy-runner:
+	@mkdir -p $(BIN_DIR)
+	go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/strategy-runner ./cmd/strategy-runner
+
 run-market-data-collector: market-data-collector
 	./$(BIN_DIR)/market-data-collector
 
@@ -45,6 +49,9 @@ run-arbitrage-worker: arbitrage-worker
 
 run-position-manager: position-manager
 	./$(BIN_DIR)/position-manager
+
+run-strategy-runner: strategy-runner
+	./$(BIN_DIR)/strategy-runner
 
 # ---- quality -----------------------------------------------------------
 

@@ -199,6 +199,11 @@ func UserPositionStatePattern() string {
 	return fmt.Sprintf("%s:users:*:*:position:updates", prefix)
 }
 
+// UserPositionUpdatesPattern matches all user-scoped position lifecycle update channels.
+func UserPositionUpdatesPattern() string {
+	return fmt.Sprintf("%s:users:*:positions:updates", prefix)
+}
+
 // UserFundingPaymentPubSub returns user-scoped funding payment event channel.
 //
 //	gembo:users:<user_id>:<exchange>:funding:payments:updates

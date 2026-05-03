@@ -390,8 +390,8 @@ function ExchangeFilterDropdown({
 }
 
 // Grid templates shared between header and rows
-const GRID_DESKTOP = "hidden md:grid grid-cols-[1fr_100px_90px_minmax(200px,1.5fr)_100px_100px]";
-const GRID_MOBILE = "grid md:hidden grid-cols-[1fr_80px_80px]";
+const GRID_DESKTOP = "hidden md:grid grid-cols-[1fr_100px_90px_minmax(200px,1.5fr)_100px_100px] max-w-4xl mx-auto";
+const GRID_MOBILE = "grid md:hidden grid-cols-[1fr_80px_80px] max-w-4xl mx-auto";
 
 // ---------------------------------------------------------------------------
 // LegLine — compact per-leg info for mobile sublines
@@ -647,6 +647,7 @@ const ACTIVE_POSITION_STATUSES = new Set([
 
 interface PairSelectorPanelProps {
   data: DirectionalPair[];
+  totalCount: number;
   sort: SortState;
   activeKey: string | null;
   onSelect: (pair: DirectionalPair) => void;
@@ -666,6 +667,7 @@ interface PairSelectorPanelProps {
 
 function PairSelectorPanel({
   data,
+  totalCount,
   sort,
   activeKey,
   onSelect,
@@ -708,6 +710,9 @@ function PairSelectorPanel({
               className="w-full h-7 rounded-md border bg-background pl-6 pr-2 text-xs outline-none ring-ring placeholder:text-muted-foreground focus-visible:ring-2"
             />
           </div>
+          <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+            {data.length < totalCount ? `${data.length} / ${totalCount}` : totalCount} pairs
+          </span>
           <ExchangeFilterDropdown
             exchanges={exchanges}
             selected={exchangeFilter}
@@ -761,8 +766,10 @@ function PairSelectorPanel({
         {/* Ongoing positions pinned at top */}
         {ongoingPositions.length > 0 && (
           <>
-            <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/30">
-              <span className="text-[0.6rem] font-medium text-muted-foreground uppercase tracking-wider">Open positions</span>
+            <div className="border-b bg-muted/30">
+              <div className="flex items-center gap-2 px-3 py-1.5 max-w-4xl mx-auto">
+                <span className="text-[0.6rem] font-medium text-muted-foreground uppercase tracking-wider">Open positions</span>
+              </div>
             </div>
             {ongoingPositions.map((pos) => {
               const posKey = `${pos.symbol}::${pos.long_exchange_id}::${pos.short_exchange_id}`;
@@ -1120,6 +1127,7 @@ export function PairCommand({
 
   const panelProps: PairSelectorPanelProps = {
     data: sortedPairs,
+    totalCount: allPairs.length,
     sort,
     activeKey,
     onSelect: handleSelect,
@@ -1147,12 +1155,12 @@ export function PairCommand({
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex">
+    <div className="fixed inset-0 z-50 flex md:justify-center">
       <div
-        className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+        className="absolute inset-0 bg-background"
         onClick={() => onOpenChange(false)}
       />
-      <div className="relative z-10 flex flex-col w-full h-full bg-background shadow-2xl animate-in fade-in-0 slide-in-from-top-1 duration-150">
+      <div className="relative z-10 flex flex-col w-full h-full animate-in fade-in-0 slide-in-from-top-1 duration-150">
         <PairSelectorPanel {...panelProps} />
       </div>
     </div>,

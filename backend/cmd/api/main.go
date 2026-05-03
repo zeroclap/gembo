@@ -83,6 +83,7 @@ func main() {
 		handlerOpts = append(handlerOpts, serviceapi.WithPositionStore(ps))
 		handlerOpts = append(handlerOpts, serviceapi.WithUserStore(ps))
 		handlerOpts = append(handlerOpts, serviceapi.WithNotificationStore(ps))
+		handlerOpts = append(handlerOpts, serviceapi.WithStrategyStore(ps))
 	}
 
 	handler := serviceapi.NewHandler(reg, st, handlerOpts...)

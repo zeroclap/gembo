@@ -71,10 +71,12 @@ func main() {
 			defer ps.Close()
 			alertWorker := arbitrageworker.NewAlertWorker(ps, st, rc, log)
 			g.Go(func() error { return alertWorker.Run(ctx) })
-			log.Info("alert worker enabled")
+			posAlertWorker := arbitrageworker.NewPositionAlertWorker(ps, ps, rc, log)
+			g.Go(func() error { return posAlertWorker.Run(ctx) })
+			log.Info("alert workers enabled (market + position)")
 		}
 	} else {
-		log.Info("alert worker disabled (no DATABASE_URL configured)")
+		log.Info("alert workers disabled (no DATABASE_URL configured)")
 	}
 
 	log.Info("arbitrage-worker starting", "exchanges", exchangeIDs)

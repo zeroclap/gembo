@@ -845,3 +845,57 @@ export function updateAlertRule(
 export function deleteAlertRule(id: string): Promise<null> {
   return fetchApi<null>(`/notifications/rules/${id}`, { method: "DELETE" });
 }
+
+// --- Strategies ---
+
+export interface Strategy {
+  id: string;
+  user_id: string;
+  name: string;
+  enabled: boolean;
+  arbitrage_type: ArbitrageType;
+  min_apr: string;
+  min_net_spread_pct: string;
+  symbol_whitelist: string[];
+  exchange_whitelist: string[];
+  credentials: Record<string, string>;
+  size_usd: string;
+  leverage: number;
+  max_concurrent_positions: number;
+  target_spread_pct: string;
+  stop_loss_spread_pct: string;
+  max_hold_duration: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CreateStrategyRequest = Omit<Strategy, "id" | "user_id" | "created_at" | "updated_at">;
+export type PatchStrategyRequest = Partial<CreateStrategyRequest>;
+
+export function fetchStrategies(): Promise<Strategy[]> {
+  return fetchApi<Strategy[]>("/strategies");
+}
+
+export function fetchStrategy(id: string): Promise<Strategy> {
+  return fetchApi<Strategy>(`/strategies/${encodeURIComponent(id)}`);
+}
+
+export function createStrategy(req: CreateStrategyRequest): Promise<Strategy> {
+  return fetchApi<Strategy>("/strategies", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export function patchStrategy(id: string, req: PatchStrategyRequest): Promise<Strategy> {
+  return fetchApi<Strategy>(`/strategies/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+export function deleteStrategy(id: string): Promise<null> {
+  return fetchApi<null>(`/strategies/${encodeURIComponent(id)}`, { method: "DELETE" });
+}

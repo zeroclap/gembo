@@ -18,6 +18,7 @@ type Handler struct {
 	positionStore     store.PositionStore     // nil if PostgreSQL is not configured.
 	userStore         store.UserStore         // nil if PostgreSQL is not configured.
 	notificationStore store.NotificationStore // nil if PostgreSQL is not configured.
+	strategyStore     store.StrategyStore     // nil if PostgreSQL is not configured.
 	redis             *goredis.Client         // for Pub/Sub signaling to the trader process.
 	jwtSecret         string
 	tokenTTL          time.Duration
@@ -58,6 +59,11 @@ func WithRedis(rc *goredis.Client) HandlerOption {
 // WithNotificationStore sets the NotificationStore for notification and alert endpoints.
 func WithNotificationStore(ns store.NotificationStore) HandlerOption {
 	return func(h *Handler) { h.notificationStore = ns }
+}
+
+// WithStrategyStore sets the StrategyStore for strategy management endpoints.
+func WithStrategyStore(ss store.StrategyStore) HandlerOption {
+	return func(h *Handler) { h.strategyStore = ss }
 }
 
 // WithJWTSecret sets the HMAC secret used to sign and verify JWT tokens.
@@ -133,4 +139,11 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /v1/notifications/rules", auth(h.handleCreateRule))
 	h.mux.HandleFunc("PUT /v1/notifications/rules/{id}", auth(h.handleUpdateRule))
 	h.mux.HandleFunc("DELETE /v1/notifications/rules/{id}", auth(h.handleDeleteRule))
+
+	// Strategies
+	h.mux.HandleFunc("GET /v1/strategies", auth(h.handleListStrategies))
+	h.mux.HandleFunc("POST /v1/strategies", auth(h.handleCreateStrategy))
+	h.mux.HandleFunc("GET /v1/strategies/{id}", auth(h.handleGetStrategy))
+	h.mux.HandleFunc("PATCH /v1/strategies/{id}", auth(h.handleUpdateStrategy))
+	h.mux.HandleFunc("DELETE /v1/strategies/{id}", auth(h.handleDeleteStrategy))
 }
