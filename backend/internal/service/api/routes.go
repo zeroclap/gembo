@@ -12,14 +12,15 @@ import (
 
 // Handler wires all API routes onto an http.ServeMux.
 type Handler struct {
-	mux           *http.ServeMux
-	registry      *base.Registry
-	store         store.Store
-	positionStore store.PositionStore // nil if PostgreSQL is not configured.
-	userStore     store.UserStore     // nil if PostgreSQL is not configured.
-	redis         *goredis.Client     // for Pub/Sub signaling to the trader process.
-	jwtSecret     string
-	tokenTTL      time.Duration
+	mux               *http.ServeMux
+	registry          *base.Registry
+	store             store.Store
+	positionStore     store.PositionStore     // nil if PostgreSQL is not configured.
+	userStore         store.UserStore         // nil if PostgreSQL is not configured.
+	notificationStore store.NotificationStore // nil if PostgreSQL is not configured.
+	redis             *goredis.Client         // for Pub/Sub signaling to the trader process.
+	jwtSecret         string
+	tokenTTL          time.Duration
 }
 
 // NewHandler creates a Handler and registers all routes.
@@ -52,6 +53,11 @@ func WithUserStore(us store.UserStore) HandlerOption {
 // WithRedis sets the Redis client for Pub/Sub signaling.
 func WithRedis(rc *goredis.Client) HandlerOption {
 	return func(h *Handler) { h.redis = rc }
+}
+
+// WithNotificationStore sets the NotificationStore for notification and alert endpoints.
+func WithNotificationStore(ns store.NotificationStore) HandlerOption {
+	return func(h *Handler) { h.notificationStore = ns }
 }
 
 // WithJWTSecret sets the HMAC secret used to sign and verify JWT tokens.
@@ -116,4 +122,15 @@ func (h *Handler) registerRoutes() {
 
 	// Admin
 	h.mux.HandleFunc("DELETE /v1/flush", auth(h.handleFlushAll))
+
+	// Notifications
+	h.mux.HandleFunc("GET /v1/notifications/channels", auth(h.handleListChannels))
+	h.mux.HandleFunc("POST /v1/notifications/channels", auth(h.handleCreateChannel))
+	h.mux.HandleFunc("PUT /v1/notifications/channels/{id}", auth(h.handleUpdateChannel))
+	h.mux.HandleFunc("DELETE /v1/notifications/channels/{id}", auth(h.handleDeleteChannel))
+	h.mux.HandleFunc("POST /v1/notifications/channels/{id}/test", auth(h.handleTestChannel))
+	h.mux.HandleFunc("GET /v1/notifications/rules", auth(h.handleListRules))
+	h.mux.HandleFunc("POST /v1/notifications/rules", auth(h.handleCreateRule))
+	h.mux.HandleFunc("PUT /v1/notifications/rules/{id}", auth(h.handleUpdateRule))
+	h.mux.HandleFunc("DELETE /v1/notifications/rules/{id}", auth(h.handleDeleteRule))
 }

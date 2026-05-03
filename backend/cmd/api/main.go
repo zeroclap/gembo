@@ -82,6 +82,7 @@ func main() {
 		log.Info("postgres connected and migrated")
 		handlerOpts = append(handlerOpts, serviceapi.WithPositionStore(ps))
 		handlerOpts = append(handlerOpts, serviceapi.WithUserStore(ps))
+		handlerOpts = append(handlerOpts, serviceapi.WithNotificationStore(ps))
 	}
 
 	handler := serviceapi.NewHandler(reg, st, handlerOpts...)

@@ -712,3 +712,136 @@ export function saveWorkspaces(workspaces: RemoteWorkspace[]): Promise<RemoteWor
     body: JSON.stringify({ workspaces }),
   });
 }
+
+// ---- Notifications ----------------------------------------------------------
+
+export type ChannelType = "telegram";
+
+export type AlertRuleType =
+  | "funding_apr_threshold"
+  | "spread_threshold"
+  | "position_opened"
+  | "position_closed"
+  | "funding_payment"
+  | "margin_warning";
+
+export interface TelegramConfig {
+  bot_token: string;
+  chat_id: string;
+}
+
+export interface NotificationChannel {
+  id: string;
+  user_id: string;
+  type: ChannelType;
+  name: string;
+  config: TelegramConfig; // extend union when more channel types are added
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Params for funding_apr_threshold */
+export interface FundingAPRParams {
+  min_apr: string;
+  symbol?: string;
+  long_exchange_id?: string;
+  short_exchange_id?: string;
+}
+
+/** Params for spread_threshold */
+export interface SpreadThresholdParams {
+  min_spread_pct: string;
+  symbol?: string;
+}
+
+/** Params for margin_warning */
+export interface MarginWarningParams {
+  max_margin_ratio: string;
+}
+
+/** Params for position_opened / position_closed / funding_payment */
+export interface PositionEventParams {
+  symbol?: string;
+}
+
+export type AlertRuleParams =
+  | FundingAPRParams
+  | SpreadThresholdParams
+  | MarginWarningParams
+  | PositionEventParams;
+
+export interface AlertRule {
+  id: string;
+  user_id: string;
+  channel_id: string;
+  type: AlertRuleType;
+  params: AlertRuleParams;
+  enabled: boolean;
+  cooldown_minutes: number;
+  last_triggered_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function fetchNotificationChannels(): Promise<NotificationChannel[]> {
+  return fetchApi<NotificationChannel[]>("/notifications/channels");
+}
+
+export function createNotificationChannel(
+  ch: Omit<NotificationChannel, "id" | "user_id" | "created_at" | "updated_at">
+): Promise<NotificationChannel> {
+  return fetchApi<NotificationChannel>("/notifications/channels", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(ch),
+  });
+}
+
+export function updateNotificationChannel(
+  id: string,
+  ch: Omit<NotificationChannel, "id" | "user_id" | "created_at" | "updated_at">
+): Promise<NotificationChannel> {
+  return fetchApi<NotificationChannel>(`/notifications/channels/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(ch),
+  });
+}
+
+export function deleteNotificationChannel(id: string): Promise<null> {
+  return fetchApi<null>(`/notifications/channels/${id}`, { method: "DELETE" });
+}
+
+export function testNotificationChannel(id: string): Promise<null> {
+  return fetchApi<null>(`/notifications/channels/${id}/test`, { method: "POST" });
+}
+
+export function fetchAlertRules(): Promise<AlertRule[]> {
+  return fetchApi<AlertRule[]>("/notifications/rules");
+}
+
+export function createAlertRule(
+  rule: Omit<AlertRule, "id" | "user_id" | "last_triggered_at" | "created_at" | "updated_at">
+): Promise<AlertRule> {
+  return fetchApi<AlertRule>("/notifications/rules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rule),
+  });
+}
+
+export function updateAlertRule(
+  id: string,
+  rule: Omit<AlertRule, "id" | "user_id" | "last_triggered_at" | "created_at" | "updated_at">
+): Promise<AlertRule> {
+  return fetchApi<AlertRule>(`/notifications/rules/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rule),
+  });
+}
+
+export function deleteAlertRule(id: string): Promise<null> {
+  return fetchApi<null>(`/notifications/rules/${id}`, { method: "DELETE" });
+}

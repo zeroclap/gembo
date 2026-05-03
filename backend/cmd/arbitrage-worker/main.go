@@ -16,6 +16,7 @@ import (
 	"github.com/zeroclap/gembo/internal/pkg/arbitrage"
 	"github.com/zeroclap/gembo/internal/pkg/logger"
 	arbitrageworker "github.com/zeroclap/gembo/internal/service/arbitrage-worker"
+	pgstore "github.com/zeroclap/gembo/internal/store/postgres"
 	redistore "github.com/zeroclap/gembo/internal/store/redis"
 )
 
@@ -60,6 +61,21 @@ func main() {
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return w.Run(ctx) })
+
+	// Alert worker — optional, requires a PostgreSQL database.
+	if cfg.Database.URL != "" {
+		ps, err := pgstore.New(ctx, cfg.Database.URL)
+		if err != nil {
+			log.Warn("alert worker: postgres connect failed, alerts disabled", "error", err)
+		} else {
+			defer ps.Close()
+			alertWorker := arbitrageworker.NewAlertWorker(ps, st, rc, log)
+			g.Go(func() error { return alertWorker.Run(ctx) })
+			log.Info("alert worker enabled")
+		}
+	} else {
+		log.Info("alert worker disabled (no DATABASE_URL configured)")
+	}
 
 	log.Info("arbitrage-worker starting", "exchanges", exchangeIDs)
 	if err := g.Wait(); err != nil && err != context.Canceled {
