@@ -6,13 +6,28 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// FundingArbitrage represents a cross-exchange funding rate arbitrage opportunity.
+// Arbitrage represents a cross-exchange arbitrage opportunity for a single
+// asset pair. The Type field identifies the strategy; exactly one of Funding
+// or Spread is populated based on the type.
+type Arbitrage struct {
+	Type      ArbitrageType `json:"type"`
+	Symbol    string        `json:"symbol"`
+	ExchangeA string        `json:"exchange_a"` // alphabetically first exchange ID
+	ExchangeB string        `json:"exchange_b"` // alphabetically second exchange ID
+
+	// Only one of these is set, determined by Type.
+	Funding *FundingArbitrage `json:"funding,omitempty"`
+	Spread  *SpreadArbitrage  `json:"spread,omitempty"`
+
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// FundingArbitrage holds funding-rate-specific data for an arbitrage opportunity.
 // The strategy: open a long on one exchange and a short on another to capture
 // the funding rate differential.
 type FundingArbitrage struct {
-	Symbol string       `json:"symbol"`
-	Long   ArbitrageLeg `json:"long"`  // exchange with lower normalized rate (you benefit as long)
-	Short  ArbitrageLeg `json:"short"` // exchange with higher normalized rate (you benefit as short)
+	Long  ArbitrageLeg `json:"long"`  // exchange with lower normalized rate (you benefit as long)
+	Short ArbitrageLeg `json:"short"` // exchange with higher normalized rate (you benefit as short)
 
 	// Computed rates.
 	NetRate8h decimal.Decimal `json:"net_rate_8h"` // short_rate_8h - long_rate_8h
@@ -30,8 +45,6 @@ type FundingArbitrage struct {
 
 	// Recommendation flag — set by the recommendation engine at query time.
 	Recommended bool `json:"recommended"`
-
-	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // ArbitrageLeg represents one side (long or short) of an arbitrage pair.

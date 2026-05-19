@@ -61,28 +61,14 @@ func (m *mockBalanceStore) ListBalances(_ context.Context, userID, exchangeID st
 	copy(out, b)
 	return out, nil
 }
-func (m *mockBalanceStore) SetFundingArbitrage(context.Context, domain.FundingArbitrage) error {
-	return nil
-}
-func (m *mockBalanceStore) GetFundingArbitrage(context.Context, string, string, string) (*domain.FundingArbitrage, error) {
+func (m *mockBalanceStore) SetArbitrage(context.Context, domain.Arbitrage) error { return nil }
+func (m *mockBalanceStore) GetArbitrage(context.Context, domain.ArbitrageType, string, string, string) (*domain.Arbitrage, error) {
 	return nil, nil
 }
-func (m *mockBalanceStore) ListFundingArbitrage(context.Context) ([]domain.FundingArbitrage, error) {
+func (m *mockBalanceStore) ListArbitrage(context.Context) ([]domain.Arbitrage, error) {
 	return nil, nil
 }
-func (m *mockBalanceStore) RemoveFundingArbitrage(context.Context, string, string, string) error {
-	return nil
-}
-func (m *mockBalanceStore) SetSpreadArbitrage(context.Context, domain.SpreadArbitrage) error {
-	return nil
-}
-func (m *mockBalanceStore) GetSpreadArbitrage(context.Context, string, string, string) (*domain.SpreadArbitrage, error) {
-	return nil, nil
-}
-func (m *mockBalanceStore) ListSpreadArbitrage(context.Context) ([]domain.SpreadArbitrage, error) {
-	return nil, nil
-}
-func (m *mockBalanceStore) RemoveSpreadArbitrage(context.Context, string, string, string) error {
+func (m *mockBalanceStore) RemoveArbitrage(context.Context, domain.ArbitrageType, string, string, string) error {
 	return nil
 }
 func (m *mockBalanceStore) FlushAll(context.Context) (int64, error) { return 0, nil }

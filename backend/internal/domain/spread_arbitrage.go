@@ -1,8 +1,6 @@
 package domain
 
 import (
-	"time"
-
 	"github.com/shopspring/decimal"
 )
 
@@ -14,11 +12,10 @@ const (
 	ArbitrageTypeSpread  ArbitrageType = "spread"
 )
 
-// SpreadArbitrage represents a cross-exchange price spread opportunity.
+// SpreadArbitrage holds price-spread-specific data for an arbitrage opportunity.
 // The strategy: buy on the cheaper exchange and sell on the more expensive one,
 // then wait for the spread to converge (prices to equalize).
 type SpreadArbitrage struct {
-	Symbol         string `json:"symbol"`
 	BuyExchangeID  string `json:"buy_exchange_id"`  // exchange with lower ask
 	SellExchangeID string `json:"sell_exchange_id"` // exchange with higher bid
 
@@ -34,8 +31,6 @@ type SpreadArbitrage struct {
 
 	Fees         SpreadArbitrageFees `json:"fees"`
 	NetSpreadPct decimal.Decimal     `json:"net_spread_pct"` // spread_pct - round_trip_fees_pct
-
-	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // SpreadArbitrageFees contains fee estimates for opening and closing a spread

@@ -200,7 +200,7 @@ var _ store.PositionStore = (*mockPositionStore)(nil)
 // ---------------------------------------------------------------------------
 
 type mockStore struct {
-	arbitrages []domain.FundingArbitrage
+	arbitrages []domain.Arbitrage
 	markets    map[string]domain.Market
 	tickers    map[string]domain.Ticker
 }
@@ -246,27 +246,17 @@ func (m *mockStore) SetBalance(_ context.Context, _ domain.Balance) error { retu
 func (m *mockStore) ListBalances(_ context.Context, _, _ string) ([]domain.Balance, error) {
 	return nil, nil
 }
-func (m *mockStore) SetFundingArbitrage(_ context.Context, _ domain.FundingArbitrage) error {
-	return nil
-}
-func (m *mockStore) ListFundingArbitrage(_ context.Context) ([]domain.FundingArbitrage, error) {
+func (m *mockStore) SetArbitrage(_ context.Context, _ domain.Arbitrage) error { return nil }
+func (m *mockStore) ListArbitrage(_ context.Context) ([]domain.Arbitrage, error) {
 	return m.arbitrages, nil
 }
-func (m *mockStore) GetFundingArbitrage(_ context.Context, _, _, _ string) (*domain.FundingArbitrage, error) {
+func (m *mockStore) GetArbitrage(_ context.Context, _ domain.ArbitrageType, _, _, _ string) (*domain.Arbitrage, error) {
 	return nil, nil
 }
-func (m *mockStore) RemoveFundingArbitrage(_ context.Context, _, _, _ string) error { return nil }
-func (m *mockStore) SetSpreadArbitrage(_ context.Context, _ domain.SpreadArbitrage) error {
+func (m *mockStore) RemoveArbitrage(_ context.Context, _ domain.ArbitrageType, _, _, _ string) error {
 	return nil
 }
-func (m *mockStore) GetSpreadArbitrage(_ context.Context, _, _, _ string) (*domain.SpreadArbitrage, error) {
-	return nil, nil
-}
-func (m *mockStore) ListSpreadArbitrage(_ context.Context) ([]domain.SpreadArbitrage, error) {
-	return nil, nil
-}
-func (m *mockStore) RemoveSpreadArbitrage(_ context.Context, _, _, _ string) error { return nil }
-func (m *mockStore) FlushAll(_ context.Context) (int64, error)                     { return 0, nil }
+func (m *mockStore) FlushAll(_ context.Context) (int64, error) { return 0, nil }
 
 var _ store.Store = (*mockStore)(nil)
 

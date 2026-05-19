@@ -36,10 +36,14 @@ func (rec *Recommender) IsRecommended(arb *domain.FundingArbitrage) bool {
 	return true
 }
 
-// Annotate sets the Recommended field on each arbitrage in the slice.
-func (rec *Recommender) Annotate(arbs []domain.FundingArbitrage) {
+// Annotate sets the Recommended field on each funding arbitrage in the slice.
+// Only processes entries where Funding data is present; others are skipped.
+func (rec *Recommender) Annotate(arbs []domain.Arbitrage) {
 	for i := range arbs {
-		arbs[i].Recommended = rec.IsRecommended(&arbs[i])
+		if arbs[i].Funding == nil {
+			continue
+		}
+		arbs[i].Funding.Recommended = rec.IsRecommended(arbs[i].Funding)
 	}
 }
 

@@ -85,7 +85,7 @@ func (c *SpreadCalculator) Recompute(ctx context.Context, exchangeIDs []string) 
 				if arb == nil {
 					continue
 				}
-				if err := c.store.SetSpreadArbitrage(ctx, *arb); err != nil {
+				if err := c.store.SetArbitrage(ctx, *arb); err != nil {
 					c.logger.Warn("spread: store arbitrage",
 						"symbol", sym, "error", err)
 				}
@@ -103,7 +103,7 @@ func (c *SpreadCalculator) computeSpreadPair(
 	symbol, exA, exB string,
 	dataA, dataB *exchangeData,
 	now time.Time,
-) *domain.SpreadArbitrage {
+) *domain.Arbitrage {
 	tA, okA := dataA.tickers[symbol]
 	tB, okB := dataB.tickers[symbol]
 	if !okA || !okB {
@@ -163,25 +163,30 @@ func (c *SpreadCalculator) computeSpreadPair(
 
 	netSpreadPct := spreadPct.Sub(roundTripFeesPct)
 
-	return &domain.SpreadArbitrage{
-		Symbol:         symbol,
-		BuyExchangeID:  buyExID,
-		SellExchangeID: sellExID,
-		BuyAsk:         buyAsk,
-		SellBid:        sellBid,
-		MidPrice:       midPrice,
-		SpreadPct:      spreadPct,
-		SpreadAbs:      spreadAbs,
-		BuyVolume24h:   buyVolume,
-		SellVolume24h:  sellVolume,
-		Fees: domain.SpreadArbitrageFees{
-			BuyTakerFeePct:   buyTakerPct,
-			SellTakerFeePct:  sellTakerPct,
-			OpenFeesPct:      openFeesPct,
-			CloseFeesPct:     closeFeesPct,
-			RoundTripFeesPct: roundTripFeesPct,
+	return &domain.Arbitrage{
+		Type:      domain.ArbitrageTypeSpread,
+		Symbol:    symbol,
+		ExchangeA: exA,
+		ExchangeB: exB,
+		Spread: &domain.SpreadArbitrage{
+			BuyExchangeID:  buyExID,
+			SellExchangeID: sellExID,
+			BuyAsk:         buyAsk,
+			SellBid:        sellBid,
+			MidPrice:       midPrice,
+			SpreadPct:      spreadPct,
+			SpreadAbs:      spreadAbs,
+			BuyVolume24h:   buyVolume,
+			SellVolume24h:  sellVolume,
+			Fees: domain.SpreadArbitrageFees{
+				BuyTakerFeePct:   buyTakerPct,
+				SellTakerFeePct:  sellTakerPct,
+				OpenFeesPct:      openFeesPct,
+				CloseFeesPct:     closeFeesPct,
+				RoundTripFeesPct: roundTripFeesPct,
+			},
+			NetSpreadPct: netSpreadPct,
 		},
-		NetSpreadPct: netSpreadPct,
-		UpdatedAt:    now,
+		UpdatedAt: now,
 	}
 }

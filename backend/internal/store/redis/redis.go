@@ -310,12 +310,7 @@ func (s *Store) ListBalances(ctx context.Context, userID, exchangeID string) ([]
 	return balances, nil
 }
 
-// --- Funding Arbitrage ---
-
-const arbitrageTTL = 120 * time.Second
-
-// spreadArbitrageTTL is shorter because price spreads are more volatile than funding rates.
-const spreadArbitrageTTL = 30 * time.Second
+// --- Arbitrage (unified) ---
 
 // sortedExchangeIDs returns the two exchange IDs in alphabetical order.
 // This ensures a canonical key regardless of which exchange is long vs short.
@@ -326,68 +321,77 @@ func sortedExchangeIDs(a, b string) (string, string) {
 	return b, a
 }
 
-// SetFundingArbitrage stores a FundingArbitrage opportunity and tracks it in the pairs set.
+// ttlForArbitrageType returns the TTL for an arbitrage entry based on strategy.
+// Spread opportunities expire faster because price spreads are more volatile.
+func ttlForArbitrageType(t domain.ArbitrageType) time.Duration {
+	switch t {
+	case domain.ArbitrageTypeSpread:
+		return 30 * time.Second
+	default:
+		return 120 * time.Second
+	}
+}
+
+// SetArbitrage stores an Arbitrage opportunity and tracks it in the unified pairs set.
 // Exchange IDs in the key are always sorted alphabetically so that a direction change
-// (long/short swap) overwrites the same key rather than creating a duplicate.
-func (s *Store) SetFundingArbitrage(ctx context.Context, a domain.FundingArbitrage) error {
+// overwrites the same key rather than creating a duplicate.
+func (s *Store) SetArbitrage(ctx context.Context, a domain.Arbitrage) error {
 	data, err := json.Marshal(a)
 	if err != nil {
-		return fmt.Errorf("marshal funding arbitrage: %w", err)
+		return fmt.Errorf("marshal arbitrage: %w", err)
 	}
 
-	exA, exB := sortedExchangeIDs(a.Long.ExchangeID, a.Short.ExchangeID)
-	key := rediskey.FundingArbitragePair(a.Symbol, exA, exB)
-	member := a.Symbol + "|" + exA + "|" + exB
+	exA, exB := sortedExchangeIDs(a.ExchangeA, a.ExchangeB)
+	key := rediskey.ArbitragePair(string(a.Type), a.Symbol, exA, exB)
+	member := a.Symbol + "|" + string(a.Type) + "|" + exA + "|" + exB
 
 	// Clean up any stale contra-pair member that used the opposite ordering.
-	// This handles the case where a previous write used long|short order
-	// instead of alphabetical order, leaving an orphaned set member.
-	contraA, contraB := a.Long.ExchangeID, a.Short.ExchangeID
-	if contraA != exA {
-		staleMember := a.Symbol + "|" + contraA + "|" + contraB
-		staleKey := rediskey.FundingArbitragePair(a.Symbol, contraA, contraB)
-		s.client.SRem(ctx, rediskey.FundingArbitragePairs(), staleMember)
+	if a.ExchangeA != exA {
+		staleMember := a.Symbol + "|" + string(a.Type) + "|" + a.ExchangeA + "|" + a.ExchangeB
+		staleKey := rediskey.ArbitragePair(string(a.Type), a.Symbol, a.ExchangeA, a.ExchangeB)
+		s.client.SRem(ctx, rediskey.ArbitragePairs(), staleMember)
 		s.client.Del(ctx, staleKey)
 	}
 
+	ttl := ttlForArbitrageType(a.Type)
 	pipe := s.client.TxPipeline()
-	pipe.Set(ctx, key, data, arbitrageTTL)
-	pipe.SAdd(ctx, rediskey.FundingArbitragePairs(), member)
-	pipe.Publish(ctx, rediskey.FundingArbitragePubSub(), data)
+	pipe.Set(ctx, key, data, ttl)
+	pipe.SAdd(ctx, rediskey.ArbitragePairs(), member)
+	pipe.Publish(ctx, rediskey.ArbitragePubSub(), data)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("store funding arbitrage %s %s|%s: %w", a.Symbol, exA, exB, err)
+		return fmt.Errorf("store arbitrage %s %s %s|%s: %w", a.Type, a.Symbol, exA, exB, err)
 	}
 	return nil
 }
 
-// GetFundingArbitrage retrieves a single funding arbitrage opportunity by symbol and exchange pair.
+// GetArbitrage retrieves a single arbitrage opportunity by type, symbol and exchange pair.
 // Exchange IDs are sorted alphabetically to match the canonical key.
 // Returns nil if not found.
-func (s *Store) GetFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) (*domain.FundingArbitrage, error) {
+func (s *Store) GetArbitrage(ctx context.Context, arbType domain.ArbitrageType, symbol, exchangeA, exchangeB string) (*domain.Arbitrage, error) {
 	exA, exB := sortedExchangeIDs(exchangeA, exchangeB)
-	key := rediskey.FundingArbitragePair(symbol, exA, exB)
+	key := rediskey.ArbitragePair(string(arbType), symbol, exA, exB)
 
 	data, err := s.client.Get(ctx, key).Bytes()
 	if err == goredis.Nil {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get funding arbitrage %s|%s|%s: %w", symbol, exA, exB, err)
+		return nil, fmt.Errorf("get arbitrage %s|%s|%s|%s: %w", arbType, symbol, exA, exB, err)
 	}
 
-	var a domain.FundingArbitrage
+	var a domain.Arbitrage
 	if err := json.Unmarshal(data, &a); err != nil {
-		return nil, fmt.Errorf("unmarshal funding arbitrage %s|%s|%s: %w", symbol, exA, exB, err)
+		return nil, fmt.Errorf("unmarshal arbitrage %s|%s|%s|%s: %w", arbType, symbol, exA, exB, err)
 	}
 	return &a, nil
 }
 
-// ListFundingArbitrage returns all stored funding arbitrage opportunities.
-func (s *Store) ListFundingArbitrage(ctx context.Context) ([]domain.FundingArbitrage, error) {
-	members, err := s.client.SMembers(ctx, rediskey.FundingArbitragePairs()).Result()
+// ListArbitrage returns all stored arbitrage opportunities across all strategy types.
+func (s *Store) ListArbitrage(ctx context.Context) ([]domain.Arbitrage, error) {
+	members, err := s.client.SMembers(ctx, rediskey.ArbitragePairs()).Result()
 	if err != nil {
-		return nil, fmt.Errorf("list funding arbitrage pairs: %w", err)
+		return nil, fmt.Errorf("list arbitrage pairs: %w", err)
 	}
 	if len(members) == 0 {
 		return nil, nil
@@ -395,170 +399,52 @@ func (s *Store) ListFundingArbitrage(ctx context.Context) ([]domain.FundingArbit
 
 	keys := make([]string, len(members))
 	for i, m := range members {
-		// m is "symbol|exchangeA|exchangeB"
-		parts := strings.SplitN(m, "|", 3)
-		if len(parts) != 3 {
+		// m is "symbol|type|exchangeA|exchangeB"
+		parts := strings.SplitN(m, "|", 4)
+		if len(parts) != 4 {
 			continue
 		}
-		keys[i] = rediskey.FundingArbitragePair(parts[0], parts[1], parts[2])
+		keys[i] = rediskey.ArbitragePair(parts[1], parts[0], parts[2], parts[3])
 	}
 
 	vals, err := s.client.MGet(ctx, keys...).Result()
 	if err != nil {
-		return nil, fmt.Errorf("mget funding arbitrage: %w", err)
+		return nil, fmt.Errorf("mget arbitrage: %w", err)
 	}
 
-	arbs := make([]domain.FundingArbitrage, 0, len(vals))
+	arbs := make([]domain.Arbitrage, 0, len(vals))
 	for i, v := range vals {
 		if v == nil {
 			// Expired, clean up stale member.
-			s.client.SRem(ctx, rediskey.FundingArbitragePairs(), members[i])
+			s.client.SRem(ctx, rediskey.ArbitragePairs(), members[i])
 			continue
 		}
 		raw, ok := v.(string)
 		if !ok {
 			continue
 		}
-		var a domain.FundingArbitrage
+		var a domain.Arbitrage
 		if err := json.Unmarshal([]byte(raw), &a); err != nil {
-			return nil, fmt.Errorf("unmarshal funding arbitrage %s: %w", members[i], err)
+			return nil, fmt.Errorf("unmarshal arbitrage %s: %w", members[i], err)
 		}
 		arbs = append(arbs, a)
 	}
 	return arbs, nil
 }
 
-// RemoveFundingArbitrage removes a specific funding arbitrage pair.
+// RemoveArbitrage removes a specific arbitrage pair by type, symbol and exchanges.
 // Exchange IDs are sorted alphabetically to match the canonical key format.
-func (s *Store) RemoveFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error {
+func (s *Store) RemoveArbitrage(ctx context.Context, arbType domain.ArbitrageType, symbol, exchangeA, exchangeB string) error {
 	exA, exB := sortedExchangeIDs(exchangeA, exchangeB)
-	key := rediskey.FundingArbitragePair(symbol, exA, exB)
-	member := symbol + "|" + exA + "|" + exB
+	key := rediskey.ArbitragePair(string(arbType), symbol, exA, exB)
+	member := symbol + "|" + string(arbType) + "|" + exA + "|" + exB
 
 	pipe := s.client.TxPipeline()
 	pipe.Del(ctx, key)
-	pipe.SRem(ctx, rediskey.FundingArbitragePairs(), member)
+	pipe.SRem(ctx, rediskey.ArbitragePairs(), member)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("remove funding arbitrage %s|%s|%s: %w", symbol, exA, exB, err)
-	}
-	return nil
-}
-
-// --- Spread Arbitrage ---
-
-// SetSpreadArbitrage stores a SpreadArbitrage opportunity and tracks it in the pairs set.
-// Exchange IDs in the key are always sorted alphabetically so that a direction change
-// (buy/sell swap) overwrites the same key rather than creating a duplicate.
-func (s *Store) SetSpreadArbitrage(ctx context.Context, a domain.SpreadArbitrage) error {
-	data, err := json.Marshal(a)
-	if err != nil {
-		return fmt.Errorf("marshal spread arbitrage: %w", err)
-	}
-
-	exA, exB := sortedExchangeIDs(a.BuyExchangeID, a.SellExchangeID)
-	key := rediskey.SpreadArbitragePair(a.Symbol, exA, exB)
-	member := a.Symbol + "|" + exA + "|" + exB
-
-	// Clean up any stale contra-pair member that used the opposite ordering.
-	contraA, contraB := a.BuyExchangeID, a.SellExchangeID
-	if contraA != exA {
-		staleMember := a.Symbol + "|" + contraA + "|" + contraB
-		staleKey := rediskey.SpreadArbitragePair(a.Symbol, contraA, contraB)
-		s.client.SRem(ctx, rediskey.SpreadArbitragePairs(), staleMember)
-		s.client.Del(ctx, staleKey)
-	}
-
-	pipe := s.client.TxPipeline()
-	pipe.Set(ctx, key, data, spreadArbitrageTTL)
-	pipe.SAdd(ctx, rediskey.SpreadArbitragePairs(), member)
-	pipe.Publish(ctx, rediskey.SpreadArbitragePubSub(), data)
-
-	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("store spread arbitrage %s %s|%s: %w", a.Symbol, exA, exB, err)
-	}
-	return nil
-}
-
-// GetSpreadArbitrage retrieves a single spread arbitrage opportunity by symbol and exchange pair.
-// Exchange IDs are sorted alphabetically to match the canonical key.
-// Returns nil if not found.
-func (s *Store) GetSpreadArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) (*domain.SpreadArbitrage, error) {
-	exA, exB := sortedExchangeIDs(exchangeA, exchangeB)
-	key := rediskey.SpreadArbitragePair(symbol, exA, exB)
-
-	data, err := s.client.Get(ctx, key).Bytes()
-	if err == goredis.Nil {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get spread arbitrage %s|%s|%s: %w", symbol, exA, exB, err)
-	}
-
-	var a domain.SpreadArbitrage
-	if err := json.Unmarshal(data, &a); err != nil {
-		return nil, fmt.Errorf("unmarshal spread arbitrage %s|%s|%s: %w", symbol, exA, exB, err)
-	}
-	return &a, nil
-}
-
-// ListSpreadArbitrage returns all stored spread arbitrage opportunities.
-func (s *Store) ListSpreadArbitrage(ctx context.Context) ([]domain.SpreadArbitrage, error) {
-	members, err := s.client.SMembers(ctx, rediskey.SpreadArbitragePairs()).Result()
-	if err != nil {
-		return nil, fmt.Errorf("list spread arbitrage pairs: %w", err)
-	}
-	if len(members) == 0 {
-		return nil, nil
-	}
-
-	keys := make([]string, len(members))
-	for i, m := range members {
-		parts := strings.SplitN(m, "|", 3)
-		if len(parts) != 3 {
-			continue
-		}
-		keys[i] = rediskey.SpreadArbitragePair(parts[0], parts[1], parts[2])
-	}
-
-	vals, err := s.client.MGet(ctx, keys...).Result()
-	if err != nil {
-		return nil, fmt.Errorf("mget spread arbitrage: %w", err)
-	}
-
-	arbs := make([]domain.SpreadArbitrage, 0, len(vals))
-	for i, v := range vals {
-		if v == nil {
-			// Expired, clean up stale member.
-			s.client.SRem(ctx, rediskey.SpreadArbitragePairs(), members[i])
-			continue
-		}
-		raw, ok := v.(string)
-		if !ok {
-			continue
-		}
-		var a domain.SpreadArbitrage
-		if err := json.Unmarshal([]byte(raw), &a); err != nil {
-			return nil, fmt.Errorf("unmarshal spread arbitrage %s: %w", members[i], err)
-		}
-		arbs = append(arbs, a)
-	}
-	return arbs, nil
-}
-
-// RemoveSpreadArbitrage removes a specific spread arbitrage pair.
-// Exchange IDs are sorted alphabetically to match the canonical key format.
-func (s *Store) RemoveSpreadArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error {
-	exA, exB := sortedExchangeIDs(exchangeA, exchangeB)
-	key := rediskey.SpreadArbitragePair(symbol, exA, exB)
-	member := symbol + "|" + exA + "|" + exB
-
-	pipe := s.client.TxPipeline()
-	pipe.Del(ctx, key)
-	pipe.SRem(ctx, rediskey.SpreadArbitragePairs(), member)
-
-	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("remove spread arbitrage %s|%s|%s: %w", symbol, exA, exB, err)
+		return fmt.Errorf("remove arbitrage %s|%s|%s|%s: %w", arbType, symbol, exA, exB, err)
 	}
 	return nil
 }

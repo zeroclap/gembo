@@ -12,25 +12,25 @@ import (
 // spreadMockStore extends mockStore with working spread arbitrage methods.
 type spreadMockStore struct {
 	mockStore
-	spreads map[string]domain.SpreadArbitrage // keyed by "symbol|sortedExA|sortedExB"
+	spreads map[string]domain.Arbitrage // keyed by "symbol|sortedExA|sortedExB"
 }
 
 func newSpreadMockStore() *spreadMockStore {
 	return &spreadMockStore{
 		mockStore: *newMockStore(),
-		spreads:   make(map[string]domain.SpreadArbitrage),
+		spreads:   make(map[string]domain.Arbitrage),
 	}
 }
 
-func (m *spreadMockStore) SetSpreadArbitrage(_ context.Context, a domain.SpreadArbitrage) error {
+func (m *spreadMockStore) SetArbitrage(_ context.Context, a domain.Arbitrage) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	key := sortedKey(a.Symbol, a.BuyExchangeID, a.SellExchangeID)
+	key := sortedKey(a.Symbol, a.ExchangeA, a.ExchangeB)
 	m.spreads[key] = a
 	return nil
 }
 
-func (m *spreadMockStore) GetSpreadArbitrage(_ context.Context, symbol, exchangeA, exchangeB string) (*domain.SpreadArbitrage, error) {
+func (m *spreadMockStore) GetArbitrage(_ context.Context, _ domain.ArbitrageType, symbol, exchangeA, exchangeB string) (*domain.Arbitrage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := sortedKey(symbol, exchangeA, exchangeB)
@@ -41,17 +41,17 @@ func (m *spreadMockStore) GetSpreadArbitrage(_ context.Context, symbol, exchange
 	return &a, nil
 }
 
-func (m *spreadMockStore) ListSpreadArbitrage(_ context.Context) ([]domain.SpreadArbitrage, error) {
+func (m *spreadMockStore) ListArbitrage(_ context.Context) ([]domain.Arbitrage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]domain.SpreadArbitrage, 0, len(m.spreads))
+	out := make([]domain.Arbitrage, 0, len(m.spreads))
 	for _, a := range m.spreads {
 		out = append(out, a)
 	}
 	return out, nil
 }
 
-func (m *spreadMockStore) RemoveSpreadArbitrage(_ context.Context, symbol, exchangeA, exchangeB string) error {
+func (m *spreadMockStore) RemoveArbitrage(_ context.Context, _ domain.ArbitrageType, symbol, exchangeA, exchangeB string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := sortedKey(symbol, exchangeA, exchangeB)
@@ -102,28 +102,28 @@ func TestSpreadRecompute_BasicTwoExchanges(t *testing.T) {
 	}
 
 	for _, arb := range st.spreads {
-		if arb.BuyExchangeID != "binance" {
-			t.Errorf("expected buy=binance, got %s", arb.BuyExchangeID)
+		if arb.Spread.BuyExchangeID != "binance" {
+			t.Errorf("expected buy=binance, got %s", arb.Spread.BuyExchangeID)
 		}
-		if arb.SellExchangeID != "bybit" {
-			t.Errorf("expected sell=bybit, got %s", arb.SellExchangeID)
+		if arb.Spread.SellExchangeID != "bybit" {
+			t.Errorf("expected sell=bybit, got %s", arb.Spread.SellExchangeID)
 		}
 		// buyAsk=50000, sellBid=50090, mid=50045, spread=90/50045*100 ≈ 0.1798%
-		assertDecimalEqual(t, "BuyAsk", d("50000"), arb.BuyAsk)
-		assertDecimalEqual(t, "SellBid", d("50090"), arb.SellBid)
-		assertDecimalEqual(t, "SpreadAbs", d("90"), arb.SpreadAbs)
-		if !arb.SpreadPct.IsPositive() {
-			t.Errorf("expected positive SpreadPct, got %s", arb.SpreadPct)
+		assertDecimalEqual(t, "BuyAsk", d("50000"), arb.Spread.BuyAsk)
+		assertDecimalEqual(t, "SellBid", d("50090"), arb.Spread.SellBid)
+		assertDecimalEqual(t, "SpreadAbs", d("90"), arb.Spread.SpreadAbs)
+		if !arb.Spread.SpreadPct.IsPositive() {
+			t.Errorf("expected positive SpreadPct, got %s", arb.Spread.SpreadPct)
 		}
-		if !arb.MidPrice.IsPositive() {
-			t.Errorf("expected positive MidPrice, got %s", arb.MidPrice)
+		if !arb.Spread.MidPrice.IsPositive() {
+			t.Errorf("expected positive MidPrice, got %s", arb.Spread.MidPrice)
 		}
 		// Fees: taker=0.00055 per side. Open = 0.055% + 0.055% = 0.11%.
 		// Round trip = 0.22%.
-		assertDecimalClose(t, "RoundTripFeesPct", d("0.22"), arb.Fees.RoundTripFeesPct, d("0.001"))
+		assertDecimalClose(t, "RoundTripFeesPct", d("0.22"), arb.Spread.Fees.RoundTripFeesPct, d("0.001"))
 		// Net spread = spread% - round_trip_fees%
-		expectedNet := arb.SpreadPct.Sub(arb.Fees.RoundTripFeesPct)
-		assertDecimalClose(t, "NetSpreadPct", expectedNet, arb.NetSpreadPct, d("0.0001"))
+		expectedNet := arb.Spread.SpreadPct.Sub(arb.Spread.Fees.RoundTripFeesPct)
+		assertDecimalClose(t, "NetSpreadPct", expectedNet, arb.Spread.NetSpreadPct, d("0.0001"))
 	}
 }
 
@@ -154,8 +154,8 @@ func TestSpreadRecompute_DirectionSwap(t *testing.T) {
 		t.Fatalf("round 1: expected 1 spread, got %d", len(st.spreads))
 	}
 	for _, arb := range st.spreads {
-		if arb.BuyExchangeID != "binance" {
-			t.Errorf("round 1: expected buy=binance, got %s", arb.BuyExchangeID)
+		if arb.Spread.BuyExchangeID != "binance" {
+			t.Errorf("round 1: expected buy=binance, got %s", arb.Spread.BuyExchangeID)
 		}
 	}
 	st.mu.Unlock()
@@ -177,11 +177,11 @@ func TestSpreadRecompute_DirectionSwap(t *testing.T) {
 		t.Fatalf("round 2: expected 1 spread, got %d", len(st.spreads))
 	}
 	for _, arb := range st.spreads {
-		if arb.BuyExchangeID != "bybit" {
-			t.Errorf("round 2: expected buy=bybit, got %s", arb.BuyExchangeID)
+		if arb.Spread.BuyExchangeID != "bybit" {
+			t.Errorf("round 2: expected buy=bybit, got %s", arb.Spread.BuyExchangeID)
 		}
-		if arb.SellExchangeID != "binance" {
-			t.Errorf("round 2: expected sell=binance, got %s", arb.SellExchangeID)
+		if arb.Spread.SellExchangeID != "binance" {
+			t.Errorf("round 2: expected sell=binance, got %s", arb.Spread.SellExchangeID)
 		}
 	}
 }
@@ -331,8 +331,8 @@ func TestComputeSpreadPair_NegativeSpread(t *testing.T) {
 	}
 
 	// SpreadPct should be negative (no profitable spread).
-	if arb.SpreadPct.IsPositive() {
-		t.Errorf("expected non-positive SpreadPct, got %s", arb.SpreadPct)
+	if arb.Spread.SpreadPct.IsPositive() {
+		t.Errorf("expected non-positive SpreadPct, got %s", arb.Spread.SpreadPct)
 	}
 }
 
@@ -365,11 +365,11 @@ func TestComputeSpreadPair_FeeCalculation(t *testing.T) {
 		t.Fatal("computeSpreadPair returned nil")
 	}
 
-	assertDecimalClose(t, "BuyTakerFeePct", d("0.055"), arb.Fees.BuyTakerFeePct, d("0.001"))
-	assertDecimalClose(t, "SellTakerFeePct", d("0.055"), arb.Fees.SellTakerFeePct, d("0.001"))
-	assertDecimalClose(t, "OpenFeesPct", d("0.11"), arb.Fees.OpenFeesPct, d("0.001"))
-	assertDecimalClose(t, "CloseFeesPct", d("0.11"), arb.Fees.CloseFeesPct, d("0.001"))
-	assertDecimalClose(t, "RoundTripFeesPct", d("0.22"), arb.Fees.RoundTripFeesPct, d("0.001"))
+	assertDecimalClose(t, "BuyTakerFeePct", d("0.055"), arb.Spread.Fees.BuyTakerFeePct, d("0.001"))
+	assertDecimalClose(t, "SellTakerFeePct", d("0.055"), arb.Spread.Fees.SellTakerFeePct, d("0.001"))
+	assertDecimalClose(t, "OpenFeesPct", d("0.11"), arb.Spread.Fees.OpenFeesPct, d("0.001"))
+	assertDecimalClose(t, "CloseFeesPct", d("0.11"), arb.Spread.Fees.CloseFeesPct, d("0.001"))
+	assertDecimalClose(t, "RoundTripFeesPct", d("0.22"), arb.Spread.Fees.RoundTripFeesPct, d("0.001"))
 }
 
 func TestComputeSpreadPair_Volume(t *testing.T) {
@@ -400,6 +400,6 @@ func TestComputeSpreadPair_Volume(t *testing.T) {
 	}
 
 	// Buy side = binance (lower ask), sell side = bybit (higher bid).
-	assertDecimalEqual(t, "BuyVolume24h", d("500000"), arb.BuyVolume24h)
-	assertDecimalEqual(t, "SellVolume24h", d("400000"), arb.SellVolume24h)
+	assertDecimalEqual(t, "BuyVolume24h", d("500000"), arb.Spread.BuyVolume24h)
+	assertDecimalEqual(t, "SellVolume24h", d("400000"), arb.Spread.SellVolume24h)
 }

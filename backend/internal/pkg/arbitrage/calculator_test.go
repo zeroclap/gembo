@@ -23,7 +23,7 @@ type mockStore struct {
 	markets      map[string][]domain.Market      // keyed by exchangeID
 
 	// arbitrage stores keyed by "symbol|sortedExA|sortedExB"
-	arbitrages map[string]domain.FundingArbitrage
+	arbitrages map[string]domain.Arbitrage
 }
 
 func newMockStore() *mockStore {
@@ -31,7 +31,7 @@ func newMockStore() *mockStore {
 		fundingRates: make(map[string][]domain.FundingRate),
 		tickers:      make(map[string][]domain.Ticker),
 		markets:      make(map[string][]domain.Market),
-		arbitrages:   make(map[string]domain.FundingArbitrage),
+		arbitrages:   make(map[string]domain.Arbitrage),
 	}
 }
 
@@ -60,25 +60,25 @@ func sortedKey(symbol, a, b string) string {
 	return symbol + "|" + b + "|" + a
 }
 
-func (m *mockStore) SetFundingArbitrage(_ context.Context, a domain.FundingArbitrage) error {
+func (m *mockStore) SetArbitrage(_ context.Context, a domain.Arbitrage) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	key := sortedKey(a.Symbol, a.Long.ExchangeID, a.Short.ExchangeID)
+	key := sortedKey(a.Symbol, a.ExchangeA, a.ExchangeB)
 	m.arbitrages[key] = a
 	return nil
 }
 
-func (m *mockStore) ListFundingArbitrage(_ context.Context) ([]domain.FundingArbitrage, error) {
+func (m *mockStore) ListArbitrage(_ context.Context) ([]domain.Arbitrage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]domain.FundingArbitrage, 0, len(m.arbitrages))
+	out := make([]domain.Arbitrage, 0, len(m.arbitrages))
 	for _, a := range m.arbitrages {
 		out = append(out, a)
 	}
 	return out, nil
 }
 
-func (m *mockStore) GetFundingArbitrage(_ context.Context, symbol, exchangeA, exchangeB string) (*domain.FundingArbitrage, error) {
+func (m *mockStore) GetArbitrage(_ context.Context, _ domain.ArbitrageType, symbol, exchangeA, exchangeB string) (*domain.Arbitrage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := sortedKey(symbol, exchangeA, exchangeB)
@@ -89,7 +89,7 @@ func (m *mockStore) GetFundingArbitrage(_ context.Context, symbol, exchangeA, ex
 	return &a, nil
 }
 
-func (m *mockStore) RemoveFundingArbitrage(_ context.Context, symbol, exchangeA, exchangeB string) error {
+func (m *mockStore) RemoveArbitrage(_ context.Context, _ domain.ArbitrageType, symbol, exchangeA, exchangeB string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := sortedKey(symbol, exchangeA, exchangeB)
@@ -113,18 +113,6 @@ func (m *mockStore) GetFundingRate(context.Context, string, string) (*domain.Fun
 }
 func (m *mockStore) SetBalance(context.Context, domain.Balance) error { panic("not implemented") }
 func (m *mockStore) ListBalances(context.Context, string, string) ([]domain.Balance, error) {
-	panic("not implemented")
-}
-func (m *mockStore) SetSpreadArbitrage(context.Context, domain.SpreadArbitrage) error {
-	panic("not implemented")
-}
-func (m *mockStore) GetSpreadArbitrage(context.Context, string, string, string) (*domain.SpreadArbitrage, error) {
-	panic("not implemented")
-}
-func (m *mockStore) ListSpreadArbitrage(context.Context) ([]domain.SpreadArbitrage, error) {
-	panic("not implemented")
-}
-func (m *mockStore) RemoveSpreadArbitrage(context.Context, string, string, string) error {
 	panic("not implemented")
 }
 func (m *mockStore) FlushAll(context.Context) (int64, error) { panic("not implemented") }
@@ -203,11 +191,11 @@ func TestRecompute_DirectionSwap_OverwritesSameKey(t *testing.T) {
 		t.Fatalf("round 1: expected 1 arbitrage, got %d", len(st.arbitrages))
 	}
 	for _, arb := range st.arbitrages {
-		if arb.Long.ExchangeID != "binance" {
-			t.Errorf("round 1: expected long=binance, got %s", arb.Long.ExchangeID)
+		if arb.Funding.Long.ExchangeID != "binance" {
+			t.Errorf("round 1: expected long=binance, got %s", arb.Funding.Long.ExchangeID)
 		}
-		if arb.Short.ExchangeID != "bybit" {
-			t.Errorf("round 1: expected short=bybit, got %s", arb.Short.ExchangeID)
+		if arb.Funding.Short.ExchangeID != "bybit" {
+			t.Errorf("round 1: expected short=bybit, got %s", arb.Funding.Short.ExchangeID)
 		}
 	}
 	st.mu.Unlock()
@@ -231,11 +219,11 @@ func TestRecompute_DirectionSwap_OverwritesSameKey(t *testing.T) {
 		t.Fatalf("round 2: expected 1 arbitrage, got %d", len(st.arbitrages))
 	}
 	for _, arb := range st.arbitrages {
-		if arb.Long.ExchangeID != "bybit" {
-			t.Errorf("round 2: expected long=bybit, got %s", arb.Long.ExchangeID)
+		if arb.Funding.Long.ExchangeID != "bybit" {
+			t.Errorf("round 2: expected long=bybit, got %s", arb.Funding.Long.ExchangeID)
 		}
-		if arb.Short.ExchangeID != "binance" {
-			t.Errorf("round 2: expected short=binance, got %s", arb.Short.ExchangeID)
+		if arb.Funding.Short.ExchangeID != "binance" {
+			t.Errorf("round 2: expected short=binance, got %s", arb.Funding.Short.ExchangeID)
 		}
 	}
 }
@@ -297,11 +285,11 @@ func TestRecompute_ThreeExchanges_DirectionSwap(t *testing.T) {
 	if !ok {
 		t.Fatal("round 2: binance-bybit arbitrage not found")
 	}
-	if arb.Long.ExchangeID != "bybit" {
-		t.Errorf("round 2: binance-bybit pair expected long=bybit, got %s", arb.Long.ExchangeID)
+	if arb.Funding.Long.ExchangeID != "bybit" {
+		t.Errorf("round 2: binance-bybit pair expected long=bybit, got %s", arb.Funding.Long.ExchangeID)
 	}
-	if arb.Short.ExchangeID != "binance" {
-		t.Errorf("round 2: binance-bybit pair expected short=binance, got %s", arb.Short.ExchangeID)
+	if arb.Funding.Short.ExchangeID != "binance" {
+		t.Errorf("round 2: binance-bybit pair expected short=binance, got %s", arb.Funding.Short.ExchangeID)
 	}
 }
 
@@ -340,16 +328,16 @@ func TestComputePair_LongShortAssignment(t *testing.T) {
 	}
 
 	// bybit has lower rate (0.0001) so it should be long.
-	if arb.Long.ExchangeID != "bybit" {
-		t.Errorf("expected long=bybit, got %s", arb.Long.ExchangeID)
+	if arb.Funding.Long.ExchangeID != "bybit" {
+		t.Errorf("expected long=bybit, got %s", arb.Funding.Long.ExchangeID)
 	}
-	if arb.Short.ExchangeID != "binance" {
-		t.Errorf("expected short=binance, got %s", arb.Short.ExchangeID)
+	if arb.Funding.Short.ExchangeID != "binance" {
+		t.Errorf("expected short=binance, got %s", arb.Funding.Short.ExchangeID)
 	}
 
 	// NetRate8h should be positive (short_rate - long_rate).
-	if !arb.NetRate8h.IsPositive() {
-		t.Errorf("expected positive NetRate8h, got %s", arb.NetRate8h)
+	if !arb.Funding.NetRate8h.IsPositive() {
+		t.Errorf("expected positive NetRate8h, got %s", arb.Funding.NetRate8h)
 	}
 }
 

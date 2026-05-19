@@ -21,11 +21,11 @@ import (
 // wsTestStore extends mockStore to return test data for WS tests.
 type wsTestStore struct {
 	mockStore
-	fundingArb *domain.FundingArbitrage
+	arb *domain.Arbitrage
 }
 
-func (s *wsTestStore) GetFundingArbitrage(_ context.Context, _, _, _ string) (*domain.FundingArbitrage, error) {
-	return s.fundingArb, nil
+func (s *wsTestStore) GetArbitrage(_ context.Context, _ domain.ArbitrageType, _, _, _ string) (*domain.Arbitrage, error) {
+	return s.arb, nil
 }
 
 // mockExchange implements exchange.Exchange for test registry.
@@ -57,11 +57,16 @@ func TestArbitrageWS_SubscribeAndReceiveSnapshot(t *testing.T) {
 	defer rc.Close()
 
 	st := &wsTestStore{
-		fundingArb: &domain.FundingArbitrage{
-			Symbol: "BTC/USDT:USDT",
-			Long:   domain.ArbitrageLeg{ExchangeID: "binance", Rate8h: decimal.NewFromFloat(0.001)},
-			Short:  domain.ArbitrageLeg{ExchangeID: "bybit", Rate8h: decimal.NewFromFloat(0.002)},
-			APR:    decimal.NewFromFloat(12.5),
+		arb: &domain.Arbitrage{
+			Type:      domain.ArbitrageTypeFunding,
+			Symbol:    "BTC/USDT:USDT",
+			ExchangeA: "binance",
+			ExchangeB: "bybit",
+			Funding: &domain.FundingArbitrage{
+				Long:  domain.ArbitrageLeg{ExchangeID: "binance", Rate8h: decimal.NewFromFloat(0.001)},
+				Short: domain.ArbitrageLeg{ExchangeID: "bybit", Rate8h: decimal.NewFromFloat(0.002)},
+				APR:   decimal.NewFromFloat(12.5),
+			},
 		},
 	}
 
@@ -85,9 +90,9 @@ func TestArbitrageWS_SubscribeAndReceiveSnapshot(t *testing.T) {
 	if err := ws.WriteJSON(map[string]interface{}{
 		"type": "subscribe",
 		"data": map[string]string{
-			"symbol":         "BTC/USDT:USDT",
-			"long_exchange":  "binance",
-			"short_exchange": "bybit",
+			"symbol":     "BTC/USDT:USDT",
+			"exchange_a": "binance",
+			"exchange_b": "bybit",
 		},
 	}); err != nil {
 		t.Fatalf("write subscribe: %v", err)
@@ -111,7 +116,7 @@ func TestArbitrageWS_SubscribeAndReceiveSnapshot(t *testing.T) {
 		t.Fatalf("expected type 'arbitrage', got %q", envelope.Type)
 	}
 
-	var update wsArbitrageUpdate
+	var update domain.Arbitrage
 	if err := json.Unmarshal(envelope.Data, &update); err != nil {
 		t.Fatalf("unmarshal arbitrage: %v", err)
 	}
@@ -146,26 +151,27 @@ func TestArbitrageWS_PubSubForward(t *testing.T) {
 	if err := ws.WriteJSON(map[string]interface{}{
 		"type": "subscribe",
 		"data": map[string]string{
-			"symbol":         "BTC/USDT:USDT",
-			"long_exchange":  "binance",
-			"short_exchange": "bybit",
+			"symbol":     "BTC/USDT:USDT",
+			"exchange_a": "binance",
+			"exchange_b": "bybit",
 		},
 	}); err != nil {
 		t.Fatalf("write subscribe: %v", err)
 	}
 
-	// Drain initial snapshot (1 message).
-	ws.SetReadDeadline(time.Now().Add(3 * time.Second))
-	if _, _, err := ws.ReadMessage(); err != nil {
-		t.Fatalf("drain snapshot: %v", err)
-	}
+	// No snapshot expected — store returns nil, so server sends nothing.
 
-	// Publish funding arbitrage updates via Redis Pub/Sub until received.
-	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
-		Long:   domain.ArbitrageLeg{ExchangeID: "binance", Rate8h: decimal.NewFromFloat(0.001)},
-		Short:  domain.ArbitrageLeg{ExchangeID: "bybit", Rate8h: decimal.NewFromFloat(0.003)},
-		APR:    decimal.NewFromFloat(15.0),
+	// Publish a unified Arbitrage update via Redis Pub/Sub.
+	arb := domain.Arbitrage{
+		Type:      domain.ArbitrageTypeFunding,
+		Symbol:    "BTC/USDT:USDT",
+		ExchangeA: "binance",
+		ExchangeB: "bybit",
+		Funding: &domain.FundingArbitrage{
+			Long:  domain.ArbitrageLeg{ExchangeID: "binance", Rate8h: decimal.NewFromFloat(0.001)},
+			Short: domain.ArbitrageLeg{ExchangeID: "bybit", Rate8h: decimal.NewFromFloat(0.003)},
+			APR:   decimal.NewFromFloat(15.0),
+		},
 	}
 	arbJSON, _ := json.Marshal(arb)
 
@@ -176,7 +182,7 @@ func TestArbitrageWS_PubSubForward(t *testing.T) {
 			case <-done:
 				return
 			default:
-				rc.Publish(context.Background(), rediskey.FundingArbitragePubSub(), arbJSON)
+				rc.Publish(context.Background(), rediskey.ArbitragePubSub(), arbJSON)
 				time.Sleep(50 * time.Millisecond)
 			}
 		}
@@ -200,7 +206,7 @@ func TestArbitrageWS_PubSubForward(t *testing.T) {
 		if envelope.Type != "arbitrage" {
 			continue
 		}
-		var update wsArbitrageUpdate
+		var update domain.Arbitrage
 		if err := json.Unmarshal(envelope.Data, &update); err != nil {
 			continue
 		}

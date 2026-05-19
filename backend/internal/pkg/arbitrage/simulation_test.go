@@ -53,7 +53,7 @@ func mergeLeg(base, override domain.ArbitrageLeg) domain.ArbitrageLeg {
 func TestSimulate_BasicCalculation(t *testing.T) {
 	now := time.Now().UTC()
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -84,7 +84,7 @@ func TestSimulate_BasicCalculation(t *testing.T) {
 	}
 
 	req := domain.SimulationRequest{
-		Symbol:          "BTC/USDT:USDT",
+		
 		LongExchangeID:  "bybit",
 		ShortExchangeID: "binance",
 		PositionSize:    d("1000"),
@@ -137,7 +137,6 @@ func TestSimulate_BasicCalculation(t *testing.T) {
 func TestSimulate_NegativeSpread(t *testing.T) {
 	now := time.Now().UTC()
 	arb := domain.FundingArbitrage{
-		Symbol: "ETH/USDT:USDT",
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -179,7 +178,6 @@ func TestSimulate_NegativeSpread(t *testing.T) {
 func TestSimulate_ZeroFunding_BreakevenNever(t *testing.T) {
 	now := time.Now().UTC()
 	arb := domain.FundingArbitrage{
-		Symbol: "XRP/USDT:USDT",
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -273,7 +271,7 @@ func TestComputeNextPaymentPct_ShortFiresFirst(t *testing.T) {
 func TestSimulate_LoopPayments(t *testing.T) {
 	now := time.Now().UTC()
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -352,7 +350,6 @@ func TestSimulate_LoopPayments(t *testing.T) {
 func TestSimulate_LoopPayments_Empty(t *testing.T) {
 	now := time.Now().UTC()
 	arb := domain.FundingArbitrage{
-		Symbol: "ETH/USDT:USDT",
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -400,7 +397,7 @@ func TestSimulate_UsdMode_FloorRounding(t *testing.T) {
 	// qty = floor(100 / 51) = 1 contract.
 	// actual_position_size = 1 * 51 = $51.
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -452,7 +449,7 @@ func TestSimulate_UsdMode_CantAffordSingleContract(t *testing.T) {
 	now := time.Now().UTC()
 	// $10 budget, price=$100, contract_size=1 -> can't even buy 1 contract.
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -502,7 +499,6 @@ func TestSimulate_QtyMode(t *testing.T) {
 	// contracts = 5 / 0.1 = 50.
 	// actual_position_size = 50 * 200 * 0.1 = $1000.
 	arb := domain.FundingArbitrage{
-		Symbol: "ETH/USDT:USDT",
 		Long: domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -555,7 +551,7 @@ func TestSimulate_UsdMode_SmallContractSize(t *testing.T) {
 	// $1000 budget -> floor(1000/50) = 20 contracts.
 	// actual_position_size = 20 * 50 = $1000.
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -601,7 +597,6 @@ func TestSimulate_UsdMode_PartialContract(t *testing.T) {
 	now := time.Now().UTC()
 	// $75 budget at $50/contract -> 1 contract, $50 actual (not 1.5 * 50).
 	arb := domain.FundingArbitrage{
-		Symbol: "TOKEN/USDT:USDT",
 		Long: domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -651,7 +646,6 @@ func TestSimulate_UsdMode_DifferentContractSizes(t *testing.T) {
 	// Price = $100 on both. Value per contract = 100 * 0.1 = $10.
 	// $55 budget -> floor(55/10) = 5 contracts. actual = 5 * 10 = $50.
 	arb := domain.FundingArbitrage{
-		Symbol: "TOKEN/USDT:USDT",
 		Long: domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -725,7 +719,7 @@ func TestResolvePositionSize_ZeroContractSize_DefaultsToOne(t *testing.T) {
 func TestSimulate_CleanLoop_HasOpenAndCloseRows(t *testing.T) {
 	now := time.Now().UTC()
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -822,7 +816,7 @@ func TestSimulate_CleanLoop_HasOpenAndCloseRows(t *testing.T) {
 func TestSimulate_CleanLoop_CumulativeIncludesFees(t *testing.T) {
 	now := time.Now().UTC()
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -892,7 +886,7 @@ func TestSimulate_HoldSimulation_ProjectsFundingTimes(t *testing.T) {
 	// No simultaneous events, so 8 individual funding rows + open + close = 10 rows.
 	now := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -1004,7 +998,7 @@ func TestSimulate_HoldSimulation_ProjectsFundingTimes(t *testing.T) {
 func TestSimulate_HoldSimulation_DefaultHoldHours(t *testing.T) {
 	now := time.Now().UTC()
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -1048,7 +1042,6 @@ func TestSimulate_HoldSimulation_DifferentIntervals(t *testing.T) {
 	// Total: 6 funding + open + close = 8 rows.
 	now := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	arb := domain.FundingArbitrage{
-		Symbol: "ETH/USDT:USDT",
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),
@@ -1102,7 +1095,7 @@ func TestSimulate_HoldSimulation_NextFundingInPast(t *testing.T) {
 	pastFunding := time.Date(2025, 1, 1, 8, 0, 0, 0, time.UTC) // 4h ago
 
 	arb := domain.FundingArbitrage{
-		Symbol: "BTC/USDT:USDT",
+		
 		Long: mergeLeg(testLegDefaults(), domain.ArbitrageLeg{
 			ExchangeID:    "bybit",
 			FundingRate:   d("0.0001"),

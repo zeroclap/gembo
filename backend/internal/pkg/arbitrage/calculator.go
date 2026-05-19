@@ -109,7 +109,7 @@ func (c *Calculator) Recompute(ctx context.Context, exchangeIDs []string) error 
 				if arb == nil {
 					continue
 				}
-				if err := c.store.SetFundingArbitrage(ctx, *arb); err != nil {
+				if err := c.store.SetArbitrage(ctx, *arb); err != nil {
 					c.logger.Warn("store arbitrage", "symbol", sym, "error", err)
 				}
 			}
@@ -125,7 +125,7 @@ func (c *Calculator) computePair(
 	symbol, exA, exB string,
 	dataA, dataB *exchangeData,
 	now time.Time,
-) *domain.FundingArbitrage {
+) *domain.Arbitrage {
 	frA, okA := dataA.funding[symbol]
 	frB, okB := dataB.funding[symbol]
 	if !okA || !okB {
@@ -206,22 +206,27 @@ func (c *Calculator) computePair(
 
 	// Ensure exchangeA < exchangeB alphabetically in the stored key.
 	// The Long/Short assignment is independent of key ordering.
-	return &domain.FundingArbitrage{
-		Symbol:     symbol,
-		Long:       longLeg,
-		Short:      shortLeg,
-		NetRate8h:  netRate8h,
-		APR:        apr,
-		OpenSpread: openSpread,
-		Fees: domain.ArbitrageFees{
-			OpenFeesPct:      openFeesPct,
-			CloseFeesPct:     closeFeesPct,
-			RoundTripFeesPct: roundTripFeesPct,
-			NetAPRAfterFees:  netAPRAfterFees,
+	return &domain.Arbitrage{
+		Type:      domain.ArbitrageTypeFunding,
+		Symbol:    symbol,
+		ExchangeA: exA,
+		ExchangeB: exB,
+		Funding: &domain.FundingArbitrage{
+			Long:       longLeg,
+			Short:      shortLeg,
+			NetRate8h:  netRate8h,
+			APR:        apr,
+			OpenSpread: openSpread,
+			Fees: domain.ArbitrageFees{
+				OpenFeesPct:      openFeesPct,
+				CloseFeesPct:     closeFeesPct,
+				RoundTripFeesPct: roundTripFeesPct,
+				NetAPRAfterFees:  netAPRAfterFees,
+			},
+			NextPayment: nextPayment,
+			FullLoop:    fullLoop,
 		},
-		NextPayment: nextPayment,
-		FullLoop:    fullLoop,
-		UpdatedAt:   now,
+		UpdatedAt: now,
 	}
 }
 

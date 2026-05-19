@@ -27,17 +27,11 @@ type Store interface {
 	SetBalance(ctx context.Context, b domain.Balance) error
 	ListBalances(ctx context.Context, userID, exchangeID string) ([]domain.Balance, error)
 
-	// Funding Arbitrage
-	SetFundingArbitrage(ctx context.Context, a domain.FundingArbitrage) error
-	GetFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) (*domain.FundingArbitrage, error)
-	ListFundingArbitrage(ctx context.Context) ([]domain.FundingArbitrage, error)
-	RemoveFundingArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error
-
-	// Spread Arbitrage
-	SetSpreadArbitrage(ctx context.Context, a domain.SpreadArbitrage) error
-	GetSpreadArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) (*domain.SpreadArbitrage, error)
-	ListSpreadArbitrage(ctx context.Context) ([]domain.SpreadArbitrage, error)
-	RemoveSpreadArbitrage(ctx context.Context, symbol, exchangeA, exchangeB string) error
+	// Arbitrage (unified collection across all strategy types)
+	SetArbitrage(ctx context.Context, a domain.Arbitrage) error
+	GetArbitrage(ctx context.Context, arbType domain.ArbitrageType, symbol, exchangeA, exchangeB string) (*domain.Arbitrage, error)
+	ListArbitrage(ctx context.Context) ([]domain.Arbitrage, error)
+	RemoveArbitrage(ctx context.Context, arbType domain.ArbitrageType, symbol, exchangeA, exchangeB string) error
 
 	// Admin
 	FlushAll(ctx context.Context) (int64, error)

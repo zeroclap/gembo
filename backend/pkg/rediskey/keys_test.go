@@ -35,32 +35,29 @@ func TestPositionKeys(t *testing.T) {
 	}
 }
 
-func TestFundingArbitrageKeys(t *testing.T) {
-	tests := []struct {
-		name     string
-		fn       func() string
-		expected string
-	}{
-		{
-			name:     "FundingArbitragePairs",
-			fn:       FundingArbitragePairs,
-			expected: "gembo:arbitrage:funding:pairs",
-		},
+func TestArbitrageKeys(t *testing.T) {
+	got := ArbitragePairs()
+	expected := "gembo:arbitrage:pairs"
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.fn()
-			if got != tt.expected {
-				t.Errorf("expected %q, got %q", tt.expected, got)
-			}
-		})
+	got = ArbitragePubSub()
+	expected = "gembo:arbitrage:updates"
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
 	}
 }
 
-func TestFundingArbitragePairKey(t *testing.T) {
-	got := FundingArbitragePair("BTC/USDT:USDT", "bybit", "okx")
-	expected := "gembo:arbitrage:funding:BTC/USDT:USDT|bybit|okx"
+func TestArbitragePairKey(t *testing.T) {
+	got := ArbitragePair("funding", "BTC/USDT:USDT", "bybit", "okx")
+	expected := "gembo:arbitrage:BTC/USDT:USDT|funding|bybit|okx"
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+
+	got = ArbitragePair("spread", "ETH/USDT:USDT", "binance", "okx")
+	expected = "gembo:arbitrage:ETH/USDT:USDT|spread|binance|okx"
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}

@@ -30,15 +30,9 @@ type wsMessage struct {
 
 // wsSubscribePayload is sent by the client to subscribe to a symbol pair.
 type wsSubscribePayload struct {
-	Symbol        string `json:"symbol"`
-	LongExchange  string `json:"long_exchange"`
-	ShortExchange string `json:"short_exchange"`
-}
-
-// wsArbitrageUpdate carries the matched arbitrage data.
-type wsArbitrageUpdate struct {
-	Funding interface{} `json:"funding,omitempty"`
-	Spread  interface{} `json:"spread,omitempty"`
+	Symbol    string `json:"symbol"`
+	ExchangeA string `json:"exchange_a"`
+	ExchangeB string `json:"exchange_b"`
 }
 
 // handleArbitrageWS upgrades to WebSocket and streams real-time arbitrage
@@ -94,7 +88,7 @@ func (h *Handler) handleArbitrageWS(w http.ResponseWriter, r *http.Request) {
 				if err := json.Unmarshal(envelope.Data, &payload); err != nil {
 					continue
 				}
-				if payload.Symbol == "" || payload.LongExchange == "" || payload.ShortExchange == "" {
+				if payload.Symbol == "" || payload.ExchangeA == "" || payload.ExchangeB == "" {
 					continue
 				}
 				subMu.Lock()
@@ -118,13 +112,7 @@ func (h *Handler) handleArbitrageWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Subscribe only to arbitrage Pub/Sub channels.
-	channels := []string{
-		rediskey.FundingArbitragePubSub(),
-		rediskey.SpreadArbitragePubSub(),
-	}
-
-	pubsub := h.redis.Subscribe(ctx, channels...)
+	pubsub := h.redis.Subscribe(ctx, rediskey.ArbitragePubSub())
 	defer pubsub.Close()
 
 	ch := pubsub.Channel()
@@ -139,63 +127,45 @@ func (h *Handler) handleArbitrageWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s := getSub()
-			h.handlePubSubMessage(conn, &wsMu, s, msg.Channel, msg.Payload)
+			h.handlePubSubMessage(conn, &wsMu, s, msg.Payload)
 		}
 	}
 }
 
 // handlePubSubMessage filters and forwards a Redis Pub/Sub message to the
 // WebSocket client if it matches the current subscription.
-func (h *Handler) handlePubSubMessage(conn *websocket.Conn, wsMu *sync.Mutex, sub wsSubscribePayload, channel, payload string) {
-	switch channel {
-	case rediskey.FundingArbitragePubSub():
-		var a domain.FundingArbitrage
-		if err := json.Unmarshal([]byte(payload), &a); err != nil {
-			return
-		}
-		if a.Symbol != sub.Symbol {
-			return
-		}
-		if !matchesExchangePair(a.Long.ExchangeID, a.Short.ExchangeID, sub.LongExchange, sub.ShortExchange) {
-			return
-		}
-		wsMu.Lock()
-		writeWSMessage(conn, "arbitrage", wsArbitrageUpdate{Funding: &a})
-		wsMu.Unlock()
-
-	case rediskey.SpreadArbitragePubSub():
-		var a domain.SpreadArbitrage
-		if err := json.Unmarshal([]byte(payload), &a); err != nil {
-			return
-		}
-		if a.Symbol != sub.Symbol {
-			return
-		}
-		if !matchesExchangePair(a.BuyExchangeID, a.SellExchangeID, sub.LongExchange, sub.ShortExchange) {
-			return
-		}
-		wsMu.Lock()
-		writeWSMessage(conn, "arbitrage", wsArbitrageUpdate{Spread: &a})
-		wsMu.Unlock()
+func (h *Handler) handlePubSubMessage(conn *websocket.Conn, wsMu *sync.Mutex, sub wsSubscribePayload, payload string) {
+	var a domain.Arbitrage
+	if err := json.Unmarshal([]byte(payload), &a); err != nil {
+		return
 	}
+	if a.Symbol != sub.Symbol {
+		return
+	}
+	if !matchesExchangePair(a.ExchangeA, a.ExchangeB, sub.ExchangeA, sub.ExchangeB) {
+		return
+	}
+	wsMu.Lock()
+	writeWSMessage(conn, "arbitrage", a)
+	wsMu.Unlock()
 }
 
 // matchesExchangePair returns true if the two exchange IDs match the subscription
 // pair in either direction.
-func matchesExchangePair(exA, exB, subLong, subShort string) bool {
-	return (exA == subLong && exB == subShort) || (exA == subShort && exB == subLong)
+func matchesExchangePair(exA, exB, subA, subB string) bool {
+	return (exA == subA && exB == subB) || (exA == subB && exB == subA)
 }
 
-// sendArbitrageSnapshot reads current data from the store and pushes a full
-// snapshot to the WebSocket client. Called on initial subscribe and re-subscribe.
+// sendArbitrageSnapshot reads current data from the store and pushes full
+// snapshots to the WebSocket client for all strategy types.
 // Caller must hold wsMu.
 func (h *Handler) sendArbitrageSnapshot(ctx context.Context, conn *websocket.Conn, sub wsSubscribePayload) {
-	funding, _ := h.store.GetFundingArbitrage(ctx, sub.Symbol, sub.LongExchange, sub.ShortExchange)
-	spread, _ := h.store.GetSpreadArbitrage(ctx, sub.Symbol, sub.LongExchange, sub.ShortExchange)
-	writeWSMessage(conn, "arbitrage", wsArbitrageUpdate{
-		Funding: funding,
-		Spread:  spread,
-	})
+	for _, arbType := range []domain.ArbitrageType{domain.ArbitrageTypeFunding, domain.ArbitrageTypeSpread} {
+		arb, _ := h.store.GetArbitrage(ctx, arbType, sub.Symbol, sub.ExchangeA, sub.ExchangeB)
+		if arb != nil {
+			writeWSMessage(conn, "arbitrage", arb)
+		}
+	}
 }
 
 // writeWSMessage marshals and sends a typed WebSocket message.

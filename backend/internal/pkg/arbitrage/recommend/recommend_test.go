@@ -10,7 +10,6 @@ import (
 
 func arb(netRate8h, openSpread float64) domain.FundingArbitrage {
 	return domain.FundingArbitrage{
-		Symbol:     "BTC/USDT:USDT",
 		NetRate8h:  decimal.NewFromFloat(netRate8h),
 		OpenSpread: decimal.NewFromFloat(openSpread),
 	}
@@ -56,18 +55,23 @@ func TestDefault_ZeroValues(t *testing.T) {
 
 func TestAnnotate(t *testing.T) {
 	rec := Default()
-	arbs := []domain.FundingArbitrage{
+	fundingArbs := []domain.FundingArbitrage{
 		arb(0.01, 0.05),  // recommended
 		arb(-0.01, 0.05), // not
 		arb(0.01, -0.02), // not
 		arb(0.02, 0.10),  // recommended
 	}
+	arbs := make([]domain.Arbitrage, len(fundingArbs))
+	for i := range fundingArbs {
+		fa := fundingArbs[i]
+		arbs[i] = domain.Arbitrage{Type: domain.ArbitrageTypeFunding, Funding: &fa}
+	}
 	rec.Annotate(arbs)
 
 	want := []bool{true, false, false, true}
 	for i, w := range want {
-		if arbs[i].Recommended != w {
-			t.Errorf("arbs[%d].Recommended = %v, want %v", i, arbs[i].Recommended, w)
+		if arbs[i].Funding.Recommended != w {
+			t.Errorf("arbs[%d].Funding.Recommended = %v, want %v", i, arbs[i].Funding.Recommended, w)
 		}
 	}
 }

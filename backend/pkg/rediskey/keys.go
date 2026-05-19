@@ -111,19 +111,29 @@ func UserBalancePubSub(userID, exchangeID string) string {
 	return fmt.Sprintf("%s:users:%s:%s:balance:updates", prefix, userID, exchangeID)
 }
 
-// FundingArbitragePairs returns the set key that tracks all funding arbitrage pair identifiers.
+// ArbitragePairs returns the set key that tracks all arbitrage pair identifiers
+// across all strategy types.
 //
-//	gembo:arbitrage:funding:pairs
-func FundingArbitragePairs() string {
-	return fmt.Sprintf("%s:arbitrage:funding:pairs", prefix)
+//	gembo:arbitrage:pairs
+func ArbitragePairs() string {
+	return fmt.Sprintf("%s:arbitrage:pairs", prefix)
 }
 
-// FundingArbitragePair returns the key for a single funding arbitrage opportunity.
-// Exchange IDs are expected to be sorted alphabetically by the caller to ensure uniqueness.
+// ArbitragePair returns the key for a single arbitrage opportunity.
+// Exchange IDs are expected to be sorted alphabetically by the caller.
+// The arbType is embedded in the pipe-delimited suffix so all arbitrage
+// keys share the single namespace gembo:arbitrage:.
 //
-//	gembo:arbitrage:funding:<symbol>|<exchangeA>|<exchangeB>
-func FundingArbitragePair(symbol, exchangeA, exchangeB string) string {
-	return fmt.Sprintf("%s:arbitrage:funding:%s|%s|%s", prefix, symbol, exchangeA, exchangeB)
+//	gembo:arbitrage:<symbol>|<type>|<exchangeA>|<exchangeB>
+func ArbitragePair(arbType, symbol, exchangeA, exchangeB string) string {
+	return fmt.Sprintf("%s:arbitrage:%s|%s|%s|%s", prefix, symbol, arbType, exchangeA, exchangeB)
+}
+
+// ArbitragePubSub returns the unified Pub/Sub channel for all arbitrage updates.
+//
+//	gembo:arbitrage:updates
+func ArbitragePubSub() string {
+	return fmt.Sprintf("%s:arbitrage:updates", prefix)
 }
 
 // PositionPending returns the Pub/Sub channel for new position open requests.
@@ -218,33 +228,4 @@ func UserIDFromChannel(channel string) string {
 		return ""
 	}
 	return parts[2]
-}
-
-// FundingArbitragePubSub returns the Pub/Sub channel for funding arbitrage updates.
-//
-//	gembo:arbitrage:funding:updates
-func FundingArbitragePubSub() string {
-	return fmt.Sprintf("%s:arbitrage:funding:updates", prefix)
-}
-
-// SpreadArbitragePubSub returns the Pub/Sub channel for spread arbitrage updates.
-//
-//	gembo:arbitrage:spread:updates
-func SpreadArbitragePubSub() string {
-	return fmt.Sprintf("%s:arbitrage:spread:updates", prefix)
-}
-
-// SpreadArbitragePairs returns the set key that tracks all spread arbitrage pair identifiers.
-//
-//	gembo:arbitrage:spread:pairs
-func SpreadArbitragePairs() string {
-	return fmt.Sprintf("%s:arbitrage:spread:pairs", prefix)
-}
-
-// SpreadArbitragePair returns the key for a single spread arbitrage opportunity.
-// Exchange IDs are expected to be sorted alphabetically by the caller to ensure uniqueness.
-//
-//	gembo:arbitrage:spread:<symbol>|<exchangeA>|<exchangeB>
-func SpreadArbitragePair(symbol, exchangeA, exchangeB string) string {
-	return fmt.Sprintf("%s:arbitrage:spread:%s|%s|%s", prefix, symbol, exchangeA, exchangeB)
 }

@@ -740,13 +740,16 @@ func (h *Handler) handleTransferMargin(w http.ResponseWriter, r *http.Request) {
 // snapshotArbitrage looks up the current FundingArbitrage opportunity for the given
 // symbol and exchange pair. Returns the snapshot as JSON.
 func (h *Handler) snapshotArbitrage(r *http.Request, symbol, longExch, shortExch string) (json.RawMessage, error) {
-	arbs, err := h.store.ListFundingArbitrage(r.Context())
+	arbs, err := h.store.ListArbitrage(r.Context())
 	if err != nil {
 		return nil, err
 	}
 
 	for _, a := range arbs {
-		if a.Symbol == symbol && a.Long.ExchangeID == longExch && a.Short.ExchangeID == shortExch {
+		if a.Type != domain.ArbitrageTypeFunding || a.Funding == nil {
+			continue
+		}
+		if a.Symbol == symbol && a.Funding.Long.ExchangeID == longExch && a.Funding.Short.ExchangeID == shortExch {
 			b, err := json.Marshal(a)
 			if err != nil {
 				return nil, err
@@ -762,7 +765,7 @@ func (h *Handler) snapshotArbitrage(r *http.Request, symbol, longExch, shortExch
 // snapshotSpreadArbitrage looks up the current SpreadArbitrage opportunity for
 // the given symbol and exchange pair. Returns the snapshot as JSON.
 func (h *Handler) snapshotSpreadArbitrage(r *http.Request, symbol, buyExch, sellExch string) (json.RawMessage, error) {
-	arb, err := h.store.GetSpreadArbitrage(r.Context(), symbol, buyExch, sellExch)
+	arb, err := h.store.GetArbitrage(r.Context(), domain.ArbitrageTypeSpread, symbol, buyExch, sellExch)
 	if err != nil {
 		return nil, err
 	}

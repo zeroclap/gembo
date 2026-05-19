@@ -7,8 +7,8 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/zeroclap/gembo/internal/pkg/arbitrage"
 	"github.com/zeroclap/gembo/internal/domain"
+	"github.com/zeroclap/gembo/internal/pkg/arbitrage"
 )
 
 // simulateRequest is the JSON body for the simulate endpoint.
@@ -89,18 +89,18 @@ func (h *Handler) handleSimulateFundingArbitrage(w http.ResponseWriter, r *http.
 	}
 
 	// Look up the arbitrage opportunity.
-	arb, err := h.store.GetFundingArbitrage(r.Context(), req.Symbol, req.LongExchangeID, req.ShortExchangeID)
+	arb, err := h.store.GetArbitrage(r.Context(), domain.ArbitrageTypeFunding, req.Symbol, req.LongExchangeID, req.ShortExchangeID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	if arb == nil {
+	if arb == nil || arb.Funding == nil {
 		writeErr(w, http.StatusNotFound, "not_found", "arbitrage opportunity not found")
 		return
 	}
 
 	now := time.Now().UTC()
-	result := arbitrage.Simulate(*arb, simReq, now)
+	result := arbitrage.Simulate(*arb.Funding, simReq, now)
 
 	writeOK(w, result)
 }

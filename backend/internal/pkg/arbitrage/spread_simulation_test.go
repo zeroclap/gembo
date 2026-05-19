@@ -9,7 +9,6 @@ import (
 func TestSimulateSpread_BasicProfitable(t *testing.T) {
 	// Entry spread 2%, target 0.5%, fees 0.11% open + 0.11% close.
 	arb := domain.SpreadArbitrage{
-		Symbol:         "BTC/USDT:USDT",
 		BuyExchangeID:  "binance",
 		SellExchangeID: "bybit",
 		SpreadPct:      d("2.0"),
