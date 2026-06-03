@@ -136,6 +136,23 @@ func ArbitragePubSub() string {
 	return fmt.Sprintf("%s:arbitrage:updates", prefix)
 }
 
+// TickerSnapshotKey returns the sorted-set key for per-exchange ticker snapshots.
+// Score is unix timestamp; members are JSON-encoded TickerSnapshot values.
+// One sorted set per exchange per symbol, trimmed to a rolling 1h window.
+//
+//	gembo:<exchange>:ticker_snapshot:<symbol>
+func TickerSnapshotKey(exchangeID, symbol string) string {
+	return fmt.Sprintf("%s:%s:ticker_snapshot:%s", prefix, exchangeID, symbol)
+}
+
+// TickerSnapshotPubSub returns the Pub/Sub channel for ticker snapshot events.
+// Published by the collector every ~10s per exchange+symbol.
+//
+//	gembo:ticker_snapshot:updates
+func TickerSnapshotPubSub() string {
+	return fmt.Sprintf("%s:ticker_snapshot:updates", prefix)
+}
+
 // PositionPending returns the Pub/Sub channel for new position open requests.
 //
 //	gembo:positions:pending

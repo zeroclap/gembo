@@ -33,6 +33,11 @@ type Store interface {
 	ListArbitrage(ctx context.Context) ([]domain.Arbitrage, error)
 	RemoveArbitrage(ctx context.Context, arbType domain.ArbitrageType, symbol, exchangeA, exchangeB string) error
 
+	// Ticker Snapshots — per-exchange time-series of market state, stored as a
+	// rolling 1h window in a Redis sorted set (score = unix timestamp).
+	AppendTickerSnapshot(ctx context.Context, s domain.TickerSnapshot) error
+	GetTickerSnapshots(ctx context.Context, exchangeID, symbol string, from, to int64) ([]domain.TickerSnapshot, error)
+
 	// Admin
 	FlushAll(ctx context.Context) (int64, error)
 }

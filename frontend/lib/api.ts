@@ -712,3 +712,39 @@ export function saveWorkspaces(workspaces: RemoteWorkspace[]): Promise<RemoteWor
     body: JSON.stringify({ workspaces }),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Ticker Snapshots
+// ---------------------------------------------------------------------------
+
+/** Point-in-time capture of a single exchange's market state for one symbol. */
+export interface TickerSnapshot {
+  exchange_id: string;
+  symbol: string;
+  ts: number; // unix seconds
+  price: string;
+  bid: string;
+  ask: string;
+  funding_rate: string;
+  rate_8h: string;
+  mark_price: string;
+  index_price: string;
+}
+
+/** OHLC bar aggregated from TickerSnapshots over a time bucket. */
+export interface TickerSnapshotBar {
+  ts: number; // bucket start, unix seconds
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+}
+
+/** OHLC series for cross-exchange derived metrics. */
+export interface SnapshotBars {
+  net_rate_8h: TickerSnapshotBar[];
+  spread_pct: TickerSnapshotBar[];
+}
+
+/** History payload keyed by resolution string. */
+export type TickerSnapshotHistory = Record<string, SnapshotBars>;

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ArbitragePair } from "@/hooks/use-arbitrage-data";
-import type { FundingArbitrage, SpreadArbitrage } from "@/lib/api";
+import type { FundingArbitrage, SpreadArbitrage, TickerSnapshot, TickerSnapshotHistory } from "@/lib/api";
 
 /** Connection status for UI indicators. */
 export type WSStatus = "connecting" | "connected" | "disconnected";
@@ -31,6 +31,10 @@ function getWSUrl(): string {
  * useArbitrageWebSocket establishes a WebSocket connection to receive
  * real-time arbitrage updates for a pair. It syncs incoming data into
  * React Query cache so all existing consumers stay up to date.
+ *
+ * New message types handled:
+ *   - "ticker_snapshot_history" → seeded into ["ticker-snapshot-history", symbol, exA, exB]
+ *   - "ticker_snapshot"         → latest per-exchange snapshot in ["ticker-snapshot-live", exchangeId, symbol]
  */
 export function useArbitrageWebSocket(pair: ArbitragePair | null) {
   const queryClient = useQueryClient();
@@ -50,8 +54,8 @@ export function useArbitrageWebSocket(pair: ArbitragePair | null) {
       type: "subscribe",
       data: {
         symbol: p.symbol,
-        long_exchange: p.longExchange,
-        short_exchange: p.shortExchange,
+        exchange_a: p.longExchange,
+        exchange_b: p.shortExchange,
       },
     });
     ws.send(msg);
@@ -62,50 +66,72 @@ export function useArbitrageWebSocket(pair: ArbitragePair | null) {
       try {
         const msg: WSMessage = JSON.parse(event.data);
         const p = pairRef.current;
-        if (!p || msg.type !== "arbitrage") return;
+        if (!p) return;
 
-        const data = msg.data as ArbitrageUpdate;
-        if (data.funding) {
-          queryClient.setQueryData<FundingArbitrage[]>(
-            ["funding-arbitrage"],
-            (old) => {
-              if (!old) return [data.funding!];
-              const idx = old.findIndex(
-                (a) =>
-                  a.symbol === p.symbol &&
-                  a.long.exchange_id === p.longExchange &&
-                  a.short.exchange_id === p.shortExchange
-              );
-              if (idx >= 0) {
-                const next = [...old];
-                next[idx] = data.funding!;
-                return next;
+        if (msg.type === "arbitrage") {
+          const data = msg.data as ArbitrageUpdate;
+          if (data.funding) {
+            queryClient.setQueryData<FundingArbitrage[]>(
+              ["funding-arbitrage"],
+              (old) => {
+                if (!old) return [data.funding!];
+                const idx = old.findIndex(
+                  (a) =>
+                    a.symbol === p.symbol &&
+                    a.long.exchange_id === p.longExchange &&
+                    a.short.exchange_id === p.shortExchange
+                );
+                if (idx >= 0) {
+                  const next = [...old];
+                  next[idx] = data.funding!;
+                  return next;
+                }
+                return [...old, data.funding!];
               }
-              return [...old, data.funding!];
-            }
-          );
+            );
+          }
+          if (data.spread) {
+            queryClient.setQueryData<SpreadArbitrage[]>(
+              ["spread-arbitrage"],
+              (old) => {
+                if (!old) return [data.spread!];
+                const idx = old.findIndex(
+                  (a) =>
+                    a.symbol === p.symbol &&
+                    ((a.buy_exchange_id === p.longExchange &&
+                      a.sell_exchange_id === p.shortExchange) ||
+                      (a.buy_exchange_id === p.shortExchange &&
+                        a.sell_exchange_id === p.longExchange))
+                );
+                if (idx >= 0) {
+                  const next = [...old];
+                  next[idx] = data.spread!;
+                  return next;
+                }
+                return [...old, data.spread!];
+              }
+            );
+          }
+          return;
         }
-        if (data.spread) {
-          queryClient.setQueryData<SpreadArbitrage[]>(
-            ["spread-arbitrage"],
-            (old) => {
-              if (!old) return [data.spread!];
-              const idx = old.findIndex(
-                (a) =>
-                  a.symbol === p.symbol &&
-                  ((a.buy_exchange_id === p.longExchange &&
-                    a.sell_exchange_id === p.shortExchange) ||
-                    (a.buy_exchange_id === p.shortExchange &&
-                      a.sell_exchange_id === p.longExchange))
-              );
-              if (idx >= 0) {
-                const next = [...old];
-                next[idx] = data.spread!;
-                return next;
-              }
-              return [...old, data.spread!];
-            }
+
+        if (msg.type === "ticker_snapshot_history") {
+          const history = msg.data as TickerSnapshotHistory;
+          queryClient.setQueryData(
+            ["ticker-snapshot-history", p.symbol, p.longExchange, p.shortExchange],
+            history
           );
+          return;
+        }
+
+        if (msg.type === "ticker_snapshot") {
+          const snap = msg.data as TickerSnapshot;
+          // Store latest snapshot per exchange so chart hooks can read it.
+          queryClient.setQueryData(
+            ["ticker-snapshot-live", snap.exchange_id, snap.symbol],
+            snap
+          );
+          return;
         }
       } catch {
         // Ignore malformed messages.

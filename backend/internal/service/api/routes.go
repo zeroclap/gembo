@@ -91,6 +91,7 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("POST /v1/arbitrage/funding/simulate", auth(h.handleSimulateFundingArbitrage))
 	h.mux.HandleFunc("GET /v1/arbitrage/spread", auth(h.handleListSpreadArbitrage))
 	h.mux.HandleFunc("POST /v1/arbitrage/spread/simulate", auth(h.handleSimulateSpreadArbitrage))
+	h.mux.HandleFunc("GET /v1/arbitrage/chart", auth(h.handleGetArbitrageChart))
 	h.mux.HandleFunc("GET /v1/account", auth(h.handleGetAccount))
 	h.mux.HandleFunc("GET /v1/account/credentials", auth(h.handleListExchangeCredentials))
 	h.mux.HandleFunc("POST /v1/account/credentials", auth(h.handleCreateExchangeCredential))

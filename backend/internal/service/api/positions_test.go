@@ -256,6 +256,12 @@ func (m *mockStore) GetArbitrage(_ context.Context, _ domain.ArbitrageType, _, _
 func (m *mockStore) RemoveArbitrage(_ context.Context, _ domain.ArbitrageType, _, _, _ string) error {
 	return nil
 }
+func (m *mockStore) AppendTickerSnapshot(_ context.Context, _ domain.TickerSnapshot) error {
+	return nil
+}
+func (m *mockStore) GetTickerSnapshots(_ context.Context, _, _ string, _, _ int64) ([]domain.TickerSnapshot, error) {
+	return nil, nil
+}
 func (m *mockStore) FlushAll(_ context.Context) (int64, error) { return 0, nil }
 
 var _ store.Store = (*mockStore)(nil)

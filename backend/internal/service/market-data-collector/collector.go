@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/shopspring/decimal"
 	goredis "github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 
@@ -18,7 +19,10 @@ import (
 	"github.com/zeroclap/gembo/internal/store"
 )
 
-const marketsPollInterval = 60 * time.Second
+const (
+	marketsPollInterval  = 60 * time.Second
+	snapshotInterval     = 10 * time.Second
+)
 
 // Collector drives the public-data pipeline.
 type Collector struct {
@@ -155,6 +159,11 @@ func (c *Collector) subscribeToTickers(ctx context.Context, ex base.Exchange, sy
 		return fmt.Errorf("start tickers for %s: %w", ex.ID(), err)
 	}
 
+	// lastSnapshot tracks when each symbol last had a snapshot written.
+	// Keyed by symbol only — this function is called once per exchange so the
+	// map is naturally scoped to a single exchange.
+	lastSnapshot := make(map[string]time.Time)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -172,7 +181,46 @@ func (c *Collector) subscribeToTickers(ctx context.Context, ex base.Exchange, sy
 				continue
 			}
 			c.emitTicker(ctx, t)
+
+			if time.Since(lastSnapshot[t.Symbol]) >= snapshotInterval {
+				c.appendTickerSnapshot(ctx, t)
+				lastSnapshot[t.Symbol] = time.Now()
+			}
 		}
+	}
+}
+
+// appendTickerSnapshot writes a TickerSnapshot for the given ticker, enriched
+// with the latest funding rate from the store (read once per call; funding rate
+// has no TTL so it is always current).
+func (c *Collector) appendTickerSnapshot(ctx context.Context, t domain.Ticker) {
+	snap := domain.TickerSnapshot{
+		ExchangeID: t.ExchangeID,
+		Symbol:     t.Symbol,
+		TS:         t.UpdatedAt.Unix(),
+		Price:      t.Price,
+		Bid:        t.Bid,
+		Ask:        t.Ask,
+	}
+
+	if fr, err := c.store.GetFundingRate(ctx, t.ExchangeID, t.Symbol); err == nil && fr != nil {
+		snap.FundingRate = fr.Rate
+		snap.MarkPrice = fr.MarkPrice
+		snap.IndexPrice = fr.IndexPrice
+		if fr.IntervalHours > 0 {
+			// Normalize to 8h equivalent, consistent with the arbitrage calculator.
+			snap.Rate8h = fr.Rate.
+				Mul(decimal.NewFromInt(8)).
+				Div(decimal.NewFromInt(int64(fr.IntervalHours)))
+		}
+	}
+
+	if err := c.store.AppendTickerSnapshot(ctx, snap); err != nil {
+		c.logger.Error("append ticker snapshot error",
+			"exchange", t.ExchangeID,
+			"symbol", t.Symbol,
+			"error", err,
+		)
 	}
 }
 

@@ -10,6 +10,7 @@ import { MetricCards } from "@/components/arbitrage/metric-cards";
 import { ActivePosition } from "@/components/arbitrage/active-position";
 import { OpenPositionPanel } from "@/components/arbitrage/open-position-panel";
 import { ArbitrageBottomTabs } from "@/components/arbitrage/arbitrage-bottom-tabs";
+import { ArbitrageCharts } from "@/components/arbitrage/arbitrage-charts";
 import { PairCommand, type PairSelection } from "@/components/pair-command";
 import { Search, TrendingUp, ChevronRight, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -195,6 +196,10 @@ function ArbitrageContent() {
                   longExchange={pair!.longExchange}
                   shortExchange={pair!.shortExchange}
                 />
+
+                <div className="mt-4">
+                  <ArbitrageCharts pair={pair} />
+                </div>
 
                 <div className="mt-4">
                    <ActivePosition

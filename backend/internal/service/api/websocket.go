@@ -112,7 +112,8 @@ func (h *Handler) handleArbitrageWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pubsub := h.redis.Subscribe(ctx, rediskey.ArbitragePubSub())
+	// Subscribe to both arbitrage updates and ticker snapshot updates.
+	pubsub := h.redis.Subscribe(ctx, rediskey.ArbitragePubSub(), rediskey.TickerSnapshotPubSub())
 	defer pubsub.Close()
 
 	ch := pubsub.Channel()
@@ -127,7 +128,12 @@ func (h *Handler) handleArbitrageWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s := getSub()
-			h.handlePubSubMessage(conn, &wsMu, s, msg.Payload)
+			switch msg.Channel {
+			case rediskey.ArbitragePubSub():
+				h.handlePubSubMessage(conn, &wsMu, s, msg.Payload)
+			case rediskey.TickerSnapshotPubSub():
+				h.handleSnapshotPubSub(conn, &wsMu, s, msg.Payload)
+			}
 		}
 	}
 }
@@ -150,6 +156,24 @@ func (h *Handler) handlePubSubMessage(conn *websocket.Conn, wsMu *sync.Mutex, su
 	wsMu.Unlock()
 }
 
+// handleSnapshotPubSub forwards a ticker snapshot to the client if the snapshot
+// belongs to either leg of the subscribed pair.
+func (h *Handler) handleSnapshotPubSub(conn *websocket.Conn, wsMu *sync.Mutex, sub wsSubscribePayload, payload string) {
+	var snap domain.TickerSnapshot
+	if err := json.Unmarshal([]byte(payload), &snap); err != nil {
+		return
+	}
+	if snap.Symbol != sub.Symbol {
+		return
+	}
+	if snap.ExchangeID != sub.ExchangeA && snap.ExchangeID != sub.ExchangeB {
+		return
+	}
+	wsMu.Lock()
+	writeWSMessage(conn, "ticker_snapshot", snap)
+	wsMu.Unlock()
+}
+
 // matchesExchangePair returns true if the two exchange IDs match the subscription
 // pair in either direction.
 func matchesExchangePair(exA, exB, subA, subB string) bool {
@@ -157,7 +181,8 @@ func matchesExchangePair(exA, exB, subA, subB string) bool {
 }
 
 // sendArbitrageSnapshot reads current data from the store and pushes full
-// snapshots to the WebSocket client for all strategy types.
+// snapshots to the WebSocket client for all strategy types, then sends ticker
+// snapshot history for the subscribed pair.
 // Caller must hold wsMu.
 func (h *Handler) sendArbitrageSnapshot(ctx context.Context, conn *websocket.Conn, sub wsSubscribePayload) {
 	for _, arbType := range []domain.ArbitrageType{domain.ArbitrageTypeFunding, domain.ArbitrageTypeSpread} {
@@ -166,6 +191,18 @@ func (h *Handler) sendArbitrageSnapshot(ctx context.Context, conn *websocket.Con
 			writeWSMessage(conn, "arbitrage", arb)
 		}
 	}
+	h.sendTickerSnapshotHistory(ctx, conn, sub)
+}
+
+// sendTickerSnapshotHistory fetches the last 1h of ticker snapshots for both
+// legs, aggregates them into OHLC bars for each resolution, and sends a single
+// ticker_snapshot_history message. Caller must hold wsMu.
+func (h *Handler) sendTickerSnapshotHistory(ctx context.Context, conn *websocket.Conn, sub wsSubscribePayload) {
+	history := buildSnapshotHistory(ctx, h, sub.ExchangeA, sub.ExchangeB, sub.Symbol)
+	if history == nil {
+		return
+	}
+	writeWSMessage(conn, "ticker_snapshot_history", history)
 }
 
 // writeWSMessage marshals and sends a typed WebSocket message.

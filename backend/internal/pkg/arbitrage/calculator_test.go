@@ -115,6 +115,12 @@ func (m *mockStore) SetBalance(context.Context, domain.Balance) error { panic("n
 func (m *mockStore) ListBalances(context.Context, string, string) ([]domain.Balance, error) {
 	panic("not implemented")
 }
+func (m *mockStore) AppendTickerSnapshot(context.Context, domain.TickerSnapshot) error {
+	panic("not implemented")
+}
+func (m *mockStore) GetTickerSnapshots(context.Context, string, string, int64, int64) ([]domain.TickerSnapshot, error) {
+	panic("not implemented")
+}
 func (m *mockStore) FlushAll(context.Context) (int64, error) { panic("not implemented") }
 
 // --- helpers ---

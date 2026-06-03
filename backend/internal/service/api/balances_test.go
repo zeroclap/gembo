@@ -71,6 +71,12 @@ func (m *mockBalanceStore) ListArbitrage(context.Context) ([]domain.Arbitrage, e
 func (m *mockBalanceStore) RemoveArbitrage(context.Context, domain.ArbitrageType, string, string, string) error {
 	return nil
 }
+func (m *mockBalanceStore) AppendTickerSnapshot(context.Context, domain.TickerSnapshot) error {
+	return nil
+}
+func (m *mockBalanceStore) GetTickerSnapshots(context.Context, string, string, int64, int64) ([]domain.TickerSnapshot, error) {
+	return nil, nil
+}
 func (m *mockBalanceStore) FlushAll(context.Context) (int64, error) { return 0, nil }
 
 var _ store.Store = (*mockBalanceStore)(nil)
