@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gembo Roadmap Stage"
+  short_description: "Deliver roadmap stages through approval and GitHub"
+  default_prompt: "Use $gembo-roadmap-stage to proceed with the next eligible Gembo roadmap work package, present its artifacts for approval, and publish after approval."
