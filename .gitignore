@@ -39,3 +39,8 @@ backend/market-data-collector
 backend/account-data-collector
 backend/arbitrage-worker
 backend/position-manager
+
+# Disposable verification evidence, caches and Python bytecode
+.artifacts/
+__pycache__/
+*.pyc

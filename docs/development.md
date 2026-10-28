@@ -1,6 +1,6 @@
 # Repository and development guide
 
-D01 source reconciliation, 28 October 2026. This guide describes existing interfaces. The [delivery plan](delivery/README.md) defines future work; the unified `gembo` CLI and proposed root verification targets do not exist yet. See the [D01 audit](reports/d01-repository-instructions.md) for checks and limitations.
+D01 source reconciliation and D02 verification tooling, 28 October 2026. This guide describes existing interfaces. The [delivery plan](delivery/README.md) defines future work; the unified `gembo` CLI does not exist yet. Root `make bootstrap`, `make test-verification` and `make baseline` now provide the [isolated D02 baseline](verification.md). Other proposed verification/CLI targets remain planned. See the [D01 audit](reports/d01-repository-instructions.md) and [D02 handoff](reports/d02-reproducible-baseline.md) for checks and limitations.
 
 ## Process and package map
 
@@ -24,14 +24,14 @@ Frontend routes under `frontend/app/` include login, dashboard, arbitrage, accou
 
 ## Existing commands
 
-Run backend commands from `backend/`. `make build` builds only the five services, not the utilities. There is no root Makefile.
+Run backend commands from `backend/`. `make build` builds only the five services, not the utilities. The root Makefile is for isolated verification; it does not start application processes.
 
 | Commands | Source behavior |
 |---|---|
 | `make build` | Builds all five service targets below |
 | `make market-data-collector`, `make account-data-collector`, `make api`, `make arbitrage-worker`, `make position-manager` | `go build -trimpath -ldflags="-s -w"` of matching `cmd/` directory into `bin/` |
 | `make run-market-data-collector`, `make run-account-data-collector`, `make run-api`, `make run-arbitrage-worker`, `make run-position-manager` | Builds matching service, then executes its binary |
-| `make test` | `go test ./...`; includes `cmd/exchange-probe` and package-local tests |
+| `make test` | `go test ./...`; includes `cmd/exchange-probe` and package-local tests; optional `TEST_FLAGS` supplies JSON/fresh-run flags for baseline evidence |
 | `make vet` | `go vet ./...` |
 | `make lint` | `golangci-lint run ./...`; no tracked custom lint configuration |
 | `make tidy` | `go mod tidy`; modifies dependency files |
@@ -54,7 +54,7 @@ Run frontend commands from `frontend/`, using the committed npm lockfile:
 
 | Command | Source behavior |
 |---|---|
-| `npm ci` | Installs locked dependencies; Node/npm pinning is D02 |
+| `npm ci` | Installs locked dependencies; pinned Node/npm are provided by the D02 toolchain |
 | `npm run dev` | `next dev`, port 3000 by default |
 | `npm run build` | `next build` |
 | `npm run start` | `next start`; requires production build |
