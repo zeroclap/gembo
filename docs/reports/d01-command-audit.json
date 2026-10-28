@@ -1,0 +1,76 @@
+{
+  "make_dry_run_targets": [
+    "build",
+    "market-data-collector",
+    "account-data-collector",
+    "api",
+    "arbitrage-worker",
+    "position-manager",
+    "run-market-data-collector",
+    "run-account-data-collector",
+    "run-api",
+    "run-arbitrage-worker",
+    "run-position-manager",
+    "tidy",
+    "vet",
+    "test",
+    "lint",
+    "clean",
+    "docker-build",
+    "docker-up",
+    "docker-down"
+  ],
+  "frontend_scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "service_paths_checked": 5,
+  "configuration_env_names_checked": [
+    "AUTH_JWT_SECRET",
+    "AUTH_TOKEN_TTL",
+    "BULLMQ_ENABLED",
+    "BULLMQ_QUEUE_PREFIX",
+    "CREDENTIALS_ENCRYPTION_KEY_BASE64",
+    "DATABASE_URL",
+    "EXCHANGES",
+    "LOG_FORMAT",
+    "LOG_LEVEL",
+    "MARKET_QUOTE_ASSETS",
+    "MARKET_SETTLE_ASSETS",
+    "MARKET_TYPES",
+    "REDIS_ADDR",
+    "REDIS_DB",
+    "REDIS_PASSWORD",
+    "SERVER_HOST",
+    "SERVER_PORT",
+    "TRADER_FUNDING_CHECK_INTERVAL",
+    "TRADER_LEVERAGE",
+    "TRADER_MARGIN_MODE"
+  ],
+  "missing_docker_targets": [
+    "account-data-collector",
+    "arbitrage-worker",
+    "market-data-collector",
+    "position-manager"
+  ],
+  "removed_docker_entrypoints": [
+    "./cmd/collector-private",
+    "./cmd/collector-public",
+    "./cmd/trader",
+    "./cmd/worker"
+  ],
+  "tools_on_path": {
+    "go": null,
+    "node": null,
+    "npm": null,
+    "golangci-lint": null,
+    "make": "/usr/bin/make",
+    "docker": "/usr/local/bin/docker",
+    "python3": "/usr/local/bin/python3"
+  },
+  "local_links_checked": 25,
+  "source_commit": "e16c5658b6f7524a3e193da8bea07050b7c71f7b",
+  "scope": "Source inspection and Make dry runs only; application checks not run"
+}

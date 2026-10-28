@@ -4,6 +4,8 @@ Planning baseline: **28 October 2026**. Repository inspected at `1188c918ecd8d93
 
 Status: proposed implementation plan. This document does not provision infrastructure, activate agents, authorize expenditure, or enable exchange execution. Recommendations and acceptance criteria below are design decisions to implement, not claims about capabilities already present.
 
+D01 repository-instruction reconciliation is implemented locally; see the [handoff and validation limits](../reports/d01-repository-instructions.md). This does not establish the D02 execution baseline or complete Phase 0.
+
 ## Direction
 
 Build a dependable software delivery system, then delegate increasing portions of it to bounded agents. Every agent should produce work that a person can inspect and that ordinary automation can verify. GitHub Issues describes the work; pull requests describe the changes; executable checks establish correctness; release records establish what is running.
