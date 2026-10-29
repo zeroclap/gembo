@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0.0",
+  "role": "verification",
+  "version": "1.0.0",
+  "authority": "contract-rehearsal",
+  "environment": "evidence-only",
+  "trusted_paths": [
+    "agents/roles/verification.md",
+    "agents/policies/verification.json",
+    "agents/schemas/verification-task.schema.json",
+    "agents/schemas/verification-result.schema.json",
+    "scripts/verification/contract.py",
+    "tools/verification/contract-requirements.txt"
+  ],
+  "input_path": "docs/reports/d02-baseline.json",
+  "output_roots": [
+    ".artifacts/"
+  ],
+  "public_output": "docs/reports/d03-verification-result.json",
+  "command_ids": [
+    "review-d02",
+    "validate-contract",
+    "test-contract"
+  ],
+  "budgets": {
+    "max_wall_seconds": 1800,
+    "max_attempts": 1,
+    "max_input_bytes": 1048576,
+    "max_output_bytes": 1048576,
+    "max_model_tokens": 12000,
+    "max_tool_calls": 40,
+    "max_additional_cost_usd": "0.00",
+    "network_requests": 0
+  },
+  "required_checks": [
+    "docker-version",
+    "bootstrap",
+    "tool-versions",
+    "go-dependencies",
+    "npm-ci",
+    "go-format",
+    "go-build",
+    "go-utilities-build",
+    "go-test",
+    "go-vet",
+    "go-lint",
+    "frontend-lint",
+    "frontend-build",
+    "frontend-typecheck",
+    "go-mod-verify",
+    "lock-integrity",
+    "application-images",
+    "database-integration",
+    "frontend-tests",
+    "cli-e2e",
+    "live-exchange-probes"
+  ],
+  "stop_rules": [
+    "hash-or-revision-mismatch",
+    "invalid-or-incomplete-evidence",
+    "unknown-command-or-field",
+    "unsafe-path-or-symlink",
+    "oversize-input-or-output",
+    "deadline-or-budget-exceeded",
+    "cancellation",
+    "private-payload-or-authority-request"
+  ],
+  "publisher_target": null,
+  "gembo_cli": {
+    "status": "not-implemented",
+    "allowed_commands": []
+  },
+  "enforcement": {
+    "deterministic_checker": [
+      "hashes",
+      "base-commit",
+      "paths",
+      "bytes",
+      "schemas",
+      "counts",
+      "deadline"
+    ],
+    "manual_operator": [
+      "conversational-tool-calls",
+      "model-tokens",
+      "cost",
+      "cancellation"
+    ],
+    "hosted_runtime": "not-implemented; D10"
+  }
+}

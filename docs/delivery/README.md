@@ -6,7 +6,9 @@ Status: proposed implementation plan. This document does not provision infrastru
 
 D01 repository-instruction reconciliation is implemented locally; see the [handoff and validation limits](../reports/d01-repository-instructions.md). This does not establish the D02 execution baseline or complete Phase 0.
 
-D02 toolchain and isolated baseline artifacts are prepared for owner review; see the [D02 review packet](../reports/d02-reproducible-baseline.md) and [reproduction guide](../verification.md). Reported failures/skips remain evidence gaps, and Phase 0 acceptance is still pending.
+D02 toolchain and isolated baseline artifacts were published in [PR #1](https://github.com/zeroclap/gembo/pull/1), merged at `158eeaaa27eea6858e0e0bf081cd5c30d4d2b2b0`. The [D02 review packet](../reports/d02-reproducible-baseline.md) preserves the reviewed artifact state; the [reproduction guide](../verification.md) describes the baseline. Reported failures/skips remain evidence gaps, and Phase 0 acceptance is still pending.
+
+D03's manual verification role, task/result contracts and evidence rehearsal are prepared for owner review; see the [D03 review packet](../reports/d03-verification-contract.md) and [manual runbook](../../agents/README.md). Independent predecessor review and the C01 inventory remain open; no hosted agent or Phase 0 acceptance is claimed.
 
 ## Direction
 

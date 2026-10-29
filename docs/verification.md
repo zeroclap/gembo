@@ -1,5 +1,11 @@
 # Reproducing the D02 baseline
 
+The separate D03 [manual verification role](../agents/README.md) reads recorded
+baseline evidence through versioned task/result contracts. Its
+`make test-agent-contract` target needs the pinned Python validator described
+there. `make test-verification` continues to run the eight D02 harness tests
+with the Python standard library alone. Neither target starts an application.
+
 Run from the repository root with Git, Docker Engine/BuildKit and Python **3.10 or newer**. Host Go, Node, npm, Redis, PostgreSQL and exchange credentials are unnecessary. Python and Docker are orchestration prerequisites; their observed versions/platform are evidence, not application toolchain pins. Linux containers are supported on Linux and Docker-enabled macOS; the first recorded platform is Linux arm64 on macOS arm64. Linux amd64 image manifests exist but require a separate execution result.
 
 ```bash

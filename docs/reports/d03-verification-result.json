@@ -1,0 +1,358 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "d03-review-d02",
+  "run_id": "d03-20261029t074717z-652eee9a",
+  "task_sha256": "427347afcc278eafaf9e5b7925de3953fe58ef19b468890ef59041468b397786",
+  "base_commit": "158eeaaa27eea6858e0e0bf081cd5c30d4d2b2b0",
+  "head_commit": "158eeaaa27eea6858e0e0bf081cd5c30d4d2b2b0",
+  "patch_sha256": null,
+  "changed_paths": [],
+  "status": "succeeded",
+  "outcome": "D02 evidence review completed; imported outcomes are not new application checks.",
+  "evidence": {
+    "classification": "imported-only",
+    "input": {
+      "path": "docs/reports/d02-baseline.json",
+      "sha256": "9900e8b0d2790edd5a00147022cd3f2e855f6fec0f439ef998c86a2153d77d69"
+    },
+    "source_run_id": "d02-20261028T191734Z-f2cb3941",
+    "source_revision": "444da1c14ca758ca0a253d16a85233cd19f81c58",
+    "source_snapshot_sha256": "7864f5fbe06bf9fbcf5d9b4a48239964400e656ac21dede136b3dfb0b8b0dc28",
+    "counts": {
+      "pass": 11,
+      "fail": 4,
+      "skip": 1,
+      "not-run": 5
+    },
+    "checks": [
+      {
+        "name": "docker-version",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "docker",
+          "version",
+          "--format",
+          "{{json .}}"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "bootstrap",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "docker",
+          "build",
+          "--pull",
+          "--progress=plain",
+          "-t",
+          "gembo-verification:b912fa6832db017a",
+          "$REPO/tools/verification"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "tool-versions",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "sh",
+          "-c",
+          "test \"$(go env GOVERSION)\" = \"go1.25.14\" && test \"$(node --version)\" = \"v22.23.4\" && test \"$(npm --version)\" = \"10.9.9\" && golangci-lint version | grep -F \"version 2.15.0 \" && go version && node --version && npm --version && uname -sm"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "go-dependencies",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "go",
+          "mod",
+          "download"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "npm-ci",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "npm",
+          "ci",
+          "--no-audit",
+          "--no-fund"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "go-format",
+        "status": "fail",
+        "exit_code": 0,
+        "command": [
+          "gofmt",
+          "-l",
+          "<all exported tracked Go source paths>"
+        ],
+        "command_kind": "template-import",
+        "reason": "command reported findings despite a zero exit code",
+        "tests": null
+      },
+      {
+        "name": "go-build",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "make",
+          "build"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "go-utilities-build",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "go",
+          "build",
+          "./cmd/..."
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "go-test",
+        "status": "skip",
+        "exit_code": 0,
+        "command": [
+          "make",
+          "test",
+          "TEST_FLAGS=-json -count=1 -timeout=120s"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": {
+          "cases": {
+            "pass": 342,
+            "skip": 2
+          },
+          "packages": {
+            "skip": 22,
+            "pass": 13
+          },
+          "case_skips": [
+            {
+              "Package": "github.com/zeroclap/gembo/internal/service/api",
+              "Test": "TestArbitrageWS_SubscribeAndReceiveSnapshot"
+            },
+            {
+              "Package": "github.com/zeroclap/gembo/internal/service/api",
+              "Test": "TestArbitrageWS_PubSubForward"
+            }
+          ]
+        }
+      },
+      {
+        "name": "go-vet",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "make",
+          "vet"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "go-lint",
+        "status": "fail",
+        "exit_code": 2,
+        "command": [
+          "make",
+          "lint"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "frontend-lint",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "npm",
+          "run",
+          "lint"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "frontend-build",
+        "status": "fail",
+        "exit_code": 1,
+        "command": [
+          "npm",
+          "run",
+          "build"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "frontend-typecheck",
+        "status": "fail",
+        "exit_code": 2,
+        "command": [
+          "./node_modules/.bin/tsc",
+          "--noEmit",
+          "--incremental",
+          "false"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "go-mod-verify",
+        "status": "pass",
+        "exit_code": 0,
+        "command": [
+          "go",
+          "mod",
+          "verify"
+        ],
+        "command_kind": "exact-import",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "lock-integrity",
+        "status": "pass",
+        "exit_code": null,
+        "command": [],
+        "command_kind": "not-recorded",
+        "reason": null,
+        "tests": null
+      },
+      {
+        "name": "application-images",
+        "status": "not-run",
+        "exit_code": null,
+        "command": [
+          "make",
+          "-C",
+          "backend",
+          "docker-build"
+        ],
+        "command_kind": "exact-import",
+        "reason": "D04: removed entrypoints/missing runtime targets; source defect retained",
+        "tests": null
+      },
+      {
+        "name": "database-integration",
+        "status": "not-run",
+        "exit_code": null,
+        "command": [
+          "make",
+          "integration",
+          "(planned)"
+        ],
+        "command_kind": "exact-import",
+        "reason": "D05: disposable Redis/Postgres harness not implemented; legacy WS skips reported in go-test",
+        "tests": null
+      },
+      {
+        "name": "frontend-tests",
+        "status": "not-run",
+        "exit_code": null,
+        "command": [
+          "npm",
+          "test",
+          "(planned)"
+        ],
+        "command_kind": "exact-import",
+        "reason": "no frontend test runner/script; D06/C06",
+        "tests": null
+      },
+      {
+        "name": "cli-e2e",
+        "status": "not-run",
+        "exit_code": null,
+        "command": [
+          "make",
+          "e2e-cli",
+          "(planned)"
+        ],
+        "command_kind": "exact-import",
+        "reason": "C01/C02/D07: product CLI and headless journey not implemented",
+        "tests": null
+      },
+      {
+        "name": "live-exchange-probes",
+        "status": "not-run",
+        "exit_code": null,
+        "command": [
+          "go",
+          "run",
+          "./cmd/exchange-probe"
+        ],
+        "command_kind": "exact-import",
+        "reason": "separate D12/D13 scope; no live network or account operations",
+        "tests": null
+      }
+    ]
+  },
+  "evidence_verdict": "gaps",
+  "release_eligible": false,
+  "unresolved_risks": [
+    "D02 commands were not rerun; all application outcomes are historical imported evidence.",
+    "Raw D02 logs are local-only and absent from fresh checkouts; their truth is not attested here.",
+    "Independent D01/D02 review and Phase 0 acceptance remain open.",
+    "C01/C02/D07 application CLI inventory, executable and headless journey remain undelivered.",
+    "D04/D05/D06/C06/D12/D13 retain the image, store, lint, UI and live-qualification gaps.",
+    "Conversational model usage/cost/tool calls are unavailable; hosted enforcement is D10 work."
+  ],
+  "requested_next_action": "owner-review",
+  "usage": {
+    "wall_seconds": 0.021492,
+    "model_tokens": null,
+    "cost_usd": null,
+    "tool_calls": null,
+    "unavailable_reason": "Manual session usage is not metered; checker makes no model/API calls."
+  },
+  "execution": {
+    "command_id": "review-d02",
+    "argv": [
+      ".artifacts/d03-tools/bin/python",
+      "scripts/verification/contract.py",
+      "review",
+      "--task",
+      "docs/reports/d03-verification-task.json"
+    ],
+    "python_version": "3.14.6",
+    "started_at": "2026-10-29T07:47:17.644131+00:00",
+    "ended_at": "2026-10-29T07:47:17.665700+00:00"
+  },
+  "cleanup": {
+    "status": "no-resources-created",
+    "detail": "Only the scoped result is written; no child services, containers, network or temporary workspace."
+  }
+}

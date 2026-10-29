@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gembo.invalid/agents/schemas/verification-result/1.0.0",
+  "title": "verification-result v1.0.0",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,95}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,95}$"
+    },
+    "task_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "base_commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "head_commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "patch_sha256": {
+      "type": "null"
+    },
+    "changed_paths": {
+      "const": []
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "blocked",
+        "needs_approval",
+        "cancelled"
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "classification": {
+          "const": "imported-only"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\.\\.)(?!.*\\\\)[A-Za-z0-9_./-]+$",
+              "maxLength": 256
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "additionalProperties": false
+        },
+        "source_run_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,95}$"
+        },
+        "source_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "source_snapshot_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "pass": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fail": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "skip": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "not-run": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "pass",
+            "fail",
+            "skip",
+            "not-run"
+          ],
+          "additionalProperties": false
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "enum": [
+                  "docker-version",
+                  "bootstrap",
+                  "tool-versions",
+                  "go-dependencies",
+                  "npm-ci",
+                  "go-format",
+                  "go-build",
+                  "go-utilities-build",
+                  "go-test",
+                  "go-vet",
+                  "go-lint",
+                  "frontend-lint",
+                  "frontend-build",
+                  "frontend-typecheck",
+                  "go-mod-verify",
+                  "lock-integrity",
+                  "application-images",
+                  "database-integration",
+                  "frontend-tests",
+                  "cli-e2e",
+                  "live-exchange-probes"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "skip",
+                  "not-run"
+                ]
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "command": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "maxItems": 256
+              },
+              "command_kind": {
+                "enum": [
+                  "exact-import",
+                  "template-import",
+                  "not-recorded"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 4096
+              },
+              "tests": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "cases": {
+                        "type": "object",
+                        "properties": {
+                          "pass": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "fail": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "skip": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "packages": {
+                        "type": "object",
+                        "properties": {
+                          "pass": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "fail": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "skip": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "case_skips": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "Package": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            },
+                            "Test": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": [
+                            "Package",
+                            "Test"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 256
+                      }
+                    },
+                    "required": [
+                      "cases",
+                      "packages",
+                      "case_skips"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "status",
+              "exit_code",
+              "command",
+              "command_kind",
+              "reason",
+              "tests"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 21,
+          "maxItems": 21
+        }
+      },
+      "required": [
+        "classification",
+        "input",
+        "source_run_id",
+        "source_revision",
+        "source_snapshot_sha256",
+        "counts",
+        "checks"
+      ],
+      "additionalProperties": false
+    },
+    "evidence_verdict": {
+      "enum": [
+        "complete",
+        "gaps"
+      ]
+    },
+    "release_eligible": {
+      "const": false
+    },
+    "unresolved_risks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "minItems": 1,
+      "maxItems": 32
+    },
+    "requested_next_action": {
+      "const": "owner-review"
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "wall_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "model_tokens": {
+          "type": "null"
+        },
+        "cost_usd": {
+          "type": "null"
+        },
+        "tool_calls": {
+          "type": "null"
+        },
+        "unavailable_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "wall_seconds",
+        "model_tokens",
+        "cost_usd",
+        "tool_calls",
+        "unavailable_reason"
+      ],
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "command_id": {
+          "const": "review-d02"
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "maxItems": 256
+        },
+        "python_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "started_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?\\+00:00$"
+        },
+        "ended_at": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?\\+00:00$"
+        }
+      },
+      "required": [
+        "command_id",
+        "argv",
+        "python_version",
+        "started_at",
+        "ended_at"
+      ],
+      "additionalProperties": false
+    },
+    "cleanup": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "no-resources-created"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "status",
+        "detail"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "task_id",
+    "run_id",
+    "task_sha256",
+    "base_commit",
+    "head_commit",
+    "patch_sha256",
+    "changed_paths",
+    "status",
+    "outcome",
+    "evidence",
+    "evidence_verdict",
+    "release_eligible",
+    "unresolved_risks",
+    "requested_next_action",
+    "usage",
+    "execution",
+    "cleanup"
+  ],
+  "additionalProperties": false
+}
