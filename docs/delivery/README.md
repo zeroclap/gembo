@@ -6,6 +6,8 @@ Status: proposed implementation plan. This document does not provision infrastru
 
 D01 repository-instruction reconciliation is implemented locally; see the [handoff and validation limits](../reports/d01-repository-instructions.md). This does not establish the D02 execution baseline or complete Phase 0.
 
+D02 toolchain and isolated baseline artifacts are prepared for owner review; see the [D02 review packet](../reports/d02-reproducible-baseline.md) and [reproduction guide](../verification.md). Reported failures/skips remain evidence gaps, and Phase 0 acceptance is still pending.
+
 ## Direction
 
 Build a dependable software delivery system, then delegate increasing portions of it to bounded agents. Every agent should produce work that a person can inspect and that ordinary automation can verify. GitHub Issues describes the work; pull requests describe the changes; executable checks establish correctness; release records establish what is running.

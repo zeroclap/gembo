@@ -19,7 +19,7 @@ Gembo collects cryptocurrency market and account data, computes arbitrage opport
 
 ## Local development
 
-The backend declares Go 1.25.0. Development Compose uses Redis 7 and PostgreSQL 17. Frontend Node/npm versions are not pinned yet; reproducible toolchain selection belongs to D02. Docker Compose is optional for local infrastructure. See the [repository guide](docs/development.md) for all commands and configuration.
+The backend declares Go 1.25.0. The [D02 verification toolchain](docs/verification.md) pins Go 1.25.14, Node 22.23.4, npm 10.9.9 and golangci-lint 2.15.0 in digest-pinned Linux images. From the repository root, `make bootstrap`, `make test-verification` and `make baseline` reproduce credential-free checks with Git, Docker and Python 3.10+. Baseline results retain failures and skips. Development Compose uses Redis 7 and PostgreSQL 17 and remains optional for local infrastructure. See the [repository guide](docs/development.md) for application commands and configuration.
 
 From `backend/`, copy `.env.example` to `.env` only if `.env` does not already exist, then configure local infrastructure and authentication. Use synthetic users and no exchange credentials for initial development. The API needs PostgreSQL for login and account/position features; without a database, those features are unavailable.
 

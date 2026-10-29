@@ -6,6 +6,7 @@
 
 BIN_DIR  := bin
 COMPOSE  := deployments/docker-compose.yml
+TEST_FLAGS ?=
 
 # ---- local build -------------------------------------------------------
 
@@ -55,7 +56,7 @@ vet:
 	go vet ./...
 
 test:
-	go test ./...
+	go test $(TEST_FLAGS) ./...
 
 lint:
 	golangci-lint run ./...

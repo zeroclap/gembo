@@ -1,0 +1,449 @@
+{
+  "schema_version": 1,
+  "run_id": "d02-20261028T191734Z-f2cb3941",
+  "revision": "444da1c14ca758ca0a253d16a85233cd19f81c58",
+  "branch": "codex/roadmap-d02-reproducible-baseline",
+  "dirty": true,
+  "started_at": "2026-10-28T19:17:34.224408+00:00",
+  "ended_at": "2026-10-28T19:24:38.528090+00:00",
+  "host": {
+    "os": "Darwin",
+    "arch": "arm64",
+    "python": "3.14.6"
+  },
+  "toolchain": {
+    "schema_version": 1,
+    "go": "1.25.14",
+    "node": "22.23.4",
+    "npm": "10.9.9",
+    "golangci_lint": "2.15.0"
+  },
+  "frontend_locked_tools": {
+    "eslint": "9.39.4",
+    "typescript": "5.9.3",
+    "next": "16.2.1",
+    "react": "19.2.4"
+  },
+  "runner_sha256": "95980cecd7226784246e089e08263c1fe26770389030354e2246d9fd38cf672b",
+  "dockerfile_sha256": "b912fa6832db017a191698e26475ef368b31e67e312871b97cb7c40c70296d36",
+  "image_id": "sha256:bd4ec0bf73ecee9c1fb24e90e682829d8f69a8c6f68348a6dd0a65d46ddf5c99",
+  "source_snapshot_sha256": "7864f5fbe06bf9fbcf5d9b4a48239964400e656ac21dede136b3dfb0b8b0dc28",
+  "lock_sha256": {
+    "backend/go.mod": "bd640f0a10e99b57012ade5171f540a32f2312fdbd2f47d8a593a75262f79787",
+    "backend/go.sum": "e2b589500fb51fdb063bcb2b1de6fc311c90a8e0afcaee3258c936f2123db498",
+    "frontend/package-lock.json": "a849d28a592f8762f5c5ae59a37cd8c6b67ac68e253f802c06c50896f882746e"
+  },
+  "counts": {
+    "pass": 11,
+    "fail": 4,
+    "skip": 1,
+    "not-run": 5
+  },
+  "format": "compact D02 review summary; complete runner output and logs are local-only",
+  "source_file_count": 246,
+  "execution_profile": {
+    "isolation": "synthetic-only; no env files/home credentials; isolated loopback; no DB services",
+    "limits": {
+      "memory_bytes": 10737418240,
+      "cpus": 2,
+      "pids": 512,
+      "go_memory_limit": "6GiB",
+      "go_gc_percent": 50,
+      "go_build_parallelism": 1
+    },
+    "environment": {
+      "HOME": "/state/home",
+      "GOPATH": "/state/go",
+      "GOCACHE": "/state/go-build",
+      "GOLANGCI_LINT_CACHE": "/state/lint",
+      "GOTOOLCHAIN": "local",
+      "GOWORK": "off",
+      "GOFLAGS": "-mod=readonly -p=1 -trimpath",
+      "GOMAXPROCS": "2",
+      "GOMEMLIMIT": "6GiB",
+      "GOGC": "50",
+      "CI": "1",
+      "NEXT_TELEMETRY_DISABLED": "1",
+      "npm_config_cache": "/state/npm",
+      "npm_config_userconfig": "/state/npm-userconfig",
+      "npm_config_globalconfig": "/state/npm-globalconfig",
+      "npm_config_registry": "https://registry.npmjs.org/"
+    },
+    "memory_measurement": "per-check cgroup v2 memory.peak, including tooling overhead; null means unavailable",
+    "default_network": "none",
+    "dependency_network": "bridge"
+  },
+  "raw_evidence": {
+    "local_path": ".artifacts/d02-review/d02-20261028T191734Z-f2cb3941",
+    "included_in_git": false,
+    "baseline_sha256": "7fd8ec68b5b35369dfd4eed282591e6ea20f93a56616ab1077530c834242e4ba",
+    "disposition": "Local diagnostics, absent from fresh checkouts; regenerate with make baseline."
+  },
+  "test_inventory": {
+    "go_test_files": 30,
+    "harness_tests": {
+      "pass": 8,
+      "fail": 0
+    },
+    "cli": {
+      "status": "not-implemented",
+      "next_packages": [
+        "C01",
+        "C02",
+        "D07"
+      ]
+    }
+  },
+  "checks": [
+    {
+      "name": "docker-version",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 0.197,
+      "timeout": false,
+      "command": [
+        "docker",
+        "version",
+        "--format",
+        "{{json .}}"
+      ]
+    },
+    {
+      "name": "bootstrap",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 1.526,
+      "timeout": false,
+      "command": [
+        "docker",
+        "build",
+        "--pull",
+        "--progress=plain",
+        "-t",
+        "gembo-verification:b912fa6832db017a",
+        "$REPO/tools/verification"
+      ]
+    },
+    {
+      "name": "tool-versions",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 0.635,
+      "timeout": false,
+      "cwd": "",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 156897280,
+      "command": [
+        "sh",
+        "-c",
+        "test \"$(go env GOVERSION)\" = \"go1.25.14\" && test \"$(node --version)\" = \"v22.23.4\" && test \"$(npm --version)\" = \"10.9.9\" && golangci-lint version | grep -F \"version 2.15.0 \" && go version && node --version && npm --version && uname -sm"
+      ]
+    },
+    {
+      "name": "go-dependencies",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 10.975,
+      "timeout": false,
+      "cwd": "backend",
+      "network": "bridge",
+      "cgroup_peak_memory_bytes": 667324416,
+      "command": [
+        "go",
+        "mod",
+        "download"
+      ]
+    },
+    {
+      "name": "npm-ci",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 7.043,
+      "timeout": false,
+      "cwd": "frontend",
+      "network": "bridge",
+      "cgroup_peak_memory_bytes": 1068859392,
+      "command": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ]
+    },
+    {
+      "name": "go-format",
+      "status": "fail",
+      "exit_code": 0,
+      "duration_seconds": 0.355,
+      "timeout": false,
+      "cwd": "backend",
+      "network": "none",
+      "reason": "command reported findings despite a zero exit code",
+      "cgroup_peak_memory_bytes": 14254080,
+      "command_template": [
+        "gofmt",
+        "-l",
+        "<all exported tracked Go source paths>"
+      ],
+      "input_selection": "scripts/verification/baseline.py: snapshot Go files; exact argv retained locally",
+      "findings": [
+        "backend/internal/pkg/arbitrage/simulation_test.go"
+      ]
+    },
+    {
+      "name": "go-build",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 316.805,
+      "timeout": false,
+      "cwd": "backend",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 9499074560,
+      "command": [
+        "make",
+        "build"
+      ]
+    },
+    {
+      "name": "go-utilities-build",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 10.906,
+      "timeout": false,
+      "cwd": "backend",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 1010601984,
+      "command": [
+        "go",
+        "build",
+        "./cmd/..."
+      ]
+    },
+    {
+      "name": "go-test",
+      "status": "skip",
+      "exit_code": 0,
+      "duration_seconds": 33.646,
+      "timeout": false,
+      "cwd": "backend",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 1525051392,
+      "command": [
+        "make",
+        "test",
+        "TEST_FLAGS=-json -count=1 -timeout=120s"
+      ],
+      "tests": {
+        "cases": {
+          "pass": 342,
+          "skip": 2
+        },
+        "packages": {
+          "skip": 22,
+          "pass": 13
+        },
+        "case_skips": [
+          {
+            "Package": "github.com/zeroclap/gembo/internal/service/api",
+            "Test": "TestArbitrageWS_SubscribeAndReceiveSnapshot"
+          },
+          {
+            "Package": "github.com/zeroclap/gembo/internal/service/api",
+            "Test": "TestArbitrageWS_PubSubForward"
+          }
+        ],
+        "package_skip_reason": "22 packages have no test files; counted separately from case skips"
+      }
+    },
+    {
+      "name": "go-vet",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 12.524,
+      "timeout": false,
+      "cwd": "backend",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 1596702720,
+      "command": [
+        "make",
+        "vet"
+      ]
+    },
+    {
+      "name": "go-lint",
+      "status": "fail",
+      "exit_code": 2,
+      "duration_seconds": 13.388,
+      "timeout": false,
+      "cwd": "backend",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 2687606784,
+      "command": [
+        "make",
+        "lint"
+      ],
+      "findings": {
+        "total": 31,
+        "errcheck": 23,
+        "ineffassign": 1,
+        "staticcheck": 3,
+        "unused": 4
+      }
+    },
+    {
+      "name": "frontend-lint",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 4.809,
+      "timeout": false,
+      "cwd": "frontend",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 823447552,
+      "command": [
+        "npm",
+        "run",
+        "lint"
+      ],
+      "warnings": 3
+    },
+    {
+      "name": "frontend-build",
+      "status": "fail",
+      "exit_code": 1,
+      "duration_seconds": 3.343,
+      "timeout": false,
+      "cwd": "frontend",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 729878528,
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "findings": {
+        "external_dependency": "Google Fonts fetch blocked with network none",
+        "fonts": [
+          "Geist Mono",
+          "Space Grotesk"
+        ]
+      }
+    },
+    {
+      "name": "frontend-typecheck",
+      "status": "fail",
+      "exit_code": 2,
+      "duration_seconds": 2.233,
+      "timeout": false,
+      "cwd": "frontend",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 433655808,
+      "command": [
+        "./node_modules/.bin/tsc",
+        "--noEmit",
+        "--incremental",
+        "false"
+      ],
+      "findings": {
+        "file": "frontend/components/arbitrage/active-position.tsx",
+        "line": 457,
+        "code": "TS2339",
+        "missing_Position_properties": [
+          "long_credential_id",
+          "short_credential_id"
+        ]
+      }
+    },
+    {
+      "name": "go-mod-verify",
+      "status": "pass",
+      "exit_code": 0,
+      "duration_seconds": 2.264,
+      "timeout": false,
+      "cwd": "backend",
+      "network": "none",
+      "cgroup_peak_memory_bytes": 600907776,
+      "command": [
+        "go",
+        "mod",
+        "verify"
+      ]
+    },
+    {
+      "name": "lock-integrity",
+      "status": "pass"
+    },
+    {
+      "name": "application-images",
+      "status": "not-run",
+      "reason": "D04: removed entrypoints/missing runtime targets; source defect retained",
+      "command": [
+        "make",
+        "-C",
+        "backend",
+        "docker-build"
+      ]
+    },
+    {
+      "name": "database-integration",
+      "status": "not-run",
+      "reason": "D05: disposable Redis/Postgres harness not implemented; legacy WS skips reported in go-test",
+      "command": [
+        "make",
+        "integration",
+        "(planned)"
+      ]
+    },
+    {
+      "name": "frontend-tests",
+      "status": "not-run",
+      "reason": "no frontend test runner/script; D06/C06",
+      "command": [
+        "npm",
+        "test",
+        "(planned)"
+      ]
+    },
+    {
+      "name": "cli-e2e",
+      "status": "not-run",
+      "reason": "C01/C02/D07: product CLI and headless journey not implemented",
+      "command": [
+        "make",
+        "e2e-cli",
+        "(planned)"
+      ]
+    },
+    {
+      "name": "live-exchange-probes",
+      "status": "not-run",
+      "reason": "separate D12/D13 scope; no live network or account operations",
+      "command": [
+        "go",
+        "run",
+        "./cmd/exchange-probe"
+      ]
+    }
+  ],
+  "resource_limit_attempt": {
+    "status": "failed and interrupted; separate from authoritative run",
+    "container_memory_bytes": 6442450944,
+    "peak_memory_bytes": 6442450944,
+    "finding": "CCXT compile terminated with signal: killed",
+    "raw_evidence": ".artifacts/d02-review/d02-20261028T191734Z-f2cb3941/resource-limit-attempt"
+  },
+  "command_path_variables": {
+    "$REPO": "repository root"
+  },
+  "docker": {
+    "client": {
+      "version": "29.8.2",
+      "os": "darwin",
+      "arch": "arm64"
+    },
+    "server": {
+      "version": "29.8.2",
+      "os": "linux",
+      "arch": "arm64"
+    }
+  }
+}
