@@ -4,6 +4,8 @@
 **Date:** 2026-03-20  
 **Status:** Draft
 
+> **Note (2026-11-04):** As product direction, this monitoring-only PRD is superseded by [`ROADMAP.md`](../../ROADMAP.md), which is proposed in [#1](https://github.com/zeroclap/gembo/issues/1). It is still the reference for the market-data foundation. The code has moved past it: it includes auth, Postgres, arbitrage, and trading, which this document lists as non-goals. Two items described here are still not implemented: the per-exchange ticker WebSocket (§8.1) and Prometheus `/metrics` (§11).
+
 ---
 
 ## 1. Overview

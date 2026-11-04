@@ -1,87 +1,64 @@
 # Gembo
 
-High-performance crypto exchange monitoring platform. Ingests real-time market data from multiple exchanges, normalizes it into unified models, and serves it via REST/WebSocket APIs.
+Operator tool for cross-exchange crypto perpetual-futures arbitrage (funding-rate and price-spread). Ingests market data from exchanges via CCXT, normalizes it, stores it in Redis, and serves it over REST/WebSocket.
 
-## Monorepo Structure
+> [!WARNING]
+> **Not production-ready.** Baseline (2026-11-04, [#1](https://github.com/zeroclap/gembo/issues/1)): arbitrage output is not yet trustworthy, there is no CI, and `position-manager` can place **real market orders** without dry-run, kill switch, or notional caps. Do not run it with real exchange credentials.
+
+**➡️ Direction and current priorities: [ROADMAP.md](ROADMAP.md)** (status: proposed, awaiting owner approval in #1). Work is tracked in [GitHub issues](https://github.com/zeroclap/gembo/issues) and [milestones](https://github.com/zeroclap/gembo/milestones).
+
+## Monorepo structure
 
 ```
 gembo/
-├── backend/          Go services (API server + data collector)
-│   ├── cmd/          Entrypoints (api, collector)
-│   ├── internal/     Application code (domain, exchange adapters, store, hooks)
-│   ├── pkg/          Shared library code
-│   ├── configs/      Configuration examples
-│   ├── deployments/  Dockerfile & docker-compose
-│   ├── docs/         Documentation & PRD
-│   ├── Makefile
-│   ├── go.mod
-│   └── go.sum
-└── frontend/         Frontend application (TBD)
+├── backend/            Go services
+│   ├── cmd/            Entrypoints (one main.go each, see below)
+│   ├── internal/       Domain, exchange adapters, services, store, API
+│   ├── configs/        config.yaml (no secrets)
+│   ├── deployments/    Dockerfile & docker-compose
+│   ├── docs/           PRD (v0.1, superseded as direction by ROADMAP.md)
+│   └── Makefile
+└── frontend/           Next.js dashboard (frozen: CLI-first, see ROADMAP.md)
 ```
 
-## Getting Started
+## Binaries (`backend/cmd/`)
 
-### Prerequisites
+| Binary | Purpose | Credentials |
+|---|---|---|
+| `market-data-collector` | Public markets, tickers, funding rates → Redis | none |
+| `arbitrage-worker` | Computes spread and funding opportunities from Redis | none |
+| `api` | REST + WebSocket API (JWT auth; Postgres optional for read-only data) | API secret |
+| `exchange-probe` | Live check of public exchange endpoints | none |
+| `account-data-collector` | Positions, balances, funding payments | exchange keys (from DB) |
+| `position-manager` | **Places real orders** | exchange keys (from DB) |
+| `create-user` | Creates an API user in Postgres | DB |
+| `ccxt-raw-positions` | Prints raw authenticated positions | exchange keys |
 
-- Go 1.25+
-- Redis 7+
-- Docker & Docker Compose (optional)
+Exchanges configured in `backend/configs/config.yaml`: Bybit, OKX, Binance, Gate, HTX, Aster. A KuCoin adapter exists but is not registered.
 
-### Run Locally
+## Getting started
+
+Prerequisites: Go 1.25+, Redis 7+, Docker (optional).
 
 ```bash
 cd backend
-
-# Copy and configure environment
-cp .env.example .env  # edit with your API keys
-
-# Build both binaries
-make build
-
-# Run the collector (ingests exchange data into Redis)
-make run-collector
-
-# Run the API server (serves data over HTTP/WebSocket)
+cp .env.example .env
+export AUTH_JWT_SECRET=$(openssl rand -hex 32)   # never rely on the built-in default
+make build                         # market-data-collector, account-data-collector, api, arbitrage-worker, position-manager
+make run-market-data-collector     # public data only, no credentials
+make run-arbitrage-worker
 make run-api
+go run ./cmd/exchange-probe -exchanges bybit -symbols BTC/USDT:USDT -ws
 ```
 
-### Docker
+Bybit and Binance block US IP addresses.
 
-```bash
-cd backend
+### Make targets (`backend/`)
 
-# Build and start all services (Redis + collector + API)
-make docker-up
-
-# Stop
-make docker-down
-```
-
-### Available Make Targets
-
-Run all targets from the `backend/` directory:
-
-| Target           | Description                          |
-|------------------|--------------------------------------|
-| `make build`     | Build collector and API binaries     |
-| `make collector` | Build collector binary only          |
-| `make api`       | Build API binary only                |
-| `make run-collector` | Build and run collector          |
-| `make run-api`   | Build and run API server             |
-| `make tidy`      | Run `go mod tidy`                    |
-| `make vet`       | Run `go vet`                         |
-| `make test`      | Run all tests                        |
-| `make lint`      | Run golangci-lint                    |
-| `make clean`     | Remove build artifacts               |
-| `make docker-build` | Build Docker images               |
-| `make docker-up` | Start Docker Compose stack           |
-| `make docker-down` | Stop Docker Compose stack          |
-
-## Architecture
-
-**Two-binary design:**
-
-- **collector** -- Connects to exchanges (Bybit, OKX) via CCXT, ingests markets/tickers/funding rates, writes to Redis, and emits BullMQ events.
-- **api** -- HTTP server exposing REST endpoints and WebSocket streams for real-time ticker data.
-
-**Supported exchanges:** Bybit, OKX (extensible via plugin architecture under `internal/exchange/exchanges/`).
+| Target | Description |
+|---|---|
+| `make build` | Build the five service binaries into `bin/` |
+| `make <binary>` / `make run-<binary>` | Build / build and run one of `market-data-collector`, `account-data-collector`, `api`, `arbitrage-worker`, `position-manager` |
+| `make test` / `vet` / `lint` / `tidy` | Tests, `go vet`, golangci-lint, `go mod tidy` |
+| `make clean` | Remove build artifacts |
+| `make docker-build` / `docker-up` / `docker-down` | Docker images and compose stack (Dockerfile is currently out of date, see #3) |
