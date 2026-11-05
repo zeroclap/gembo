@@ -92,3 +92,9 @@ func TestExchangesEnvFiltersYAML(t *testing.T) {
 		}
 	})
 }
+
+func demoNewLintFinding() {
+	unusedDemoVar := 42
+	unusedDemoVar = 43
+	_ = unusedDemoVar
+}
