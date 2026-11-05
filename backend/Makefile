@@ -1,6 +1,6 @@
 .PHONY: build market-data-collector account-data-collector api arbitrage-worker position-manager \
         run-market-data-collector run-account-data-collector run-api run-arbitrage-worker run-position-manager \
-        tidy lint vet test clean \
+        tidy lint vet test test-integration clean \
         docker-build docker-build-ci-egress-probe \
         up down
 
@@ -56,6 +56,12 @@ vet:
 
 test:
 	go test ./...
+
+# Calls real exchange public endpoints; requires non-US network egress
+# (Bybit/Binance geo-block US IPs, issue #4). Never run by `make test` or
+# plain `go test ./...`.
+test-integration:
+	go test -tags integration -v ./internal/exchanges/bybit/...
 
 lint:
 	golangci-lint run ./...

@@ -1,0 +1,38 @@
+{
+  "BTC/USDT:USDT": {
+    "Symbol": "BTC/USDT:USDT",
+    "Timestamp": 1793896319420,
+    "Datetime": "2026-11-05T16:31:59.420Z",
+    "FundingRate": 0.00009045,
+    "MarkPrice": 76784.54,
+    "IndexPrice": 76825.22,
+    "InterestRate": null,
+    "EstimatedSettlePrice": null,
+    "FundingTimestamp": 1793923200000,
+    "NextFundingTimestamp": null,
+    "NextFundingRate": null,
+    "NextFundingDatetime": null,
+    "PreviousFundingTimestamp": null,
+    "PreviousFundingDatetime": null,
+    "PreviousFundingRate": null,
+    "Interval": "8h"
+  },
+  "ETH/USDT:USDT": {
+    "Symbol": "ETH/USDT:USDT",
+    "Timestamp": 1793896319420,
+    "Datetime": "2026-11-05T16:31:59.420Z",
+    "FundingRate": -0.00009635,
+    "MarkPrice": 2274.68,
+    "IndexPrice": 2276.23,
+    "InterestRate": null,
+    "EstimatedSettlePrice": null,
+    "FundingTimestamp": 1793923200000,
+    "NextFundingTimestamp": null,
+    "NextFundingRate": null,
+    "NextFundingDatetime": null,
+    "PreviousFundingTimestamp": null,
+    "PreviousFundingDatetime": null,
+    "PreviousFundingRate": null,
+    "Interval": "8h"
+  }
+}
