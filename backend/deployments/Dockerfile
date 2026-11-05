@@ -25,41 +25,41 @@ EOF
 RUN go build -v /tmp/warmup/main.go
 
 # ---- build each binary in its own stage so they compile in parallel ----
-FROM deps AS build-collector-public
+FROM deps AS build-market-data-collector
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags="-s -w" -o /out/collector-public ./cmd/collector-public
+    go build -trimpath -ldflags="-s -w" -o /out/market-data-collector ./cmd/market-data-collector
 
-FROM deps AS build-collector-private
+FROM deps AS build-account-data-collector
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags="-s -w" -o /out/collector-private ./cmd/collector-private
+    go build -trimpath -ldflags="-s -w" -o /out/account-data-collector ./cmd/account-data-collector
 
 FROM deps AS build-api
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api
 
-FROM deps AS build-worker
+FROM deps AS build-arbitrage-worker
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker
+    go build -trimpath -ldflags="-s -w" -o /out/arbitrage-worker ./cmd/arbitrage-worker
 
-FROM deps AS build-trader
+FROM deps AS build-position-manager
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags="-s -w" -o /out/trader ./cmd/trader
+    go build -trimpath -ldflags="-s -w" -o /out/position-manager ./cmd/position-manager
 
 # ---- runtime images ----
-FROM gcr.io/distroless/static-debian12 AS collector-public
-COPY --from=build-collector-public /out/collector-public /collector-public
+FROM gcr.io/distroless/static-debian12 AS market-data-collector
+COPY --from=build-market-data-collector /out/market-data-collector /market-data-collector
 COPY configs/config.yaml /configs/config.yaml
-ENTRYPOINT ["/collector-public"]
+ENTRYPOINT ["/market-data-collector"]
 
-FROM gcr.io/distroless/static-debian12 AS collector-private
-COPY --from=build-collector-private /out/collector-private /collector-private
+FROM gcr.io/distroless/static-debian12 AS account-data-collector
+COPY --from=build-account-data-collector /out/account-data-collector /account-data-collector
 COPY configs/config.yaml /configs/config.yaml
-ENTRYPOINT ["/collector-private"]
+ENTRYPOINT ["/account-data-collector"]
 
 FROM gcr.io/distroless/static-debian12 AS api
 COPY --from=build-api /out/api /api
@@ -67,12 +67,12 @@ COPY configs/config.yaml /configs/config.yaml
 EXPOSE 8080
 ENTRYPOINT ["/api"]
 
-FROM gcr.io/distroless/static-debian12 AS worker
-COPY --from=build-worker /out/worker /worker
+FROM gcr.io/distroless/static-debian12 AS arbitrage-worker
+COPY --from=build-arbitrage-worker /out/arbitrage-worker /arbitrage-worker
 COPY configs/config.yaml /configs/config.yaml
-ENTRYPOINT ["/worker"]
+ENTRYPOINT ["/arbitrage-worker"]
 
-FROM gcr.io/distroless/static-debian12 AS trader
-COPY --from=build-trader /out/trader /trader
+FROM gcr.io/distroless/static-debian12 AS position-manager
+COPY --from=build-position-manager /out/position-manager /position-manager
 COPY configs/config.yaml /configs/config.yaml
-ENTRYPOINT ["/trader"]
+ENTRYPOINT ["/position-manager"]

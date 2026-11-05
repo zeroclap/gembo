@@ -61,5 +61,5 @@ Bybit and Binance block US IP addresses.
 | `make <binary>` / `make run-<binary>` | Build / build and run one of `market-data-collector`, `account-data-collector`, `api`, `arbitrage-worker`, `position-manager` |
 | `make test` / `vet` / `lint` / `tidy` | Tests, `go vet`, golangci-lint, `go mod tidy` |
 | `make clean` | Remove build artifacts |
-| `make docker-build` / `docker-up` / `docker-down` | Docker images and compose stack (Dockerfile is currently out of date, see #3) |
+| `make docker-build` / `docker-up` / `docker-down` | Docker images and compose stack |
 
