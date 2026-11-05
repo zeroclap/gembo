@@ -92,3 +92,7 @@ func TestExchangesEnvFiltersYAML(t *testing.T) {
 		}
 	})
 }
+
+func TestDemoIntentionalFailure(t *testing.T) {
+	t.Fatal("intentional failure to demonstrate CI blocking a failing test (see gembo#2)")
+}
