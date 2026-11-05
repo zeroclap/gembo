@@ -46,10 +46,12 @@ Two independent controls, either of which would be sufficient on its own:
    mint an OIDC token for that permission on a fork-triggered `pull_request`
    run (this repo does not use `pull_request_target`), so the auth step
    fails closed for any fork PR.
-2. The job runs under the `ci-egress` GitHub Environment, which the owner
-   must configure (Settings → Environments) to restrict deployment to the
-   `main` branch, so even a same-repo branch cannot trigger it outside of
-   `main` and `workflow_dispatch`.
+2. The job's `if:` gates on `github.ref == 'refs/heads/main'` directly, so
+   PR runs (same-repo or fork) skip cleanly rather than ever attempting to
+   enter the environment. The `ci-egress` GitHub Environment itself (owner-
+   configured, Settings → Environments, deployment branch policy restricted
+   to `main`) is a second, independent layer enforcing the same boundary
+   server-side — belt and suspenders, not reliance on the `if:` alone.
 3. The Workload Identity Federation provider's `attribute_condition` only
    accepts tokens whose `repository_owner`/`repository` claims match this
    repository, regardless of what else might later be federated into the

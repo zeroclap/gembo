@@ -54,11 +54,17 @@ jobs:
     # apply and sets CI_EGRESS_READY=true (issue #4) — until then there is
     # nothing in GCP for this job to call. CI_EGRESS_READY is a plain repo
     # variable (not environment-scoped) because a job's `if:` can only see
+    # The ci-egress environment's deployment branch policy already rejects
+    # anything but main, so GitHub would correctly block any PR run from
+    # entering it — but as a job-level failure (red X), not a clean skip,
+    # since environment dispatch is attempted after if: passes. Gate on
+    # github.ref directly so PR runs (same-repo or fork) skip instead of
+    # ever attempting to enter the environment.
     # repo/org vars; the real identifiers below are environment-scoped and
     # only resolve once this job is actually dispatched into "ci-egress".
     if: |
       vars.CI_EGRESS_READY == 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      github.ref == 'refs/heads/main'
     environment: ci-egress
     permissions:
       contents: read
