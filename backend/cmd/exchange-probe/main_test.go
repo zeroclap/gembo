@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestParseCSV(t *testing.T) {
@@ -40,4 +44,32 @@ func TestParseCSV(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFetchEgressCountry(t *testing.T) {
+	t.Run("trims and uppercases a plain-text body", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(" fr \n"))
+		}))
+		defer srv.Close()
+
+		got, err := fetchEgressCountry(context.Background(), srv.URL, time.Second)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "FR" {
+			t.Fatalf("got %q, want %q", got, "FR")
+		}
+	})
+
+	t.Run("errors on a non-200 status", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer srv.Close()
+
+		if _, err := fetchEgressCountry(context.Background(), srv.URL, time.Second); err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+	})
 }

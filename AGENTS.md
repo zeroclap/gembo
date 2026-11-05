@@ -43,9 +43,10 @@ Architecture: collectors, API, worker, and position manager are separate process
 | `make run-arbitrage-worker` | Build + run arbitrage worker |
 | `make run-position-manager` | Build + run position manager |
 | `make docker-build` | Build a Docker image per service binary from `deployments/Dockerfile` |
+| `make docker-build-ci-egress-probe` | Build the `exchange-probe` image used only by the non-US egress CI job (`infra/ci-egress/`, issue #4) |
 | `make docker-up` / `docker-down` | Full stack via docker-compose |
 
-The CLI tools `exchange-probe`, `create-user`, and `ccxt-raw-positions` are operator utilities run directly with `go run ./cmd/<name>`; they have no `make` targets and no Docker images (they are not long-running services).
+The CLI tools `exchange-probe`, `create-user`, and `ccxt-raw-positions` are operator utilities run directly with `go run ./cmd/<name>`; they have no `make` targets and no Docker images, except `exchange-probe`, which also has a container image (`make docker-build-ci-egress-probe`) solely so the non-US egress CI job (`infra/ci-egress/`) can run it as a Cloud Run Job. Neither tool runs as a long-lived service.
 
 **Running a single test:**
 ```bash

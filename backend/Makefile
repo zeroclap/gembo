@@ -1,7 +1,7 @@
 .PHONY: build market-data-collector account-data-collector api arbitrage-worker position-manager \
         run-market-data-collector run-account-data-collector run-api run-arbitrage-worker run-position-manager \
         tidy lint vet test clean \
-        docker-build \
+        docker-build docker-build-ci-egress-probe \
         up down
 
 BIN_DIR  := bin
@@ -71,6 +71,11 @@ docker-build:
 	docker build -f deployments/Dockerfile --target api                    -t gembo-api:latest .
 	docker build -f deployments/Dockerfile --target arbitrage-worker       -t gembo-arbitrage-worker:latest .
 	docker build -f deployments/Dockerfile --target position-manager       -t gembo-position-manager:latest .
+
+# Used only by the non-US egress CI job (infra/ci-egress/, issue #4), which
+# runs exchange-probe as a Cloud Run Job. Not part of docker-build/docker-up.
+docker-build-ci-egress-probe:
+	docker build --platform=linux/amd64 -f deployments/Dockerfile --target exchange-probe -t gembo-exchange-probe:latest .
 
 # ---- dev: full stack (infra + services) --------------------------------
 

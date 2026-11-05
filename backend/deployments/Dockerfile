@@ -50,6 +50,13 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" -o /out/position-manager ./cmd/position-manager
 
+# exchange-probe is an operator CLI, not a long-running service, but it still
+# needs a container image to run as the non-US egress CI job (issue #4).
+FROM deps AS build-exchange-probe
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags="-s -w" -o /out/exchange-probe ./cmd/exchange-probe
+
 # ---- runtime images ----
 FROM gcr.io/distroless/static-debian12 AS market-data-collector
 COPY --from=build-market-data-collector /out/market-data-collector /market-data-collector
@@ -76,3 +83,10 @@ FROM gcr.io/distroless/static-debian12 AS position-manager
 COPY --from=build-position-manager /out/position-manager /position-manager
 COPY configs/config.yaml /configs/config.yaml
 ENTRYPOINT ["/position-manager"]
+
+# Runs as the non-US egress CI job (issue #4). No exchange or account
+# credentials, no production access — public endpoints only.
+FROM gcr.io/distroless/static-debian12 AS exchange-probe
+COPY --from=build-exchange-probe /out/exchange-probe /exchange-probe
+COPY configs/config.yaml /configs/config.yaml
+ENTRYPOINT ["/exchange-probe"]

@@ -39,3 +39,15 @@ backend/market-data-collector
 backend/account-data-collector
 backend/arbitrage-worker
 backend/position-manager
+
+# Terraform (infra/ci-egress)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
