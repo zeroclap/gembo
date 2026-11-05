@@ -118,6 +118,11 @@ resource "google_cloud_run_v2_job" "ci_egress_probe" {
   location = var.region
   labels   = var.labels
 
+  # This job is disposable CI infra recreated on every image/config change
+  # (see README: "gone after job finishes"); it holds no state worth
+  # protecting, so don't block replacement on accidental-deletion guards.
+  deletion_protection = false
+
   template {
     template {
       service_account = google_service_account.runner.email
