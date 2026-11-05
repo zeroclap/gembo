@@ -87,12 +87,17 @@ applies (`ROADMAP.md`, operating constraints). Specifically:
    apply`. This agent has no GCP credentials in its environment and cannot
    produce real plan output; `terraform validate` passes, which is as far as
    it can verify this configuration without them.
-4. Set repository variables consumed by `.github/workflows/ci-egress.yml`:
-   `CI_EGRESS_WORKLOAD_IDENTITY_PROVIDER`, `CI_EGRESS_SERVICE_ACCOUNT`,
-   `CI_EGRESS_PROJECT_ID`, `CI_EGRESS_REGION`, `CI_EGRESS_JOB_NAME` — all
-   produced as outputs of `terraform apply`.
-5. Create the `ci-egress` GitHub Environment and restrict its deployment
+4. Create the `ci-egress` GitHub Environment and restrict its deployment
    branch to `main`.
+5. Set the identifiers produced by `terraform apply` as variables scoped to
+   the `ci-egress` **environment** (not repo-wide) — they aren't secrets,
+   but scoping them to the environment keeps them behind its branch
+   protection anyway: `CI_EGRESS_WORKLOAD_IDENTITY_PROVIDER`,
+   `CI_EGRESS_SERVICE_ACCOUNT`, `CI_EGRESS_PROJECT_ID`, `CI_EGRESS_REGION`,
+   `CI_EGRESS_JOB_NAME`. Separately set one plain **repository** variable,
+   `CI_EGRESS_READY=true`, used only so the workflow can skip cleanly
+   before setup is finished (a job's `if:` can't see environment-scoped
+   vars — see the comment in `ci-egress.yml`).
 
 Exact commands for all five steps are in "Step-by-step runbook" below.
 
@@ -148,24 +153,12 @@ terraform apply ci-egress.tfplan
 Attach the `terraform plan` output to the PR per issue #4's acceptance
 criteria.
 
-### 5. Wire the outputs into GitHub
-
-```bash
-gh variable set CI_EGRESS_WORKLOAD_IDENTITY_PROVIDER \
-  --body "$(terraform output -raw workload_identity_provider)" --repo zeroclap/gembo
-gh variable set CI_EGRESS_SERVICE_ACCOUNT \
-  --body "$(terraform output -raw service_account_email)" --repo zeroclap/gembo
-gh variable set CI_EGRESS_PROJECT_ID --body "PROJECT_ID" --repo zeroclap/gembo
-gh variable set CI_EGRESS_REGION \
-  --body "$(terraform output -raw region)" --repo zeroclap/gembo
-gh variable set CI_EGRESS_JOB_NAME \
-  --body "$(terraform output -raw cloud_run_job_name)" --repo zeroclap/gembo
-```
-
-### 6. Create the protected `ci-egress` environment
+### 5. Create the protected `ci-egress` environment
 
 `gh` has no dedicated environment command; use the API. This repo is public,
-so deployment branch policies are free (no GitHub Team/Enterprise needed):
+so deployment branch policies are free (no GitHub Team/Enterprise needed).
+Create this **before** step 6 — environment-scoped variables require the
+environment to already exist:
 
 ```bash
 gh api --method PUT repos/zeroclap/gembo/environments/ci-egress \
@@ -179,6 +172,38 @@ JSON
 That restricts the environment to branches with branch protection — `main`
 only, if `main` is the sole protected branch. Confirm in Settings →
 Environments → ci-egress in the GitHub UI.
+
+### 6. Wire the outputs into GitHub
+
+The five identifiers below aren't secrets, but they're scoped to the
+`ci-egress` **environment** (`--env ci-egress`) rather than the whole repo,
+so they stay behind that environment's branch protection as a defense-in-
+depth layer — a workflow run from an arbitrary branch can declare
+`environment: ci-egress` all it wants, but GitHub won't dispatch the job
+into that environment (and thus won't resolve these vars) unless the
+branch satisfies the policy from step 5:
+
+```bash
+gh variable set CI_EGRESS_WORKLOAD_IDENTITY_PROVIDER --env ci-egress \
+  --body "$(terraform output -raw workload_identity_provider)" --repo zeroclap/gembo
+gh variable set CI_EGRESS_SERVICE_ACCOUNT --env ci-egress \
+  --body "$(terraform output -raw service_account_email)" --repo zeroclap/gembo
+gh variable set CI_EGRESS_PROJECT_ID --env ci-egress --body "PROJECT_ID" --repo zeroclap/gembo
+gh variable set CI_EGRESS_REGION --env ci-egress \
+  --body "$(terraform output -raw region)" --repo zeroclap/gembo
+gh variable set CI_EGRESS_JOB_NAME --env ci-egress \
+  --body "$(terraform output -raw cloud_run_job_name)" --repo zeroclap/gembo
+```
+
+A job's `if:` condition can't see environment-scoped vars (they only
+resolve for steps, after environment protection rules pass), so the
+workflow's skip-until-configured guard needs a separate, plain **repo**
+variable instead — this one is fine at repo scope since it carries no
+information beyond "setup is done":
+
+```bash
+gh variable set CI_EGRESS_READY --body true --repo zeroclap/gembo
+```
 
 ### 7. Verify end to end
 
