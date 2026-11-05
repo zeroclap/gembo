@@ -4,10 +4,22 @@
 
 Gembo is a cryptocurrency exchange monitoring platform. Monorepo with two components:
 
-- **Backend** (`backend/`): Go 1.25, pure `net/http`. Ingests real-time market data from crypto exchanges via CCXT, normalizes into domain models, stores in Redis, serves via REST/WebSocket. Binaries: `collector-public` (public market data), `collector-private` (authenticated account data), `api` (HTTP server), `worker` (background jobs), `trader` (position management).
+- **Backend** (`backend/`): Go 1.25, pure `net/http`. Ingests real-time market data from crypto exchanges via CCXT, normalizes into domain models, stores in Redis, serves via REST/WebSocket. Binaries (`backend/cmd/`): `market-data-collector` (public market data), `account-data-collector` (authenticated account data), `api` (HTTP server), `arbitrage-worker` (background jobs), `position-manager` (position management), plus the operator CLI tools `exchange-probe`, `create-user`, and `ccxt-raw-positions`.
 - **Frontend** (`frontend/`): TypeScript, Next.js 16 (App Router), React 19, Tailwind v4, shadcn/ui v4. Dashboards for tickers and exchange data.
 
-Architecture: collectors, API, worker, and trader are separate processes communicating through Redis. The two collectors can run independently — `collector-public` requires no API keys and fetches markets, tickers, and funding rates; `collector-private` requires exchange credentials and watches positions via WebSocket.
+Architecture: collectors, API, worker, and position manager are separate processes communicating through Redis (and Postgres for account data, the API, and the position manager). The two collectors can run independently — `market-data-collector` requires no API keys and fetches markets, tickers, and funding rates; `account-data-collector` requires exchange credentials (read from the `exchange_credentials` table, DB-only) and watches positions via WebSocket.
+
+> **Status: this repo is pre-production and under active reconciliation; see [ROADMAP.md](ROADMAP.md).** Nothing here authorizes execution, production deployment, or private-account access beyond what the owner has approved issue by issue.
+
+### Owner operating constraints (binding, from ROADMAP.md)
+
+1. **Real money.** Production is isolated: a separate GCP project and separate credentials. Agents plan; the owner applies.
+2. **API drift is expected.** Every change to exchange or CCXT code ships with an integration test for each API call and an e2e scenario run against the real public APIs.
+3. There is no sandbox or staging environment.
+4. **CLI-first.** UI work is frozen until the owner explicitly unfreezes it.
+5. Code documentation lives next to the code. Reports and other non-product artifacts go in GitHub issues.
+6. **Latency matters, within reason.** Measure first. Do not accept large infrastructure or complexity for marginal gains.
+7. Tooling: Go, GitHub Issues/Projects/Actions, Copilot CLI agents, GCP + Terraform, and free-tier Postgres (Supabase or similar) during beta.
 
 ## Build & test commands
 
@@ -15,22 +27,25 @@ Architecture: collectors, API, worker, and trader are separate processes communi
 
 | Command | Purpose |
 |---|---|
-| `make build` | Build all binaries (`collector-public`, `collector-private`, `api`, `worker`, `trader`) |
-| `make collector-public` | Build public collector only |
-| `make collector-private` | Build private collector only |
+| `make build` | Build the 5 service binaries (`market-data-collector`, `account-data-collector`, `api`, `arbitrage-worker`, `position-manager`) |
+| `make market-data-collector` | Build the public market data collector only |
+| `make account-data-collector` | Build the account data collector only |
 | `make api` | Build API only |
-| `make worker` | Build worker only |
-| `make trader` | Build trader only |
+| `make arbitrage-worker` | Build arbitrage worker only |
+| `make position-manager` | Build position manager only |
 | `make test` | Run all Go tests (`go test ./...`) |
 | `make lint` | Run `golangci-lint run ./...` (default config, no `.golangci.yml`) |
 | `make vet` | Run `go vet ./...` |
 | `make tidy` | Run `go mod tidy` |
-| `make run-collector-public` | Build + run public collector |
-| `make run-collector-private` | Build + run private collector |
+| `make run-market-data-collector` | Build + run the market data collector |
+| `make run-account-data-collector` | Build + run the account data collector |
 | `make run-api` | Build + run API server |
-| `make run-worker` | Build + run worker |
-| `make run-trader` | Build + run trader |
+| `make run-arbitrage-worker` | Build + run arbitrage worker |
+| `make run-position-manager` | Build + run position manager |
+| `make docker-build` | Build a Docker image per service binary from `deployments/Dockerfile` |
 | `make docker-up` / `docker-down` | Full stack via docker-compose |
+
+The CLI tools `exchange-probe`, `create-user`, and `ccxt-raw-positions` are operator utilities run directly with `go run ./cmd/<name>`; they have no `make` targets and no Docker images (they are not long-running services).
 
 **Running a single test:**
 ```bash
@@ -53,9 +68,9 @@ No test framework is configured in the frontend.
 
 ### Project layout
 
-- `cmd/` — entrypoints (`api/`, `collector-public/`, `collector-private/`, `worker/`, `trader/`), each with a single `main.go`
-- `internal/` — private packages: `api/`, `arbitrage/`, `collector/`, `config/`, `domain/`, `exchange/`, `hook/`, `store/`
-- `pkg/` — shared utilities (e.g., `rediskey`)
+- `cmd/` — entrypoints, each with a single `main.go`: `market-data-collector/`, `account-data-collector/`, `api/`, `arbitrage-worker/`, `position-manager/`, plus the CLI tools `exchange-probe/`, `create-user/`, `ccxt-raw-positions/`
+- `internal/` — private packages: `config/`, `domain/`, `exchanges/` (adapters, e.g. `exchanges/bybit/`, `exchanges/base/`), `service/` (per-binary wiring, e.g. `service/api/`), `store/` (Redis + Postgres), `pkg/` (`pkg/hook/`, `pkg/arbitrage/`)
+- `pkg/` (top-level) — shared utilities (e.g., `rediskey`)
 - Module path: `github.com/zeroclap/gembo`
 
 ### Imports (strict ordering)
@@ -97,7 +112,7 @@ import (
 ### Interfaces & constructors
 
 - Define interfaces at the point of use — accept interfaces, return concrete structs
-- Exchange interface (`internal/exchange/exchange.go`): `ID()`, `Run()`, `Markets()`, `Tickers()`, `FundingRates()`
+- Exchange interface (`internal/exchanges/base/exchange.go`): `ID()`, `Run()`, `Markets()`, `Tickers()`, `FundingRates()`
 - Constructor named `New` (not `NewClient`). Use functional options: `type Option func(*Client)`, `With*` helpers
 
 ### Concurrency patterns
@@ -115,7 +130,7 @@ import (
 
 ### Adding a new exchange
 
-Create adapter under `internal/exchange/exchanges/<name>/` with `client.go` (implements `exchange.Exchange`), `mapper.go` (CCXT to domain), `options.go` (functional options). Register in the exchange registry.
+Create adapter under `internal/exchanges/<name>/` with `client.go` (implements `base.Exchange`), `mapper.go` (CCXT to domain), `options.go` (functional options). Register it in the `switch` statements in `internal/exchanges/factory.go` (`BuildPublicRegistry` and, for private/credentialed access, `NewPrivateExchangeFromCredential`).
 
 ## Code style — TypeScript/React (frontend)
 
@@ -157,7 +172,7 @@ Flat config (`eslint.config.mjs`): `eslint-config-next/core-web-vitals` + `eslin
 ## Security
 
 - Never commit secrets, API keys, or credentials
-- Exchange credentials go in env vars or `configs/config.yaml` (gitignored)
+- `configs/config.yaml` is committed and holds non-secret defaults only. Exchange API credentials are **DB-only**, stored in the `exchange_credentials` table (encrypted at rest via `security.credentials_encryption_key_base64` / `CREDENTIALS_ENCRYPTION_KEY_BASE64`) — never in `.env` or `config.yaml`. See `backend/.env.example`.
 - Use `joho/godotenv` for `.env` loading in development
 
 ## PR & commit conventions
