@@ -448,6 +448,7 @@ export interface Position {
   stop_reason: StopReason;
 
   long_exchange_id: string;
+  long_credential_id: string;
   long_contract_size: string;
   long_entry_price: string;
   long_filled_qty: string;
@@ -456,6 +457,7 @@ export interface Position {
   long_entry_fees: string;
 
   short_exchange_id: string;
+  short_credential_id: string;
   short_contract_size: string;
   short_entry_price: string;
   short_filled_qty: string;
