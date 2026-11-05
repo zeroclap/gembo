@@ -69,7 +69,11 @@ jobs:
       - name: govulncheck (informational)
         working-directory: backend
         continue-on-error: true
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        # Pinned (not @latest): golang.org/x/vuln v1.8.0+ requires go >= 1.26,
+        # newer than this repo's pinned Go 1.25.0 toolchain, and fails this
+        # step on every run otherwise. v1.7.0 is the latest release that
+        # still supports go1.25.
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
   frontend:
     name: Frontend (lint, typecheck)
