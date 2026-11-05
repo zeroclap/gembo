@@ -43,8 +43,12 @@ jobs:
     # Belt and suspenders against fork PRs: GitHub already refuses to grant
     # `id-token: write` to a fork-triggered `pull_request` run (this is not
     # `pull_request_target`), so the auth step below cannot obtain a token.
-    # This condition also skips the job outright instead of failing noisily.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Also skip cleanly (not fail) until the owner finishes the Terraform
+    # apply and sets CI_EGRESS_WORKLOAD_IDENTITY_PROVIDER (issue #4) — until
+    # then there is nothing in GCP for this job to call.
+    if: |
+      vars.CI_EGRESS_WORKLOAD_IDENTITY_PROVIDER != '' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     environment: ci-egress
     permissions:
       contents: read
