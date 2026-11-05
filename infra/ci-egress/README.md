@@ -94,6 +94,105 @@ applies (`ROADMAP.md`, operating constraints). Specifically:
 5. Create the `ci-egress` GitHub Environment and restrict its deployment
    branch to `main`.
 
+Exact commands for all five steps are in "Step-by-step runbook" below.
+
+## Step-by-step runbook
+
+Run this from `infra/ci-egress/` unless noted. Replace `PROJECT_ID` and
+`BILLING_ACCOUNT_ID` with real values throughout.
+
+### 1. Create the project and enable billing
+
+```bash
+gcloud projects create PROJECT_ID --name="gembo-ci-egress"
+gcloud billing projects link PROJECT_ID --billing-account=BILLING_ACCOUNT_ID
+gcloud config set project PROJECT_ID
+```
+
+### 2. First (targeted) apply: just the Artifact Registry repo
+
+The Cloud Run Job needs `runner_image` to already exist in the registry, and
+the registry is created by this same configuration, so bootstrap it in two
+passes. `runner_image` isn't used by these two resources, so any string
+satisfies the variable:
+
+```bash
+terraform init
+terraform apply \
+  -target=google_project_service.artifactregistry \
+  -target=google_artifact_registry_repository.ci_egress \
+  -var="project_id=PROJECT_ID" \
+  -var="runner_image=not-yet-pushed"
+```
+
+### 3. Build and push the probe image
+
+```bash
+cd ../../backend
+make docker-build-ci-egress-probe
+gcloud auth configure-docker europe-west1-docker.pkg.dev
+IMAGE="europe-west1-docker.pkg.dev/PROJECT_ID/ci-egress/exchange-probe:$(git rev-parse --short HEAD)"
+docker tag gembo-exchange-probe:latest "$IMAGE"
+docker push "$IMAGE"
+cd ../infra/ci-egress
+```
+
+### 4. Full plan and apply
+
+```bash
+terraform plan -var="project_id=PROJECT_ID" -var="runner_image=$IMAGE" -out=ci-egress.tfplan
+# review the plan, then:
+terraform apply ci-egress.tfplan
+```
+
+Attach the `terraform plan` output to the PR per issue #4's acceptance
+criteria.
+
+### 5. Wire the outputs into GitHub
+
+```bash
+gh variable set CI_EGRESS_WORKLOAD_IDENTITY_PROVIDER \
+  --body "$(terraform output -raw workload_identity_provider)" --repo zeroclap/gembo
+gh variable set CI_EGRESS_SERVICE_ACCOUNT \
+  --body "$(terraform output -raw service_account_email)" --repo zeroclap/gembo
+gh variable set CI_EGRESS_PROJECT_ID --body "PROJECT_ID" --repo zeroclap/gembo
+gh variable set CI_EGRESS_REGION \
+  --body "$(terraform output -raw region)" --repo zeroclap/gembo
+gh variable set CI_EGRESS_JOB_NAME \
+  --body "$(terraform output -raw cloud_run_job_name)" --repo zeroclap/gembo
+```
+
+### 6. Create the protected `ci-egress` environment
+
+`gh` has no dedicated environment command; use the API. This repo is public,
+so deployment branch policies are free (no GitHub Team/Enterprise needed):
+
+```bash
+gh api --method PUT repos/zeroclap/gembo/environments/ci-egress \
+  --input - <<'JSON'
+{
+  "deployment_branch_policy": { "protected_branches": true, "custom_branch_policies": false }
+}
+JSON
+```
+
+That restricts the environment to branches with branch protection — `main`
+only, if `main` is the sole protected branch. Confirm in Settings →
+Environments → ci-egress in the GitHub UI.
+
+### 7. Verify end to end
+
+```bash
+gh workflow run ci-egress.yml --repo zeroclap/gembo
+gh run watch --repo zeroclap/gembo
+```
+
+Confirm the "Print job logs" step shows a non-US `egress_country=` line and
+`[bybit]` check output, and that a second run completes with no leftover
+Cloud Run execution (`gcloud run jobs executions list --job=ci-egress-probe
+--region=europe-west1` should only ever show finished executions, never a
+running one outside an active workflow run).
+
 ## Acceptance criteria from issue #4
 
 - [ ] `terraform plan` output attached to the PR — blocked on the owner
