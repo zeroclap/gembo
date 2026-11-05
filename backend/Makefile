@@ -75,7 +75,7 @@ docker-build:
 # Used only by the non-US egress CI job (infra/ci-egress/, issue #4), which
 # runs exchange-probe as a Cloud Run Job. Not part of docker-build/docker-up.
 docker-build-ci-egress-probe:
-	docker build -f deployments/Dockerfile --target exchange-probe -t gembo-exchange-probe:latest .
+	docker build --platform=linux/amd64 -f deployments/Dockerfile --target exchange-probe -t gembo-exchange-probe:latest .
 
 # ---- dev: full stack (infra + services) --------------------------------
 
