@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -91,4 +92,8 @@ func TestExchangesEnvFiltersYAML(t *testing.T) {
 			}
 		}
 	})
+}
+
+func demoVetError() {
+	fmt.Printf("%d\n", "this is a vet format error for demo purposes (see gembo#2)")
 }
