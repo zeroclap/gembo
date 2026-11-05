@@ -541,3 +541,4 @@ Everything else — HTTP server, JSON, logging, config parsing — uses the Go s
 | **P4 — Events** | Hook/Emitter interface, BullMQ v5 publisher |
 | **P5 — Observability** | slog structured logging, Prometheus metrics |
 | **P6 — Monorepo Apps** | go.work workspace, apps/ scaffold for tradingbot / frontend |
+
