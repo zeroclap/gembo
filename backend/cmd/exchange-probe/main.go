@@ -4,7 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -39,6 +41,8 @@ func main() {
 		fundingSample int
 		withWS        bool
 		withPrivate   bool
+		printEgress   bool
+		egressURL     string
 	)
 
 	flag.StringVar(&cfgPath, "config", os.Getenv("CONFIG_PATH"), "path to config file")
@@ -49,7 +53,22 @@ func main() {
 	flag.IntVar(&fundingSample, "funding-sample", 5, "number of funding rows to read")
 	flag.BoolVar(&withWS, "ws", false, "run one websocket ticker check")
 	flag.BoolVar(&withPrivate, "private", false, "run authenticated checks (balances/positions)")
+	flag.BoolVar(&printEgress, "print-egress", false, "print the public-IP egress country and fail if it is US (non-US CI egress, issue #4)")
+	flag.StringVar(&egressURL, "egress-url", "https://ifconfig.co/country-iso", "URL returning the 2-letter egress country code as plain text")
 	flag.Parse()
+
+	if printEgress {
+		country, err := fetchEgressCountry(context.Background(), egressURL, timeout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "egress country check: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("egress_country=%s\n", country)
+		if strings.EqualFold(country, "US") {
+			fmt.Fprintln(os.Stderr, "egress country is US; Bybit/Binance require non-US CI egress")
+			os.Exit(1)
+		}
+	}
 
 	if cfgPath == "" {
 		cfgPath = "configs/config.yaml"
@@ -384,6 +403,33 @@ func printResults(exchangeID string, results []checkResult) {
 		fmt.Printf("  - %-24s %s  %s\n", r.name, status, r.detail)
 	}
 	fmt.Println()
+}
+
+func fetchEgressCountry(ctx context.Context, url string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("build egress country request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch egress country: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetch egress country: unexpected status %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil {
+		return "", fmt.Errorf("read egress country response: %w", err)
+	}
+
+	return strings.ToUpper(strings.TrimSpace(string(body))), nil
 }
 
 func parseCSV(v string) []string {

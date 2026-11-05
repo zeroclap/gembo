@@ -1,0 +1,85 @@
+name: CI egress (non-US, Bybit smoke)
+
+# Non-US egress for CI (issue #4). Bybit and Binance geo-block US IPs, so this
+# job authenticates to GCP from a GitHub-hosted (US) runner via Workload
+# Identity Federation — no long-lived key — and asks Cloud Run to execute an
+# ephemeral job in a non-US region that prints the egress country and runs
+# exchange-probe against Bybit public endpoints. The job carries no exchange
+# or account credentials, and nothing it runs persists after the execution
+# finishes (see infra/ci-egress/main.tf).
+#
+# Requires, set by the owner after `terraform apply` (infra/ci-egress/):
+#   - Repository variables: CI_EGRESS_WORKLOAD_IDENTITY_PROVIDER,
+#     CI_EGRESS_SERVICE_ACCOUNT, CI_EGRESS_PROJECT_ID, CI_EGRESS_REGION,
+#     CI_EGRESS_JOB_NAME
+#   - A protected "ci-egress" GitHub Environment restricted to the main
+#     branch (Settings > Environments), so this job cannot run from an
+#     arbitrary ref even on same-repo PRs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/internal/exchanges/**"
+      - "backend/cmd/exchange-probe/**"
+      - "infra/ci-egress/**"
+      - ".github/workflows/ci-egress.yml"
+  pull_request:
+    paths:
+      - "backend/internal/exchanges/**"
+      - "backend/cmd/exchange-probe/**"
+      - "infra/ci-egress/**"
+      - ".github/workflows/ci-egress.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-egress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  egress-smoke:
+    name: Bybit egress smoke (Cloud Run Job)
+    runs-on: ubuntu-latest
+    # Belt and suspenders against fork PRs: GitHub already refuses to grant
+    # `id-token: write` to a fork-triggered `pull_request` run (this is not
+    # `pull_request_target`), so the auth step below cannot obtain a token.
+    # This condition also skips the job outright instead of failing noisily.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    environment: ci-egress
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.CI_EGRESS_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.CI_EGRESS_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          project_id: ${{ vars.CI_EGRESS_PROJECT_ID }}
+
+      - name: Execute the egress probe job
+        id: execute
+        run: |
+          set -euo pipefail
+          execution_name=$(gcloud run jobs execute "${{ vars.CI_EGRESS_JOB_NAME }}" \
+            --region "${{ vars.CI_EGRESS_REGION }}" \
+            --wait \
+            --format='value(metadata.name)')
+          echo "execution=${execution_name}" >>"$GITHUB_OUTPUT"
+
+      - name: Print job logs (egress country + probe result)
+        if: always() && steps.execute.outputs.execution != ''
+        run: |
+          set -euo pipefail
+          gcloud logging read \
+            "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${{ steps.execute.outputs.execution }}\"" \
+            --project "${{ vars.CI_EGRESS_PROJECT_ID }}" \
+            --format='value(textPayload)' \
+            --order=asc
