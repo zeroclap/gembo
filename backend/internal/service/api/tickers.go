@@ -3,22 +3,22 @@ package api
 import (
 	"net/http"
 	"sort"
-
-	"github.com/zeroclap/gembo/internal/domain"
+	"time"
 )
 
 // tickerRow groups tickers for a single symbol across all exchanges.
 type tickerRow struct {
-	Symbol  string          `json:"symbol"`
-	Tickers []domain.Ticker `json:"tickers"`
+	Symbol  string       `json:"symbol"`
+	Tickers []tickerView `json:"tickers"`
 }
 
 // handleListAllTickers returns tickers across all exchanges, grouped by symbol.
 func (h *Handler) handleListAllTickers(w http.ResponseWriter, r *http.Request) {
 	exchangeIDs := h.registry.IDs()
+	now := time.Now().UTC()
 
 	// symbol -> []Ticker
-	grouped := make(map[string][]domain.Ticker)
+	grouped := make(map[string][]tickerView)
 
 	for _, eid := range exchangeIDs {
 		tickers, err := h.store.ListTickers(r.Context(), eid)
@@ -27,7 +27,7 @@ func (h *Handler) handleListAllTickers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, t := range tickers {
-			grouped[t.Symbol] = append(grouped[t.Symbol], t)
+			grouped[t.Symbol] = append(grouped[t.Symbol], h.viewTicker(t, now))
 		}
 	}
 
@@ -57,7 +57,7 @@ func (h *Handler) handleListTickers(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	writeOK(w, tickers)
+	writeOK(w, h.viewTickers(tickers, time.Now().UTC()))
 }
 
 // handleGetTicker returns a single ticker by exchange and symbol.
@@ -81,5 +81,5 @@ func (h *Handler) handleGetTicker(w http.ResponseWriter, r *http.Request) {
 			"ticker for "+symbol+" not found")
 		return
 	}
-	writeOK(w, t)
+	writeOK(w, h.viewTicker(*t, time.Now().UTC()))
 }

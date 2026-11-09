@@ -253,3 +253,40 @@ func TestMapOrder_NilInfo(t *testing.T) {
 
 // Verify return types satisfy the expected interfaces/types at compile time.
 var _ *domain.ExchangeOrder = MapOrder(ccxt.Order{}, "")
+
+func TestMapTicker_SourceAndReceiveTime(t *testing.T) {
+	recv := time.Date(2026, 1, 1, 12, 0, 1, 0, time.UTC)
+	ms := int64(1767268800000) // 2026-01-01T12:00:00Z
+	tk := ccxt.Ticker{Symbol: ptrString("BTC/USDT:USDT"), Timestamp: &ms}
+
+	for name, dt := range map[string]domain.Ticker{
+		"MapTicker": MapTicker(tk, "x", recv),
+		"MapBidAsk": MapBidAsk(tk, "x", recv),
+	} {
+		if want := time.UnixMilli(ms).UTC(); !dt.SourceTime.Equal(want) {
+			t.Errorf("%s SourceTime = %v, want %v", name, dt.SourceTime, want)
+		}
+		if !dt.ReceivedAt.Equal(recv) || !dt.UpdatedAt.Equal(recv) {
+			t.Errorf("%s ReceivedAt/UpdatedAt = %v/%v, want %v", name, dt.ReceivedAt, dt.UpdatedAt, recv)
+		}
+	}
+
+	if dt := MapTicker(ccxt.Ticker{}, "x", recv); !dt.SourceTime.IsZero() {
+		t.Errorf("missing timestamp must map to zero SourceTime, got %v", dt.SourceTime)
+	}
+}
+
+func TestMapFundingRate_SourceAndFetchTime(t *testing.T) {
+	fetched := time.Date(2026, 1, 1, 12, 0, 1, 0, time.UTC)
+	ms := int64(1767268800000)
+	dfr := MapFundingRate(ccxt.FundingRate{Symbol: ptrString("BTC/USDT:USDT"), Timestamp: &ms}, "x", fetched)
+	if !dfr.SourceTime.Equal(time.UnixMilli(ms).UTC()) {
+		t.Errorf("SourceTime = %v", dfr.SourceTime)
+	}
+	if !dfr.FetchedAt.Equal(fetched) {
+		t.Errorf("FetchedAt = %v, want %v", dfr.FetchedAt, fetched)
+	}
+	if !MapFundingRate(ccxt.FundingRate{}, "x", fetched).SourceTime.IsZero() {
+		t.Error("missing timestamp must map to zero SourceTime")
+	}
+}

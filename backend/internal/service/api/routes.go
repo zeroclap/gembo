@@ -6,6 +6,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/zeroclap/gembo/internal/domain"
 	"github.com/zeroclap/gembo/internal/exchanges/base"
 	"github.com/zeroclap/gembo/internal/store"
 )
@@ -20,6 +21,7 @@ type Handler struct {
 	redis         *goredis.Client     // for Pub/Sub signaling to the trader process.
 	jwtSecret     string
 	tokenTTL      time.Duration
+	quality       domain.QualityPolicy
 }
 
 // NewHandler creates a Handler and registers all routes.
@@ -28,6 +30,7 @@ func NewHandler(registry *base.Registry, st store.Store, opts ...HandlerOption) 
 		mux:      http.NewServeMux(),
 		registry: registry,
 		store:    st,
+		quality:  domain.DefaultQualityPolicy(),
 	}
 	for _, o := range opts {
 		o(h)
@@ -52,6 +55,11 @@ func WithUserStore(us store.UserStore) HandlerOption {
 // WithRedis sets the Redis client for Pub/Sub signaling.
 func WithRedis(rc *goredis.Client) HandlerOption {
 	return func(h *Handler) { h.redis = rc }
+}
+
+// WithQualityPolicy sets the thresholds used to flag stale or invalid quotes.
+func WithQualityPolicy(p domain.QualityPolicy) HandlerOption {
+	return func(h *Handler) { h.quality = p }
 }
 
 // WithJWTSecret sets the HMAC secret used to sign and verify JWT tokens.

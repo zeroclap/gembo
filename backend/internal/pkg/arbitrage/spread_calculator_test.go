@@ -67,6 +67,8 @@ func makeTickerWithPrices(exchange, symbol, bid, ask, volume string) domain.Tick
 		Bid:        d(bid),
 		Ask:        d(ask),
 		Volume24h:  d(volume),
+		SourceTime: time.Now(),
+		ReceivedAt: time.Now(),
 	}
 }
 
@@ -402,4 +404,35 @@ func TestComputeSpreadPair_Volume(t *testing.T) {
 	// Buy side = binance (lower ask), sell side = bybit (higher bid).
 	assertDecimalEqual(t, "BuyVolume24h", d("500000"), arb.Spread.BuyVolume24h)
 	assertDecimalEqual(t, "SellVolume24h", d("400000"), arb.Spread.SellVolume24h)
+}
+
+func TestSpreadRecompute_ExcludesStaleTicker(t *testing.T) {
+	st := newSpreadMockStore()
+	calc := NewSpreadCalculator(st, slog.Default())
+	sym := "BTC/USDT:USDT"
+
+	stale := makeTickerWithPrices("bybit", sym, "50090", "50100", "800000")
+	stale.SourceTime = time.Now().Add(-time.Hour)
+	st.tickers["binance"] = []domain.Ticker{makeTickerWithPrices("binance", sym, "49990", "50000", "1000000")}
+	st.tickers["bybit"] = []domain.Ticker{stale}
+	st.markets["binance"] = []domain.Market{makeMarket("binance", sym)}
+	st.markets["bybit"] = []domain.Market{makeMarket("bybit", sym)}
+
+	if err := calc.Recompute(context.Background(), []string{"binance", "bybit"}); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+	if len(st.spreads) != 0 {
+		t.Fatalf("expected no spread with a stale ticker, got %d", len(st.spreads))
+	}
+
+	// Same data with a widened policy is accepted: the policy is configurable.
+	calc = NewSpreadCalculator(st, slog.Default(), WithQualityPolicy(domain.QualityPolicy{
+		MaxTickerAge: 2 * time.Hour, MaxFundingAge: time.Hour, MaxFutureSkew: time.Second,
+	}))
+	if err := calc.Recompute(context.Background(), []string{"binance", "bybit"}); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+	if len(st.spreads) != 1 {
+		t.Fatalf("expected 1 spread with widened policy, got %d", len(st.spreads))
+	}
 }

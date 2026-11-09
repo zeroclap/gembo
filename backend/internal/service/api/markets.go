@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 )
 
 // handleHealth returns a simple 200 OK health check.
@@ -71,7 +72,7 @@ func (h *Handler) handleListFundingRates(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	writeOK(w, rates)
+	writeOK(w, h.viewFundings(rates, time.Now().UTC()))
 }
 
 // handleGetFundingRate returns a single funding rate by symbol.
@@ -95,7 +96,7 @@ func (h *Handler) handleGetFundingRate(w http.ResponseWriter, r *http.Request) {
 			"symbol "+symbol+" not found")
 		return
 	}
-	writeOK(w, fr)
+	writeOK(w, h.viewFunding(*fr, time.Now().UTC()))
 }
 
 // decodeSymbol converts URL-safe symbol encoding back to the canonical form.

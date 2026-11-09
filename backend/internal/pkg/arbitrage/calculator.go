@@ -26,13 +26,15 @@ var (
 type Calculator struct {
 	store  store.Store
 	logger *slog.Logger
+	policy domain.QualityPolicy
 }
 
 // NewCalculator creates a new arbitrage calculator.
-func NewCalculator(st store.Store, logger *slog.Logger) *Calculator {
+func NewCalculator(st store.Store, logger *slog.Logger, opts ...Option) *Calculator {
 	return &Calculator{
 		store:  st,
 		logger: logger,
+		policy: applyOptions(opts),
 	}
 }
 
@@ -63,6 +65,11 @@ func (c *Calculator) Recompute(ctx context.Context, exchangeIDs []string) error 
 			continue
 		}
 		for _, fr := range rates {
+			if fr.IsStale(now, c.policy) {
+				c.logger.Debug("skip stale funding rate",
+					"exchange", eid, "symbol", fr.Symbol, "age", fr.FetchAge(now))
+				continue
+			}
 			ed.funding[fr.Symbol] = fr
 		}
 
@@ -72,6 +79,11 @@ func (c *Calculator) Recompute(ctx context.Context, exchangeIDs []string) error 
 			continue
 		}
 		for _, t := range tickers {
+			if !t.Usable(now, c.policy) {
+				c.logger.Debug("skip invalid or stale ticker",
+					"exchange", eid, "symbol", t.Symbol, "age", t.SourceAge(now))
+				continue
+			}
 			ed.tickers[t.Symbol] = t
 		}
 

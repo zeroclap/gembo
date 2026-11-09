@@ -132,6 +132,8 @@ func makeFundingRate(exchange, symbol string, rate string, intervalHours int) do
 		NextFundingTime: time.Now().Add(time.Hour),
 		MarkPrice:       d("50000"),
 		IndexPrice:      d("50000"),
+		SourceTime:      time.Now(),
+		FetchedAt:       time.Now(),
 	}
 }
 
@@ -143,6 +145,8 @@ func makeTicker(exchange, symbol string) domain.Ticker {
 		Bid:        d("49999"),
 		Ask:        d("50001"),
 		Volume24h:  d("1000000"),
+		SourceTime: time.Now(),
+		ReceivedAt: time.Now(),
 	}
 }
 
@@ -474,5 +478,61 @@ func TestComputeNextPayment_ShortFirst(t *testing.T) {
 	}
 	if info.Side != domain.PositionSideShort {
 		t.Errorf("expected side Short, got %s", info.Side)
+	}
+}
+
+func TestRecompute_ExcludesStaleAndInvalidQuotes(t *testing.T) {
+	sym := "BTC/USDT:USDT"
+	exchanges := []string{"binance", "bybit"}
+	staleTime := time.Now().Add(-time.Hour)
+
+	tests := []struct {
+		name   string
+		mutate func(st *mockStore)
+	}{
+		{"stale ticker", func(st *mockStore) {
+			tk := makeTicker("bybit", sym)
+			tk.SourceTime = staleTime
+			st.tickers["bybit"] = []domain.Ticker{tk}
+		}},
+		{"crossed ticker", func(st *mockStore) {
+			tk := makeTicker("bybit", sym)
+			tk.Bid, tk.Ask = d("50002"), d("50001")
+			st.tickers["bybit"] = []domain.Ticker{tk}
+		}},
+		{"missing source time", func(st *mockStore) {
+			tk := makeTicker("bybit", sym)
+			tk.SourceTime = time.Time{}
+			st.tickers["bybit"] = []domain.Ticker{tk}
+		}},
+		{"stale funding", func(st *mockStore) {
+			fr := makeFundingRate("bybit", sym, "0.0005", 8)
+			fr.FetchedAt = staleTime
+			st.fundingRates["bybit"] = []domain.FundingRate{fr}
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newMockStore()
+			calc := NewCalculator(st, slog.Default())
+			st.mu.Lock()
+			st.fundingRates["binance"] = []domain.FundingRate{makeFundingRate("binance", sym, "0.0001", 8)}
+			st.fundingRates["bybit"] = []domain.FundingRate{makeFundingRate("bybit", sym, "0.0005", 8)}
+			st.tickers["binance"] = []domain.Ticker{makeTicker("binance", sym)}
+			st.tickers["bybit"] = []domain.Ticker{makeTicker("bybit", sym)}
+			st.markets["binance"] = []domain.Market{makeMarket("binance", sym)}
+			st.markets["bybit"] = []domain.Market{makeMarket("bybit", sym)}
+			tc.mutate(st)
+			st.mu.Unlock()
+
+			if err := calc.Recompute(context.Background(), exchanges); err != nil {
+				t.Fatalf("recompute: %v", err)
+			}
+			st.mu.Lock()
+			defer st.mu.Unlock()
+			if len(st.arbitrages) != 0 {
+				t.Fatalf("expected no arbitrage, got %d", len(st.arbitrages))
+			}
+		})
 	}
 }
