@@ -84,6 +84,7 @@ func main() {
 		handlerOpts = append(handlerOpts, serviceapi.WithUserStore(ps))
 	}
 
+	handlerOpts = append(handlerOpts, serviceapi.WithQualityPolicy(cfg.QuoteQuality.ToDomain()))
 	handler := serviceapi.NewHandler(reg, st, handlerOpts...)
 
 	srv := &http.Server{

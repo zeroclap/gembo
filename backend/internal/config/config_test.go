@@ -2,6 +2,9 @@ package config
 
 import (
 	"testing"
+	"time"
+
+	"github.com/zeroclap/gembo/internal/domain"
 )
 
 // setenv sets environment variables for the duration of a test and restores
@@ -89,6 +92,38 @@ func TestExchangesEnvFiltersYAML(t *testing.T) {
 			if !ex.Enabled {
 				t.Errorf("exchange %q should remain enabled when EXCHANGES is unset", ex.ID)
 			}
+		}
+	})
+}
+
+func TestQuoteQualityConfig(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		cfg := defaults()
+		if got := cfg.QuoteQuality.ToDomain(); got != domain.DefaultQualityPolicy() {
+			t.Errorf("policy = %+v, want defaults", got)
+		}
+	})
+
+	t.Run("env override", func(t *testing.T) {
+		setenv(t, map[string]string{
+			"QUOTE_MAX_TICKER_AGE":  "3s",
+			"QUOTE_MAX_FUNDING_AGE": "90s",
+			"QUOTE_MAX_FUTURE_SKEW": "bogus", // ignored
+		})
+		cfg := defaults()
+		applyEnv(&cfg)
+		got := cfg.QuoteQuality.ToDomain()
+		if got.MaxTickerAge != 3*time.Second || got.MaxFundingAge != 90*time.Second {
+			t.Errorf("policy = %+v", got)
+		}
+		if got.MaxFutureSkew != domain.DefaultMaxFutureSkew {
+			t.Errorf("MaxFutureSkew = %v, want default", got.MaxFutureSkew)
+		}
+	})
+
+	t.Run("non-positive falls back to defaults", func(t *testing.T) {
+		if got := (QuoteQualityConfig{}).ToDomain(); got != domain.DefaultQualityPolicy() {
+			t.Errorf("policy = %+v, want defaults", got)
 		}
 	})
 }

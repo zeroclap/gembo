@@ -116,6 +116,8 @@ func MapTicker(t ccxt.Ticker, exchangeID string, updatedAt time.Time) domain.Tic
 		Volume24h:  FloatToDecimal(t.BaseVolume),
 		Change24h:  FloatToDecimal(t.Percentage),
 		UpdatedAt:  updatedAt,
+		SourceTime: MillisToTime(t.Timestamp),
+		ReceivedAt: updatedAt,
 	}
 }
 
@@ -133,6 +135,8 @@ func MapFundingRate(fr ccxt.FundingRate, exchangeID string, updatedAt time.Time)
 		PreviousFundingRate: FloatToDecimal(fr.PreviousFundingRate),
 		InterestRate:        FloatToDecimal(fr.InterestRate),
 		UpdatedAt:           updatedAt,
+		SourceTime:          MillisToTime(fr.Timestamp),
+		FetchedAt:           updatedAt,
 	}
 }
 
@@ -145,6 +149,8 @@ func MapBidAsk(t ccxt.Ticker, exchangeID string, updatedAt time.Time) domain.Tic
 		Bid:        FloatToDecimal(t.Bid),
 		Ask:        FloatToDecimal(t.Ask),
 		UpdatedAt:  updatedAt,
+		SourceTime: MillisToTime(t.Timestamp),
+		ReceivedAt: updatedAt,
 	}
 }
 

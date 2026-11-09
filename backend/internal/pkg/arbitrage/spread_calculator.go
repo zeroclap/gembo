@@ -18,13 +18,15 @@ import (
 type SpreadCalculator struct {
 	store  store.Store
 	logger *slog.Logger
+	policy domain.QualityPolicy
 }
 
 // NewSpreadCalculator creates a new spread arbitrage calculator.
-func NewSpreadCalculator(st store.Store, logger *slog.Logger) *SpreadCalculator {
+func NewSpreadCalculator(st store.Store, logger *slog.Logger, opts ...Option) *SpreadCalculator {
 	return &SpreadCalculator{
 		store:  st,
 		logger: logger,
+		policy: applyOptions(opts),
 	}
 }
 
@@ -48,7 +50,7 @@ func (c *SpreadCalculator) Recompute(ctx context.Context, exchangeIDs []string) 
 			c.logger.Warn("spread: list tickers", "exchange", eid, "error", err)
 			continue
 		}
-		for _, t := range tickers {
+		for _, t := range usableTickers(c.logger, eid, tickers, now, c.policy) {
 			ed.tickers[t.Symbol] = t
 		}
 

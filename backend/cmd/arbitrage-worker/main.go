@@ -50,8 +50,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	calc := arbitrage.NewCalculator(st, log)
-	spreadCalc := arbitrage.NewSpreadCalculator(st, log)
+	quality := arbitrage.WithQualityPolicy(cfg.QuoteQuality.ToDomain())
+	calc := arbitrage.NewCalculator(st, log, quality)
+	spreadCalc := arbitrage.NewSpreadCalculator(st, log, quality)
 
 	w := arbitrageworker.New(rc, calc, spreadCalc, exchangeIDs, log)
 

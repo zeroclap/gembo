@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"sort"
@@ -40,6 +41,7 @@ func main() {
 		marketSample  int
 		fundingSample int
 		withWS        bool
+		tickerSamples int
 		withPrivate   bool
 		printEgress   bool
 		egressURL     string
@@ -52,6 +54,7 @@ func main() {
 	flag.IntVar(&marketSample, "market-sample", 5, "number of markets to print")
 	flag.IntVar(&fundingSample, "funding-sample", 5, "number of funding rows to read")
 	flag.BoolVar(&withWS, "ws", false, "run one websocket ticker check")
+	flag.IntVar(&tickerSamples, "ticker-samples", 1, "with -ws: bid/ask quotes to collect; reports source->receive age p50/p95/max and fails if source time is missing")
 	flag.BoolVar(&withPrivate, "private", false, "run authenticated checks (balances/positions)")
 	flag.BoolVar(&printEgress, "print-egress", false, "print the public-IP egress country and fail if it is US (non-US CI egress, issue #4)")
 	flag.StringVar(&egressURL, "egress-url", "https://ifconfig.co/country-iso", "URL returning the 2-letter egress country code as plain text")
@@ -111,7 +114,7 @@ func main() {
 			continue
 		}
 
-		results := runChecks(ex, id, symbols, timeout, marketSample, fundingSample, withWS, withPrivate)
+		results := runChecks(ex, id, symbols, timeout, marketSample, fundingSample, tickerSamples, withWS, withPrivate)
 		printResults(id, results)
 		if hasFailure(results) {
 			failed = true
@@ -170,6 +173,7 @@ func runChecks(
 	timeout time.Duration,
 	marketSample int,
 	fundingSample int,
+	tickerSamples int,
 	withWS bool,
 	withPrivate bool,
 ) []checkResult {
@@ -178,7 +182,7 @@ func runChecks(
 	results = append(results, checkMarkets(ex, symbols, timeout, marketSample))
 	results = append(results, checkFunding(ex, timeout, fundingSample))
 	if withWS {
-		results = append(results, checkTickers(ex, symbols, timeout))
+		results = append(results, checkTickers(ex, symbols, timeout, tickerSamples))
 	}
 	if withPrivate {
 		if px, ok := ex.(base.PrivateExchange); ok {
@@ -271,7 +275,10 @@ func checkFunding(ex base.Exchange, timeout time.Duration, sample int) checkResu
 	return checkResult{name: "funding", ok: true, detail: summarizeFunding(rows)}
 }
 
-func checkTickers(ex base.Exchange, symbols []string, timeout time.Duration) checkResult {
+func checkTickers(ex base.Exchange, symbols []string, timeout time.Duration, samples int) checkResult {
+	if samples <= 0 {
+		samples = 1
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -280,19 +287,70 @@ func checkTickers(ex base.Exchange, symbols []string, timeout time.Duration) che
 		return checkResult{name: "tickers", ok: false, detail: err.Error()}
 	}
 
-	select {
-	case <-ctx.Done():
-		return checkResult{name: "tickers", ok: false, detail: "no ticker before timeout"}
-	case t, ok := <-ch:
-		if !ok {
-			return checkResult{name: "tickers", ok: false, detail: "channel closed without ticker"}
-		}
-		return checkResult{
-			name:   "tickers",
-			ok:     true,
-			detail: fmt.Sprintf("symbol=%s bid=%s ask=%s price=%s", t.Symbol, t.Bid, t.Ask, t.Price),
+	var (
+		received      int
+		last          domain.Ticker
+		ages          []time.Duration
+		missingSource int
+	)
+	for len(ages)+missingSource < samples {
+		select {
+		case <-ctx.Done():
+			return tickerResult(received, last, ages, missingSource, "no ticker before timeout")
+		case t, ok := <-ch:
+			if !ok {
+				return tickerResult(received, last, ages, missingSource, "channel closed without ticker")
+			}
+			received++
+			last = t
+			// Partial updates without a bid/ask are not arbitrage quotes.
+			if !t.Bid.IsPositive() || !t.Ask.IsPositive() {
+				continue
+			}
+			if t.SourceTime.IsZero() {
+				missingSource++
+				continue
+			}
+			ages = append(ages, t.ReceivedAt.Sub(t.SourceTime))
 		}
 	}
+	return tickerResult(received, last, ages, missingSource, "")
+}
+
+// tickerResult builds the tickers check result. Any quote without an exchange
+// timestamp fails the check: such quotes are rejected by the arbitrage worker.
+func tickerResult(received int, last domain.Ticker, ages []time.Duration, missingSource int, noData string) checkResult {
+	if received == 0 {
+		return checkResult{name: "tickers", ok: false, detail: noData}
+	}
+	detail := fmt.Sprintf("received=%d symbol=%s bid=%s ask=%s price=%s", received, last.Symbol, last.Bid, last.Ask, last.Price)
+	if len(ages) > 0 {
+		p50, p95, maxAge := agePercentiles(ages)
+		detail += fmt.Sprintf(" source_age_samples=%d p50=%s p95=%s max=%s", len(ages), p50, p95, maxAge)
+	}
+	if missingSource > 0 {
+		return checkResult{
+			name:   "tickers",
+			ok:     false,
+			detail: fmt.Sprintf("%d quote(s) without source time (rejected by arbitrage); %s", missingSource, detail),
+		}
+	}
+	return checkResult{name: "tickers", ok: true, detail: detail}
+}
+
+// agePercentiles returns the nearest-rank p50 and p95 and the max of ages.
+// ages must be non-empty.
+func agePercentiles(ages []time.Duration) (p50, p95, maxAge time.Duration) {
+	sorted := append([]time.Duration(nil), ages...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	rank := func(p float64) time.Duration {
+		idx := int(math.Ceil(p*float64(len(sorted)))) - 1
+		if idx < 0 {
+			idx = 0
+		}
+		return sorted[idx]
+	}
+	return rank(0.50), rank(0.95), sorted[len(sorted)-1]
 }
 
 func checkPrivate(px base.PrivateExchange, id string, symbols []string, timeout time.Duration) []checkResult {

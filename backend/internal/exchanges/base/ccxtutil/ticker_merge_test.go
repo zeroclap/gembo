@@ -95,3 +95,58 @@ func TestApplyBidAskUpdate_PreservesTickerFields(t *testing.T) {
 		t.Errorf("Bid = %s, want 3499", merged.Bid)
 	}
 }
+
+// A merged ticker must carry the latest source and receive time, otherwise a
+// live feed would be flagged stale after its first update.
+func TestMerge_AdvancesSourceAndReceiveTime(t *testing.T) {
+	state := make(map[string]*domain.Ticker)
+	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	sym := "BTC/USDT:USDT"
+
+	ApplyBidAskUpdate(state, domain.Ticker{
+		Symbol: sym, Bid: decimal.NewFromInt(99), Ask: decimal.NewFromInt(101),
+		SourceTime: t0, ReceivedAt: t0.Add(50 * time.Millisecond), UpdatedAt: t0.Add(50 * time.Millisecond),
+	})
+
+	// A price-only update must not touch the bid/ask source time but does
+	// advance the receive time.
+	merged := ApplyTickerUpdate(state, domain.Ticker{
+		Symbol: sym, Price: decimal.NewFromInt(100),
+		SourceTime: t0.Add(time.Second), ReceivedAt: t0.Add(time.Second), UpdatedAt: t0.Add(time.Second),
+	})
+	if !merged.SourceTime.Equal(t0) {
+		t.Errorf("SourceTime after price-only update = %v, want %v", merged.SourceTime, t0)
+	}
+	if !merged.ReceivedAt.Equal(t0.Add(time.Second)) || !merged.UpdatedAt.Equal(t0.Add(time.Second)) {
+		t.Errorf("ReceivedAt/UpdatedAt = %v/%v, want %v", merged.ReceivedAt, merged.UpdatedAt, t0.Add(time.Second))
+	}
+
+	// A ticker update carrying bid/ask replaces the source time.
+	merged = ApplyTickerUpdate(state, domain.Ticker{
+		Symbol: sym, Price: decimal.NewFromInt(100),
+		Bid: decimal.NewFromInt(100), Ask: decimal.NewFromInt(102),
+		SourceTime: t0.Add(2 * time.Second), ReceivedAt: t0.Add(2 * time.Second),
+	})
+	if !merged.SourceTime.Equal(t0.Add(2 * time.Second)) {
+		t.Errorf("SourceTime after bid/ask-bearing ticker update = %v", merged.SourceTime)
+	}
+
+	// A bid/ask update advances source and receive time.
+	merged = ApplyBidAskUpdate(state, domain.Ticker{
+		Symbol: sym, Bid: decimal.NewFromInt(101), Ask: decimal.NewFromInt(103),
+		SourceTime: t0.Add(3 * time.Second), ReceivedAt: t0.Add(3 * time.Second),
+	})
+	if !merged.SourceTime.Equal(t0.Add(3*time.Second)) || !merged.ReceivedAt.Equal(t0.Add(3*time.Second)) {
+		t.Errorf("SourceTime/ReceivedAt = %v/%v after bid/ask update", merged.SourceTime, merged.ReceivedAt)
+	}
+
+	// An exchange that omits the timestamp must not inherit an older one: the
+	// quote is then reported as missing its source time, not as fresh.
+	merged = ApplyBidAskUpdate(state, domain.Ticker{
+		Symbol: sym, Bid: decimal.NewFromInt(102), Ask: decimal.NewFromInt(104),
+		ReceivedAt: t0.Add(4 * time.Second),
+	})
+	if !merged.SourceTime.IsZero() {
+		t.Errorf("SourceTime = %v, want zero when the update has no timestamp", merged.SourceTime)
+	}
+}

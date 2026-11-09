@@ -38,6 +38,15 @@ func DerefBool(b *bool) bool {
 	return *b
 }
 
+// MillisToTime converts a CCXT *int64 millisecond timestamp to time.Time.
+// Returns the zero time for nil or non-positive values.
+func MillisToTime(ts *int64) time.Time {
+	if ts == nil || *ts <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(*ts).UTC()
+}
+
 // TimestampToTime converts a CCXT *float64 millisecond timestamp to time.Time.
 // Returns zero time when ts is nil or zero.
 func TimestampToTime(ts *float64) time.Time {
