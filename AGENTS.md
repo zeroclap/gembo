@@ -175,6 +175,7 @@ Flat config (`eslint.config.mjs`): `eslint-config-next/core-web-vitals` + `eslin
 - Never commit secrets, API keys, or credentials
 - `configs/config.yaml` is committed and holds non-secret defaults only. Exchange API credentials are **DB-only**, stored in the `exchange_credentials` table (encrypted at rest via `security.credentials_encryption_key_base64` / `CREDENTIALS_ENCRYPTION_KEY_BASE64`) — never in `.env` or `config.yaml`. See `backend/.env.example`.
 - Use `joho/godotenv` for `.env` loading in development
+- This repository is public. In issues, PRs, comments, commit messages, and files, reference only this repository's issues, PRs, files, and CI runs; never mention or link to private repositories, external automation, or their run logs
 
 ## PR & commit conventions
 
