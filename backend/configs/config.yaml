@@ -84,3 +84,11 @@ trader:
 log:
   level: "info"   # LOG_LEVEL  (debug|info|warn|error)
   format: "json"  # LOG_FORMAT (json|text)
+
+# Quote quality — thresholds for validating and flagging stale quotes.
+# Shared by the arbitrage worker and the API. PROVISIONAL defaults: see
+# internal/domain/quote_quality.go for the pending Bybit age measurement.
+quote_quality:
+  max_ticker_age: 10s    # QUOTE_MAX_TICKER_AGE  (exchange time -> now)
+  max_funding_age: 150s  # QUOTE_MAX_FUNDING_AGE (local fetch time -> now)
+  max_future_skew: 2s    # QUOTE_MAX_FUTURE_SKEW (tolerated exchange clock lead)

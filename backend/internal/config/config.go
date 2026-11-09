@@ -25,6 +25,32 @@ type Config struct {
 	Hooks           HooksConfig           `yaml:"hooks"`
 	PositionManager PositionManagerConfig `yaml:"trader"`
 	Log             LogConfig             `yaml:"log"`
+	QuoteQuality    QuoteQualityConfig    `yaml:"quote_quality"`
+}
+
+// QuoteQualityConfig holds the thresholds used to validate and flag stale
+// tickers and funding rates. It is shared by the arbitrage worker and the API
+// so both judge quotes by the same policy.
+type QuoteQualityConfig struct {
+	MaxTickerAge  time.Duration `yaml:"max_ticker_age"`
+	MaxFundingAge time.Duration `yaml:"max_funding_age"`
+	MaxFutureSkew time.Duration `yaml:"max_future_skew"`
+}
+
+// ToDomain converts the config into a domain.QualityPolicy. Non-positive
+// values fall back to the domain defaults.
+func (c QuoteQualityConfig) ToDomain() domain.QualityPolicy {
+	p := domain.DefaultQualityPolicy()
+	if c.MaxTickerAge > 0 {
+		p.MaxTickerAge = c.MaxTickerAge
+	}
+	if c.MaxFundingAge > 0 {
+		p.MaxFundingAge = c.MaxFundingAge
+	}
+	if c.MaxFutureSkew > 0 {
+		p.MaxFutureSkew = c.MaxFutureSkew
+	}
+	return p
 }
 
 // SecurityConfig holds security-related settings.
@@ -154,6 +180,11 @@ func defaults() Config {
 			Level:  "info",
 			Format: "json",
 		},
+		QuoteQuality: QuoteQualityConfig{
+			MaxTickerAge:  domain.DefaultMaxTickerAge,
+			MaxFundingAge: domain.DefaultMaxFundingAge,
+			MaxFutureSkew: domain.DefaultMaxFutureSkew,
+		},
 	}
 }
 
@@ -275,6 +306,19 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("AUTH_TOKEN_TTL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.Auth.TokenTTL = d
+		}
+	}
+
+	// Quote-quality overrides (Go duration strings, e.g. "10s").
+	for env, dst := range map[string]*time.Duration{
+		"QUOTE_MAX_TICKER_AGE":  &cfg.QuoteQuality.MaxTickerAge,
+		"QUOTE_MAX_FUNDING_AGE": &cfg.QuoteQuality.MaxFundingAge,
+		"QUOTE_MAX_FUTURE_SKEW": &cfg.QuoteQuality.MaxFutureSkew,
+	} {
+		if v := os.Getenv(env); v != "" {
+			if d, err := time.ParseDuration(v); err == nil {
+				*dst = d
+			}
 		}
 	}
 

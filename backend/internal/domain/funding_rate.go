@@ -21,7 +21,7 @@ type FundingRate struct {
 	PreviousFundingRate decimal.Decimal `json:"previous_funding_rate"` // previous period's rate
 	InterestRate        decimal.Decimal `json:"interest_rate"`         // base interest rate component
 
-	UpdatedAt  time.Time `json:"updated_at"`  // same as FetchedAt; kept for API compatibility
+	UpdatedAt  time.Time `json:"updated_at"`  // duplicate of FetchedAt, kept for API compatibility; remove once API consumers read fetched_at
 	SourceTime time.Time `json:"source_time"` // exchange-reported timestamp; zero if absent
 	FetchedAt  time.Time `json:"fetched_at"`  // local time the rate was polled
 }

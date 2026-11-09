@@ -93,3 +93,26 @@ func TestFundingRateStale(t *testing.T) {
 		t.Fatal("funding without fetch time must be stale")
 	}
 }
+
+// Funding rows written before fetched_at existed carry the local poll time in
+// updated_at; they must be judged by their real age, not excluded outright.
+func TestFundingRateLegacyUpdatedAtFallback(t *testing.T) {
+	p := DefaultQualityPolicy()
+	polled := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	legacy := FundingRate{UpdatedAt: polled}
+
+	if legacy.IsStale(polled.Add(time.Second), p) {
+		t.Fatal("recent legacy funding row must not be stale")
+	}
+	if got := legacy.FetchAge(polled.Add(5 * time.Second)); got != 5*time.Second {
+		t.Fatalf("FetchAge = %v, want 5s", got)
+	}
+	if !legacy.IsStale(polled.Add(p.MaxFundingAge+time.Millisecond), p) {
+		t.Fatal("old legacy funding row must be stale")
+	}
+
+	both := FundingRate{FetchedAt: polled, UpdatedAt: polled.Add(-time.Hour)}
+	if both.IsStale(polled.Add(time.Second), p) {
+		t.Fatal("fetched_at must take precedence over updated_at")
+	}
+}

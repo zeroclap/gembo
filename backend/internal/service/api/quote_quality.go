@@ -10,8 +10,9 @@ import (
 type tickerView struct {
 	domain.Ticker
 	AgeMs         int64  `json:"age_ms"` // now - source_time; 0 when source_time is missing
-	Stale         bool   `json:"stale"`
-	Valid         bool   `json:"valid"`
+	Stale         bool   `json:"stale"`  // source age exceeds the max; false when source_time is missing
+	Valid         bool   `json:"valid"`  // structurally valid, including a present source_time
+	Usable        bool   `json:"usable"` // valid and not stale: what the arbitrage worker accepts
 	InvalidReason string `json:"invalid_reason,omitempty"`
 }
 
@@ -28,6 +29,7 @@ func (h *Handler) viewTicker(t domain.Ticker, now time.Time) tickerView {
 		AgeMs:  t.SourceAge(now).Milliseconds(),
 		Stale:  t.IsStale(now, h.quality),
 		Valid:  true,
+		Usable: t.Usable(now, h.quality),
 	}
 	if err := t.Validate(now, h.quality); err != nil {
 		v.Valid = false

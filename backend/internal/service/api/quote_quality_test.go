@@ -32,6 +32,7 @@ func TestHandleGetTicker_QualityFlags(t *testing.T) {
 		{"fresh", mk(now.Add(-time.Second), "100", "101"), false, true, ""},
 		{"stale", mk(now.Add(-time.Minute), "100", "101"), true, true, ""},
 		{"crossed", mk(now, "102", "101"), false, false, domain.ErrCrossedQuote.Error()},
+		{"missing source", mk(time.Time{}, "100", "101"), false, false, domain.ErrMissingSource.Error()},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,8 +56,11 @@ func TestHandleGetTicker_QualityFlags(t *testing.T) {
 			if env.Data.Stale != tc.wantStale || env.Data.Valid != tc.wantValid || env.Data.InvalidReason != tc.wantInvalid {
 				t.Fatalf("flags = stale:%v valid:%v reason:%q", env.Data.Stale, env.Data.Valid, env.Data.InvalidReason)
 			}
-			if env.Data.SourceTime.IsZero() {
-				t.Fatal("source_time missing from response")
+			if wantUsable := tc.wantValid && !tc.wantStale; env.Data.Usable != wantUsable {
+				t.Fatalf("usable = %v, want %v", env.Data.Usable, wantUsable)
+			}
+			if env.Data.SourceTime.IsZero() != tc.tk.SourceTime.IsZero() {
+				t.Fatal("source_time not round-tripped in response")
 			}
 		})
 	}

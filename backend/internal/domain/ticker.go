@@ -17,8 +17,8 @@ type Ticker struct {
 	Low24h     decimal.Decimal `json:"low_24h"`
 	Volume24h  decimal.Decimal `json:"volume_24h"`
 	Change24h  decimal.Decimal `json:"change_24h"` // percentage
-	UpdatedAt  time.Time       `json:"updated_at"` // same as ReceivedAt; kept for API compatibility
+	UpdatedAt  time.Time       `json:"updated_at"` // duplicate of ReceivedAt, kept for API compatibility; remove once API consumers read received_at
 
-	SourceTime time.Time `json:"source_time"` // exchange-reported timestamp; zero if absent
+	SourceTime time.Time `json:"source_time"` // exchange-reported timestamp of the bid/ask; zero if absent
 	ReceivedAt time.Time `json:"received_at"` // local time the update was received
 }

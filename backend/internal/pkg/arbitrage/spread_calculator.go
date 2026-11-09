@@ -50,12 +50,7 @@ func (c *SpreadCalculator) Recompute(ctx context.Context, exchangeIDs []string) 
 			c.logger.Warn("spread: list tickers", "exchange", eid, "error", err)
 			continue
 		}
-		for _, t := range tickers {
-			if !t.Usable(now, c.policy) {
-				c.logger.Debug("spread: skip invalid or stale ticker",
-					"exchange", eid, "symbol", t.Symbol, "age", t.SourceAge(now))
-				continue
-			}
+		for _, t := range usableTickers(c.logger, eid, tickers, now, c.policy) {
 			ed.tickers[t.Symbol] = t
 		}
 

@@ -64,12 +64,7 @@ func (c *Calculator) Recompute(ctx context.Context, exchangeIDs []string) error 
 			c.logger.Warn("list funding rates", "exchange", eid, "error", err)
 			continue
 		}
-		for _, fr := range rates {
-			if fr.IsStale(now, c.policy) {
-				c.logger.Debug("skip stale funding rate",
-					"exchange", eid, "symbol", fr.Symbol, "age", fr.FetchAge(now))
-				continue
-			}
+		for _, fr := range freshFunding(c.logger, eid, rates, now, c.policy) {
 			ed.funding[fr.Symbol] = fr
 		}
 
@@ -78,12 +73,7 @@ func (c *Calculator) Recompute(ctx context.Context, exchangeIDs []string) error 
 			c.logger.Warn("list tickers", "exchange", eid, "error", err)
 			continue
 		}
-		for _, t := range tickers {
-			if !t.Usable(now, c.policy) {
-				c.logger.Debug("skip invalid or stale ticker",
-					"exchange", eid, "symbol", t.Symbol, "age", t.SourceAge(now))
-				continue
-			}
+		for _, t := range usableTickers(c.logger, eid, tickers, now, c.policy) {
 			ed.tickers[t.Symbol] = t
 		}
 

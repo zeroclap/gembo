@@ -12,6 +12,14 @@ import (
 // Replace them with values derived from the measured p95/max age and record
 // the measurement here. The baseline e2e (#1, §3) saw served quotes up to
 // ~59 s old, so anything below the 60 s Redis TTL is a strict improvement.
+// Measure with: go run ./cmd/exchange-probe -ws -exchanges bybit
+// -symbols BTC/USDT:USDT,ETH/USDT:USDT -ticker-samples 200 -timeout 5m
+//
+// Rollout: tickers written before source_time existed fail Validate until the
+// collectors rewrite them (Redis TTL is 60 s, so they age out on their own);
+// deploy the collectors before the worker and API. Legacy funding rows
+// (no TTL) lack fetched_at, so FundingRate falls back to updated_at, which
+// carried the same local poll time; they are judged by their real age.
 const (
 	DefaultMaxTickerAge  = 10 * time.Second
 	DefaultMaxFundingAge = 150 * time.Second // 2.5x the 60 s funding poll SLA
@@ -20,12 +28,11 @@ const (
 
 // Reasons a ticker is invalid.
 var (
-	ErrNonPositiveBid  = errors.New("bid must be > 0")
-	ErrNonPositiveAsk  = errors.New("ask must be > 0")
-	ErrCrossedQuote    = errors.New("bid must be < ask")
-	ErrMissingSource   = errors.New("source time missing")
-	ErrSourceInFuture  = errors.New("source time in the future beyond skew tolerance")
-	ErrMissingReceived = errors.New("receive time missing")
+	ErrNonPositiveBid = errors.New("bid must be > 0")
+	ErrNonPositiveAsk = errors.New("ask must be > 0")
+	ErrCrossedQuote   = errors.New("bid must be < ask")
+	ErrMissingSource  = errors.New("source time missing")
+	ErrSourceInFuture = errors.New("source time in the future beyond skew tolerance")
 )
 
 // QualityPolicy holds the thresholds used to validate and flag quotes.
@@ -87,16 +94,27 @@ func (t Ticker) Usable(now time.Time, p QualityPolicy) bool {
 	return t.Validate(now, p) == nil && !t.IsStale(now, p)
 }
 
-// FetchAge is the age of the funding rate at now, measured from fetch time.
-func (f FundingRate) FetchAge(now time.Time) time.Duration {
+// fetchTime is when the funding rate was polled locally. Rows written before
+// fetched_at existed carry the same value in updated_at.
+func (f FundingRate) fetchTime() time.Time {
 	if f.FetchedAt.IsZero() {
+		return f.UpdatedAt
+	}
+	return f.FetchedAt
+}
+
+// FetchAge is the age of the funding rate at now, measured from fetch time.
+// It is zero when no fetch time is recorded.
+func (f FundingRate) FetchAge(now time.Time) time.Duration {
+	ft := f.fetchTime()
+	if ft.IsZero() {
 		return 0
 	}
-	return now.Sub(f.FetchedAt)
+	return now.Sub(ft)
 }
 
 // IsStale reports whether the funding rate was fetched longer ago than
 // MaxFundingAge. A missing fetch time is stale.
 func (f FundingRate) IsStale(now time.Time, p QualityPolicy) bool {
-	return f.FetchedAt.IsZero() || f.FetchAge(now) > p.MaxFundingAge
+	return f.fetchTime().IsZero() || f.FetchAge(now) > p.MaxFundingAge
 }
